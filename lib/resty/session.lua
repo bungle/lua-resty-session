@@ -125,10 +125,10 @@ do
     local sk = ngx_var.session_secret                    or random(cs / 8)
     local iz = ngx_var.session_identifier_length         or 16
 
-    if (type(sr) ~= "number") then sr = tonumber(sr) or 600  end
-    if (type(sl) ~= "number") then sl = tonumber(sl) or 3600 end
-    if (type(cr) ~= "number") then cr = tonumber(cr) or 1    end
-    if (type(iz) ~= "number") then iz = tonumber(iz) or 16   end
+    if type(sr) ~= "number" then sr = tonumber(sr) or 600  end
+    if type(sl) ~= "number" then sl = tonumber(sl) or 3600 end
+    if type(cr) ~= "number" then cr = tonumber(cr) or 1    end
+    if type(iz) ~= "number" then iz = tonumber(iz) or 16   end
 
     session = { name = sn, secret = sk, data = {}, cookie = {
         renew     = sr,
@@ -182,10 +182,10 @@ function session.start(opts)
             if self.expires - now < session.cookie.renew then
                 self:save()
             end
+            return self
         end
-    else
-        self:regenerate()
     end
+    self:regenerate()
     return self
 end
 
