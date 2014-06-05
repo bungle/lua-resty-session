@@ -92,7 +92,7 @@ function setcookie(session, v, e)
 end
 
 local function getcookie(c)
-    if type(c) == "nil" then return nil end
+    if c == nil then return nil end
     local r = {}
     local p, s, e = 1, c:find("|", 1, true)
     while s do
