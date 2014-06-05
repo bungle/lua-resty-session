@@ -138,7 +138,7 @@ do
     end
 
     if (type(iz) ~= "number") then
-        iz = tonumber(iz) or 32
+        iz = tonumber(iz) or 16
     end
 
     session = { name = sn, secret = sk, data = {}, cookie = {
