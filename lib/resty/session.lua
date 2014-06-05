@@ -125,21 +125,10 @@ do
     local sk = ngx_var.session_secret                    or random(cs / 8)
     local iz = ngx_var.session_identifier_length         or 16
 
-    if (type(sr) ~= "number") then
-        sr = tonumber(sr) or 600
-    end
-
-    if (type(sl) ~= "number") then
-        sl = tonumber(sl) or 3600
-    end
-
-    if (type(cr) ~= "number") then
-        cr = tonumber(cr) or 1
-    end
-
-    if (type(iz) ~= "number") then
-        iz = tonumber(iz) or 16
-    end
+    if (type(sr) ~= "number") then sr = tonumber(sr) or 600  end
+    if (type(sl) ~= "number") then sl = tonumber(sl) or 3600 end
+    if (type(cr) ~= "number") then cr = tonumber(cr) or 1    end
+    if (type(iz) ~= "number") then iz = tonumber(iz) or 16   end
 
     session = { name = sn, secret = sk, data = {}, cookie = {
         renew     = sr,
@@ -174,18 +163,10 @@ function session.start(opts)
         self.cookie.domain = ngx_var.host
     end
     self.key = ""
-    if si then
-        self.key = self.key .. si
-    end
-    if su then
-        self.key = self.key .. ngx_var.http_user_agent
-    end
-    if sa then
-        self.key = self.key .. ngx_var.remote_addr
-    end
-    if sc then
-        self.key = self.key .. ngx_var.scheme
-    end
+    if si then self.key = self.key .. si end
+    if su then self.key = self.key .. ngx_var.http_user_agent end
+    if sa then self.key = self.key .. ngx_var.remote_addr end
+    if sc then self.key = self.key .. ngx_var.scheme end
     if self.cookie.httponly == nil then
         self.cookie.httponly = true
     end
