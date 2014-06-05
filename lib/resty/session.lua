@@ -72,7 +72,7 @@ function setcookie(session, v, e)
     else
         e = ""
     end
-    local d = session.cookie.domain or ngx_var.host
+    local d = session.cookie.domain
     if d == "localhost" then
         d = ""
     else
@@ -115,6 +115,9 @@ do
     local sd = ngx_var.session_cookie_domain
     local ss = enabled(ngx_var.session_cookie_secure)
     local sh = enabled(ngx_var.session_cookie_httponly   or true)
+    local su = enabled(ngx_var.session_check_ua          or true)
+    local sc = enabled(ngx_var.session_check_scheme      or true)
+    local sa = enabled(ngx_var.session_check_addr        or false)
     local cm = CIPHER_MODES[ngx_var.session_cipher_mode] or "cbc"
     local cs = CIPHER_SIZES[ngx_var.session_cipher_size] or 256
     local ch = aes.hash[ngx_var.session_cipher_hash]     or aes.hash.sha512
@@ -160,10 +163,21 @@ function session.start(opts)
             self.cookie.secure = false
         end
     end
+    if self.cookie.domain == nil then
+        self.cookie.domain = ngx_var.host
+    end
+    self.key = ''
     if si then
-        self.key = si .. ngx_var.http_user_agent
-    else
-        self.key = ngx_var.http_user_agent
+        self.key = self.key .. si
+    end
+    if su then
+        self.key = self.key .. ngx_var.http_user_agent
+    end
+    if sa then
+        self.key = self.key .. ngx_var.remote_addr
+    end
+    if sc then
+        self.key = self.key .. ngx_var.scheme
     end
     if self.cookie.httponly == nil then
         self.cookie.httponly = true
