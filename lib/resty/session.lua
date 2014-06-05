@@ -123,6 +123,7 @@ do
     local ch = aes.hash[ngx_var.session_cipher_hash]     or aes.hash.sha512
     local cr = ngx_var.session_cipher_rounds             or 1
     local sk = ngx_var.session_secret                    or random(cs / 8)
+    local iz = ngx_var.session_identifier_length         or 16
 
     if (type(sr) ~= "number") then
         sr = tonumber(sr) or 600
@@ -136,18 +137,24 @@ do
         cr = tonumber(cr) or 1
     end
 
+    if (type(iz) ~= "number") then
+        iz = tonumber(iz) or 32
+    end
+
     session = { name = sn, secret = sk, data = {}, cookie = {
-        renew = sr,
-        lifetime = sl,
-        path = sp,
-        domain = sd,
-        secure = ss,
-        httponly = sh
-    }, cipher = {
-        size = cs,
-        mode = cm,
-        hash = ch,
-        rounds = cr,
+        renew     = sr,
+        lifetime  = sl,
+        path      = sp,
+        domain    = sd,
+        secure    = ss,
+        httponly  = sh
+    },  cipher    = {
+          size    = cs,
+          mode    = cm,
+          hash    = ch,
+          rounds  = cr
+    }, identifier = {
+          length  = iz
     }}
 
     session.__index = session
@@ -201,7 +208,7 @@ function session.start(opts)
 end
 
 function session:regenerate(flush)
-    self.id = random(16)
+    self.id = random(self.identifier.length)
     if flush then self.data = {} end
     return self:save()
 end
