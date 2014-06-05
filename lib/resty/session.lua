@@ -87,7 +87,7 @@ function setcookie(session, v, e)
         h = "; HttpOnly"
     end
     local p = session.cookie.path or "/"
-    ngx.header["Set-Cookie"] = session.name .. "=" .. v .. e .. d .. "; Path=" .. p .. s .. h;
+    ngx.header["Set-Cookie"] = session.name .. "=" .. v .. e .. d .. "; Path=" .. p .. s .. h
     return true
 end
 
@@ -97,7 +97,7 @@ local function getcookie(c)
     local p, s, e = 1, c:find("|", 1, true)
     while s do
         r[#r + 1] = c:sub(p, e - 1)
-        p = e + 1;
+        p = e + 1
         s, e = c:find("|", p, true)
     end
     r[#r + 1] = c:sub(p)
@@ -173,7 +173,7 @@ function session.start(opts)
     if self.cookie.domain == nil then
         self.cookie.domain = ngx_var.host
     end
-    self.key = ''
+    self.key = ""
     if si then
         self.key = self.key .. si
     end
@@ -191,13 +191,14 @@ function session.start(opts)
     end
     local now, i, e, d, h = time(), getcookie(ngx.var["cookie_" .. self.name])
     if i and e and e > now then
-        self.id = i;
-        local k = hmac(self.secret, i .. e)
+        self.id = i
+        self.expires = e
+        local k = hmac(self.secret, self.id .. self.expires)
         local a = aes:new(k, self.id, aes.cipher(self.cipher.size, self.cipher.mode), self.cipher.hash, self.cipher.rounds)
         d = a:decrypt(d)
-        if d and hmac(k, self.id .. e .. d .. self.key) == h then
+        if d and hmac(k, self.id .. self.expires .. d .. self.key) == h then
             self.data = json.decode(d)
-            if e - now < session.cookie.renew then
+            if self.expires - now < session.cookie.renew then
                 self:save()
             end
         end
@@ -214,12 +215,12 @@ function session:regenerate(flush)
 end
 
 function session:save()
-    local e = time() + self.cookie.lifetime
-    local k = hmac(self.secret, self.id .. e)
+    self.expires = time() + self.cookie.lifetime
+    local k = hmac(self.secret, self.id .. self.expires)
     local d = json.encode(self.data)
-    local h = hmac(k, self.id .. e .. d .. self.key)
+    local h = hmac(k, self.id .. self.expires .. d .. self.key)
     local a = aes:new(k, self.id, aes.cipher(self.cipher.size, self.cipher.mode), self.cipher.hash, self.cipher.rounds)
-    return setcookie(self, encode(self.id) .. "|" .. e .. "|" .. encode(a:encrypt(d)) .. "|" .. encode(h))
+    return setcookie(self, encode(self.id) .. "|" .. self.expires .. "|" .. encode(a:encrypt(d)) .. "|" .. encode(h))
 end
 
 function session:destroy()
