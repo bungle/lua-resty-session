@@ -152,7 +152,6 @@ end
 
 function session.start(opts)
     local self = setmetatable(opts or {}, session)
-    setmetatable(session.data, data)
     local si = ngx_var.ssl_session_id
     if self.cookie.secure == nil then
         if si then
