@@ -105,7 +105,7 @@ local function getcookie(c)
     return decode(r[1]), tonumber(r[2]), decode(r[3]), decode(r[4])
 end
 
-local session
+local config
 
 do
     local sn = ngx_var.session_name                      or "session"
@@ -130,7 +130,7 @@ do
     if type(cr) ~= "number" then cr = tonumber(cr) or 1    end
     if type(iz) ~= "number" then iz = tonumber(iz) or 16   end
 
-    session = { name = sn, secret = sk, data = {}, cookie = {
+    config = { name = sn, secret = sk, cookie = {
         renew     = sr,
         lifetime  = sl,
         path      = sp,
@@ -145,12 +145,50 @@ do
     }, identifier = {
           length  = iz
     }}
-
-    session.__index = session
 end
+
+local session = {}
+session.__index = session
 
 function session.start(opts)
     local self = setmetatable(opts or {}, session)
+    if not self.name   then self.name   = config.name   end
+    if not self.secret then self.secret = config.secret end
+    if not self.cookie then
+        self.cookie = {
+            renew    = config.cookie.renew,
+            lifetime = config.cookie.lifetime,
+            path     = config.cookie.path,
+            domain   = config.cookie.domain,
+            secure   = config.cookie.secure,
+            httponly = config.cookie.httponly
+        }
+    else
+        if not self.cookie.renew    then self.cookie.renew    = config.cookie.renew    end
+        if not self.cookie.lifetime then self.cookie.lifetime = config.cookie.lifetime end
+        if not self.cookie.path     then self.cookie.path     = config.cookie.path     end
+        if not self.cookie.domain   then self.cookie.domain   = config.cookie.domain   end
+        if not self.cookie.secure   then self.cookie.secure   = config.cookie.secure   end
+        if not self.cookie.httponly then self.cookie.httponly = config.cookie.httponly end
+    end
+    if not self.cipher then
+        self.cipher = {
+            size   = config.cipher.size,
+            mode   = config.cipher.mode,
+            hash   = config.cipher.hash,
+            rounds = config.cipher.rounds
+        }
+    else
+        if not self.cipher.size   then self.cipher.size   = config.cipher.size   end
+        if not self.cipher.mode   then self.cipher.mode   = config.cipher.mode   end
+        if not self.cipher.hash   then self.cipher.hash   = config.cipher.hash   end
+        if not self.cipher.rounds then self.cipher.rounds = config.cipher.rounds end
+    end
+    if not self.identifier then
+        self.identifier = { length = config.identifier.length }
+    else
+        if not self.identifier.length then self.identifier.length = config.identifier.length end
+    end
     local si = ngx_var.ssl_session_id
     if self.cookie.secure == nil then
         if si then
@@ -179,12 +217,13 @@ function session.start(opts)
         d = a:decrypt(d)
         if d and hmac(k, self.id .. self.expires .. d .. self.key) == h then
             self.data = json.decode(d)
-            if self.expires - now < session.cookie.renew then
+            if self.expires - now < self.cookie.renew then
                 self:save()
             end
             return self
         end
     end
+    if type(self.data) ~= "table" then self.data = {} end
     self:regenerate()
     return self
 end
@@ -206,7 +245,8 @@ end
 
 function session:destroy()
     self.data = {}
-    return setcookie(self, "", true)
+    setcookie(self, "", true)
+    return true
 end
 
 return session
