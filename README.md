@@ -91,6 +91,8 @@ could be added to this module as well (all contributions are welcomed).
 
 ## Lua API
 
+### Functions and Methods
+
 #### table session.start(opts or nil)
 
 With this function you can start a new session. It will create a new session Lua ```table``` on each call.
