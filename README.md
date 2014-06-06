@@ -60,7 +60,7 @@ the cookies are not readable from Javascript (not subjectible to XSS in that mat
 don't work when sent via HTTP and vice-versa. By default the HMAC key is generated from session id (random
 bytes generated with OpenSSL), expiration time, unencrypted data, and Nginx variables `ssl_session_id`
 (if requested with TLS/SSL), `http_user_agent` and `scheme`. You may also configure it to use
-`remote_addr` as well by setting `set $session_check_addr off;` (but this may be problematic
+`remote_addr` as well by setting `set $session_check_addr on;` (but this may be problematic
 with clients behind proxies or NATs that change the remote address between requests).
 
 The data part is encrypted with AES-algorithm (by default it uses OpenSSL `EVP_aes_256_cbc` and
@@ -156,17 +156,90 @@ session:destroy()
 ### Fields
 
 #### string session.id
+
+`session.id` holds the current session id. By default it is 16 bytes long (raw binary bytes).
+It is automatically generated.
+
 #### number session.identifier.length
+
+`session.identifier.length` holds the length of the `session.id`. By default it is 16 bytes.
+This can be configured with Nginx `set $session_identifier_length 16;`.
+
 #### string session.key
+
+`session.key` holds the HMAC key. It is automatically generated. Nginx configuration like
+`set $session_check_ua on;`, `set $session_check_scheme on;` and `set $session_check_addr on;`
+ will have effect on the generated key.
+
 #### table session.data
+
+`session.data` holds the data part of the session cookie. This is a Lua `table`. `session.data`
+is the place where you store or retrieve session variables. When you want to save the data table,
+you need to call `session:save` method.
+
+**Setting session variable:**
+
+```lua
+local session = require "resty.session".start()
+session.data.uid = 1
+session:save()
+```
+
+**Retrieving session variable (in other request):**
+
+```lua
+local session = require "resty.session".start()
+local uid = session.data.uid
+```
+
 #### number session.expires
+
+`session.expires` holds the expiration time of the session (expiration time will be generated when
+`session:save` method is called).
+
 #### string session.secret
+
+`session.secret` holds the secret that is used in keyed HMAC generation.
+
 #### number session.cookie.renew
+
+`session.cookie.renew` holds the minimun seconds until the cookie expires, and renews cookie automatically
+(i.e. sends a new cookie with a new expiration time according to `session.cookie.lifetime`). This can be configured
+with Nginx `set $session_cookie_renew 600;` (600 seconds is the default value).
+
 #### number session.cookie.lifetime
+
+`session.cookie.lifetime` holds the cookie lifetime in seconds in the future. By default this is set
+to 3,600 seconds. This can be configured with Nginx `set $session_cookie_lifetime 3600;`. This does not
+set cookie's expiration time as this library will only use session only (and `HttpOnly` cookies). That
+means that cookies are not persisten and they are deleted when the client browser is closed.
+
 #### string session.cookie.path
+
+`session.cookie.path` holds the value of the cookie path scope. This is by default permissive `/`. You
+may want to have a more specific scope if your application resides in different path (e.g. `/forums/`).
+This can be configured with Nginx `set $session_cookie_path /forums/;`.
+
 #### string session.cookie.domain
+
+`session.cookie.domain` holds the value of the cookie domain. By default this is automatically set using
+Nginx variable `host`. This can be configured with Nginx `set $session_cookie_domain openresty.org;`.
+For `localhost` this is omitted.
+
 #### boolean session.cookie.secure
+
+`session.cookie.secure` holds the value of the cookie `Secure` flag. meaning that when set the client will
+only send the cookie with encrypted TLS/SSL connection. By default the `Secure` flag is set on all the
+cookies where the request was made through TLS/SSL connection. This can be configured and forced with
+Nginx `set $session_cookie_secure on;`.
+
 #### boolean session.cookie.httponly
+
+`session.cookie.httponly` holds the value of the cookie `HttpOnly` flag. By default this is enabled,
+and I cannot think of an situation where one would want to turn this off. By keeping this on you can
+prevent your session cookies access from Javascript and give some safety of XSS attacks. If you really
+want to turn this off, this can be configured with Nginx `set $session_cookie_httponly off;`.
+
 #### number session.cipher.size
 #### string session.cipher.mode
 #### function session.cipher.hash
