@@ -106,9 +106,9 @@ does also manage session cookie renewing configured with ```$session_cookie_rene
 with a new expiration time if the following is met ```session.expires - now < session.cookie.renew```.
 
 ```lua
-local session = require "resty.template".start()
+local session = require "resty.session".start()
 -- Set some options (overwriting the defaults or nginx configuration variables)
-local session = require "resty.template".start{ identifier = { length = 32 }}
+local session = require "resty.session".start{ identifier = { length = 32 }}
 ```
 
 #### boolean session:regenerate(flush or nil)
@@ -122,7 +122,7 @@ actually happens when the cookie's expiration time is not valid anymore). This f
 value if everything went as planned (you may assume that it is always the case).
 
 ```lua
-local session = require "resty.template".start()
+local session = require "resty.session".start()
 session:regenerate()
 -- Flush the current data
 session:regenerate(true)
@@ -136,7 +136,7 @@ advised that you call this function only once per request (no need to encrypt an
 This function returns a boolean value if everything went as planned (you may assume that it is always the case).
 
 ```lua
-local session = require "resty.template".start()
+local session = require "resty.session".start()
 session.data.uid = 1
 session:save()
 ```
@@ -149,7 +149,7 @@ should remove the cookie, and not send it back again). This function returns a b
 as planned (you may assume that it is always the case).
 
 ```lua
-local session = require "resty.template".start()
+local session = require "resty.session".start()
 session:destroy()
 ```
 
