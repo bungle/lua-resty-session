@@ -96,6 +96,12 @@ You need to call this function whenever you want to save the changes made to ```
 adviced that you call this function only once per request (no need to encrypt and set cookie many times).
 This function returns a boolean value if everything went as planned (you may assume that it is always the case).
 
+```lua
+local session = require "resty.template".start()
+session.data.uid = 1
+session:save()
+```
+
 #### boolean session:destroy()
 
 This function will immediately set session data to empty table ```{}```. It will also send a new cookie to
@@ -108,7 +114,28 @@ local session = require "resty.template".start()
 session:destroy()
 ```
 
-####
+## Nginx Configuration Variables
+
+Here is a list of Nginx configuration variables that you can use to control ```lua-resty-session```:
+
+```nginx
+set $session_name              session;
+set $session_secret            623q4hR325t36VsCD3g567922IC0073T;
+set $session_cookie_renew      600;
+set $session_cookie_lifetime   3600;
+set $session_cookie_path       /;
+set $session_cookie_domain     openresty.org;
+set $session_cookie_secure     on;
+set $session_cookie_httponly   on;
+set $session_cipher_mode       cbc;
+set $session_cipher_size       256;
+set $session_cipher_hash       sha512;
+set $session_cipher_rounds     1;
+set $session_check_ua          on;
+set $session_check_scheme      on;
+set $session_check_addr        off;
+set $session_identifier_length 16;
+```
 
 ## License
 
