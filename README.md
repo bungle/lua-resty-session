@@ -153,7 +153,7 @@ local session = require "resty.session".start()
 session:destroy()
 ```
 
-### Session Fields
+### Fields
 
 #### string session.id
 #### number session.identifier.length
