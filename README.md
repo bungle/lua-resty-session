@@ -73,7 +73,8 @@ function, and it's length is determined by calculating the used ```$session_ciph
 by 8 (so by default it uses 32 bytes). This will work until Nginx is restarted, but you might want
 to consider setting your own secret using ```set $session_secret 623q4hR325t36VsCD3g567922IC0073T;``,
 for example (this will work in farms installations as well, but you are then responsible for
-rotating the secret).
+rotating the secret). On farm installations you should also configure other session configuration
+variables the same.
 
 Cookie parts are encoded with cookie safe Base64 encoding. Before encrypting and encoding the data
 part, the data is serialized with JSON encoding (so you can use basic Lua types in data, and expect
@@ -125,9 +126,9 @@ session:regenerate(true)
 
 #### boolean session:save()
 
-This function saves the session and sends a new cookie to client (with a new expiration time and ecnrypted data).
+This function saves the session and sends a new cookie to client (with a new expiration time and encrypted data).
 You need to call this function whenever you want to save the changes made to ```session.data``` table. It is
-adviced that you call this function only once per request (no need to encrypt and set cookie many times).
+advised that you call this function only once per request (no need to encrypt and set cookie many times).
 This function returns a boolean value if everything went as planned (you may assume that it is always the case).
 
 ```lua
