@@ -157,6 +157,9 @@ session:destroy()
 
 #### string session.id
 #### number session.identifier.length
+#### string session.key
+#### table session.data
+#### number session.expires
 #### string session.secret
 #### number session.cookie.renew
 #### number session.cookie.lifetime
