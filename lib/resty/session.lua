@@ -216,11 +216,14 @@ function session.start(opts)
         local a = aes:new(k, self.id, aes.cipher(self.cipher.size, self.cipher.mode), self.cipher.hash, self.cipher.rounds)
         d = a:decrypt(d)
         if d and hmac(k, self.id .. self.expires .. d .. self.key) == h then
-            self.data = json.decode(d)
-            if self.expires - now < self.cookie.renew then
-                self:save()
+            local data = json.decode(d)
+            if type(data) == "table" then
+                self.data = data
+                if self.expires - now < self.cookie.renew then
+                    self:save()
+                end
+                return self
             end
-            return self
         end
     end
     if type(self.data) ~= "table" then self.data = {} end
@@ -245,8 +248,7 @@ end
 
 function session:destroy()
     self.data = {}
-    setcookie(self, "", true)
-    return true
+    return setcookie(self, "", true)
 end
 
 return session
