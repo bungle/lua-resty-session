@@ -212,7 +212,7 @@ with Nginx `set $session_cookie_renew 600;` (600 seconds is the default value).
 `session.cookie.lifetime` holds the cookie lifetime in seconds in the future. By default this is set
 to 3,600 seconds. This can be configured with Nginx `set $session_cookie_lifetime 3600;`. This does not
 set cookie's expiration time as this library will only use session only (and `HttpOnly` cookies). That
-means that cookies are not persisten and they are deleted when the client browser is closed.
+means that cookies are not persistent and they are deleted when the client browser is closed.
 
 #### string session.cookie.path
 
