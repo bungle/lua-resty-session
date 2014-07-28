@@ -76,7 +76,7 @@ by 8 (so by default it uses 32 bytes). This will work until Nginx is restarted, 
 to consider setting your own secret using `set $session_secret 623q4hR325t36VsCD3g567922IC0073T;`,
 for example (this will work in farms installations as well, but you are then responsible for
 rotating the secret). On farm installations you should also configure other session configuration
-variables the same.
+variables the same on all the servers in the farm.
 
 Cookie parts are encoded with cookie safe Base64 encoding. Before encrypting and encoding the data
 part, the data is serialized with JSON encoding (so you can use basic Lua types in data, and expect
@@ -96,8 +96,8 @@ could be added to this module as well (all contributions are welcomed).
 #### table session.start(opts or nil)
 
 With this function you can start a new session. It will create a new session Lua `table` on each call.
-Right now you should only start session once as calling this function repeatedly will overwrite the previously
-started session cookie. This function will return a new session `table` as a result. If the session cookie
+Right now you should only start session once per request as calling this function repeatedly will overwrite the previously
+started session cookie and session data. This function will return a new session `table` as a result. If the session cookie
 is supplied with user's HTTP(S) client then this function validates the supplied session cookie. If validation
 is successful, the user supplied session data will be used (if not, a new session is generated with empty data).
 You may supply optional session configuration variables with `opts` argument, but be aware that many of these
@@ -241,9 +241,21 @@ prevent your session cookies access from Javascript and give some safety of XSS 
 want to turn this off, this can be configured with Nginx `set $session_cookie_httponly off;`.
 
 #### number session.cipher.size
+
+`session.cipher.size` holds the size of the cipher (`lua-resty-string` supports AES in `128`, `192`, and `256` bits key sizes). See `aes.cipher` function in `lua-resty-string` for more information. By default this will use `256` bits key size. This can be configured with Nginx `set $session_cipher_size 256;`.
+
 #### string session.cipher.mode
+
+`session.cipher.mode` holds the mode of the cipher (`lua-resty-string` supports AES in `ecb`, `cbc`, `cfb1`, `cfb8`, `cfb128`, `ofb`, and `ctr` modes (ctr mode is not available with 256 bit keys)). See `aes.cipher` function in `lua-resty-string` for more information. By default this will use `cbc` mode. This can be configured with Nginx `set $session_cipher_mode cbc;`.
+
 #### function session.cipher.hash
+
+`session.cipher.hash` is used in ecryption key, and iv derivation (see: OpenSSL [EVP_BytesToKey](https://www.openssl.org/docs/crypto/EVP_BytesToKey.html)). By default `sha512` is used but `md5`,
+`sha1`, `sha224`, `sha256`, and `sha384` are supported as well in `lua-resty-string`. This can be configured with Nginx `set $session_cipher_hash sha512;`.
+
 #### number session.cipher.rounds
+
+`session.cipher.rounds` can be used to slow-down the encryption key, and iv derivation. By default this is set to `1` (the fastest). This can be configured with Nginx `set $session_cipher_rounds 1;`.
 
 ## Nginx Configuration Variables
 
