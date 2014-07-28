@@ -246,7 +246,7 @@ want to turn this off, this can be configured with Nginx `set $session_cookie_ht
 
 #### string session.cipher.mode
 
-`session.cipher.mode` holds the mode of the cipher (`lua-resty-string` supports AES in `ecb`, `cbc`, `cfb1`, `cfb8`, `cfb128`, `ofb`, and `ctr` modes (ctr mode is not available with 256 bit keys)). See `aes.cipher` function in `lua-resty-string` for more information. By default this will use `cbc` mode. This can be configured with Nginx `set $session_cipher_mode cbc;`.
+`session.cipher.mode` holds the mode of the cipher. `lua-resty-string` supports AES in `ecb`, `cbc`, `cfb1`, `cfb8`, `cfb128`, `ofb`, and `ctr` modes (ctr mode is not available with 256 bit keys). See `aes.cipher` function in `lua-resty-string` for more information. By default `cbc` mode is used. This can be configured with Nginx `set $session_cipher_mode cbc;`.
 
 #### function session.cipher.hash
 
