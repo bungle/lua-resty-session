@@ -94,7 +94,7 @@ function setcookie(session, v, e)
     if t == "table" then
         local found = false
         for i, cookie in ipairs(cookies) do
-            if cookie:find(k, 1, true) then
+            if (cookie:find(k, 1, true)) == 1 then
                 cookies[i] = k .. v .. e .. d .. p .. s .. h
                 found = true
                 break
@@ -104,7 +104,7 @@ function setcookie(session, v, e)
             cookies[#cookies + 1] = k .. v .. e .. d .. p .. s .. h
         end
     elseif t == "string" then
-        if cookies:find(k, 1, true) then
+        if (cookies:find(k, 1, true)) == 1 then
             cookies = k .. v .. e .. d .. p .. s .. h
         else
             cookies = { cookies, k .. v .. e .. d .. p .. s .. h }
