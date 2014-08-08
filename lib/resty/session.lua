@@ -3,6 +3,7 @@ local base64dec  = ngx.decode_base64
 local ngx_var    = ngx.var
 local hmac       = ngx.hmac_sha1
 local time       = ngx.time
+local type       = type
 local json       = require "cjson"
 local aes        = require "resty.aes"
 local ffi        = require "ffi"
@@ -86,26 +87,32 @@ function setcookie(session, v, e)
     if session.cookie.httponly then
         h = "; HttpOnly"
     end
-    local p = session.cookie.path or "/"
+    local p = "; Path=" .. (session.cookie.path or "/")
     local k = session.name .. "="
     local cookies = ngx.header["Set-Cookie"]
     local t = type(cookies)
     if t == "table" then
+        local found = false
         for i, cookie in ipairs(cookies) do
             if cookie:find(k, 1, true) then
-                cookie[i] = k .. v .. e .. d .. "; Path=" .. p .. s .. h
+                cookies[i] = k .. v .. e .. d .. p .. s .. h
+                found = true
                 break
             end
         end
+        if not found then
+            cookies[#cookies + 1] = k .. v .. e .. d .. p .. s .. h
+        end
     elseif t == "string" then
         if cookies:find(k, 1, true) then
-            ngx.header["Set-Cookie"] = k .. v .. e .. d .. "; Path=" .. p .. s .. h
+            cookies = k .. v .. e .. d .. p .. s .. h
         else
-            ngx.header["Set-Cookie"] = { cookies, k .. v .. e .. d .. "; Path=" .. p .. s .. h }
+            cookies = { cookies, k .. v .. e .. d .. p .. s .. h }
         end
     else
-        ngx.header["Set-Cookie"] = k .. v .. e .. d .. "; Path=" .. p .. s .. h
+        cookies = k .. v .. e .. d .. p .. s .. h
     end
+    ngx.header["Set-Cookie"] = cookies
     return true
 end
 
