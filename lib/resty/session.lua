@@ -87,7 +87,25 @@ function setcookie(session, v, e)
         h = "; HttpOnly"
     end
     local p = session.cookie.path or "/"
-    ngx.header["Set-Cookie"] = session.name .. "=" .. v .. e .. d .. "; Path=" .. p .. s .. h
+    local k = session.name .. "="
+    local cookies = ngx.header["Set-Cookie"]
+    local t = type(cookies)
+    if t == "table" then
+        for i, cookie in ipairs(cookies) do
+            if cookie:find(k, 1, true) then
+                cookie[i] = k .. v .. e .. d .. "; Path=" .. p .. s .. h
+                break
+            end
+        end
+    elseif t == "string" then
+        if cookies:find(k, 1, true) then
+            ngx.header["Set-Cookie"] = k .. v .. e .. d .. "; Path=" .. p .. s .. h
+        else
+            ngx.header["Set-Cookie"] = { cookies, k .. v .. e .. d .. "; Path=" .. p .. s .. h }
+        end
+    else
+        ngx.header["Set-Cookie"] = k .. v .. e .. d .. "; Path=" .. p .. s .. h
+    end
     return true
 end
 
