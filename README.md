@@ -108,7 +108,7 @@ with a new expiration time if the following is met `session.expires - now < sess
 ```lua
 local session = require("resty.session").start()
 -- Set some options (overwriting the defaults or nginx configuration variables)
-local session = require "resty.session".start{ identifier = { length = 32 }}
+local session = require("resty.session").start{ identifier = { length = 32 }}
 ```
 
 #### boolean session:regenerate(flush or nil)
