@@ -17,7 +17,7 @@ http {
         }
         location /start {
             content_by_lua '
-                local session = require "resty.session".start()
+                local session = require("resty.session").start()
                 session.data.name = "OpenResty Fan"
                 session:save()
                 ngx.say("<html><body>Session started. ",
@@ -26,7 +26,7 @@ http {
         }
         location /test {
             content_by_lua '
-                local session = require "resty.session".start()
+                local session = require("resty.session").start()
                 ngx.say("<html><body>Session was started by <strong>",
                         session.data.name or "Anonymous",
                         "</strong>! <a href=/destroy>Destroy the session</a>.</body></html>")
@@ -34,7 +34,7 @@ http {
         }
         location /destroy {
             content_by_lua '
-                local session = require "resty.session".start()
+                local session = require("resty.session").start()
                 session:destroy()
                 ngx.say("<html><body>Session was destroyed. ",
                         "<a href=/check>Is it really so</a>?</body></html>")
@@ -42,7 +42,7 @@ http {
         }
         location /check {
             content_by_lua '
-                local session = require "resty.session".start()
+                local session = require("resty.session").start()
                 ngx.say("<html><body>Session was really destroyed, you are known as <strong>",
                         session.data.name or "Anonymous",
                         "</strong>! <a href=/>Start again</a>.</body></html>")
@@ -106,7 +106,7 @@ does also manage session cookie renewing configured with `$session_cookie_renew`
 with a new expiration time if the following is met `session.expires - now < session.cookie.renew`.
 
 ```lua
-local session = require "resty.session".start()
+local session = require("resty.session").start()
 -- Set some options (overwriting the defaults or nginx configuration variables)
 local session = require "resty.session".start{ identifier = { length = 32 }}
 ```
@@ -122,7 +122,7 @@ actually happens when the cookie's expiration time is not valid anymore). This f
 value if everything went as planned (you may assume that it is always the case).
 
 ```lua
-local session = require "resty.session".start()
+local session = require("resty.session").start()
 session:regenerate()
 -- Flush the current data
 session:regenerate(true)
@@ -136,7 +136,7 @@ advised that you call this function only once per request (no need to encrypt an
 This function returns a boolean value if everything went as planned (you may assume that it is always the case).
 
 ```lua
-local session = require "resty.session".start()
+local session = require("resty.session").start()
 session.data.uid = 1
 session:save()
 ```
@@ -149,7 +149,7 @@ should remove the cookie, and not send it back again). This function returns a b
 as planned (you may assume that it is always the case).
 
 ```lua
-local session = require "resty.session".start()
+local session = require("resty.session").start()
 session:destroy()
 ```
 
@@ -180,7 +180,7 @@ you need to call `session:save` method.
 **Setting session variable:**
 
 ```lua
-local session = require "resty.session".start()
+local session = require("resty.session").start()
 session.data.uid = 1
 session:save()
 ```
@@ -188,7 +188,7 @@ session:save()
 **Retrieving session variable (in other request):**
 
 ```lua
-local session = require "resty.session".start()
+local session = require("resty.session").start()
 local uid = session.data.uid
 ```
 
