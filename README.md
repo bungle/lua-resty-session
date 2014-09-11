@@ -43,7 +43,8 @@ http {
         location /check {
             content_by_lua '
                 local session = require("resty.session").start()
-                ngx.say("<html><body>Session was really destroyed, you are known as <strong>",
+                ngx.say("<html><body>Session was really destroyed, you are known as ",
+                        "<strong>",
                         session.data.name or "Anonymous",
                         "</strong>! <a href=/>Start again</a>.</body></html>")
             ';
