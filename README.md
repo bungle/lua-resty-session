@@ -52,6 +52,27 @@ http {
 }
 ```
 
+## Installation
+
+Just place [`session.lua`](https://github.com/bungle/lua-resty-session/blob/master/lib/resty/session.lua) somewhere in your `package.path`, preferably under `resty` directory. If you are using OpenResty, the default location would be `/usr/local/openresty/lualib/resty`.
+
+### Using LuaRocks or MoonRocks
+
+If you are using LuaRocks >= 2.2:
+
+```Shell
+$ luarocks install lua-resty-session
+```
+
+If you are using LuaRocks < 2.2:
+
+```Shell
+$ luarocks install --server=http://rocks.moonscript.org moonrocks
+$ moonrocks install lua-resty-session
+```
+
+MoonRocks repository for `lua-resty-session` is located here: https://rocks.moonscript.org/modules/bungle/lua-resty-session.
+
 ## About The Defaults
 
 `lua-resty-session` does by default set session only cookies (non-persistent, `HttpOnly`) so that

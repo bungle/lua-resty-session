@@ -1,0 +1,4 @@
+
+Changes with lua-resty-session 1.0                               24 Sep 2014
+
+    *) Feature: LuaRocks Support via MoonRocks.
