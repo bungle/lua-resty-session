@@ -1,6 +1,7 @@
 local base64enc  = ngx.encode_base64
 local base64dec  = ngx.decode_base64
 local ngx_var    = ngx.var
+local concat     = table.concat
 local hmac       = ngx.hmac_sha1
 local time       = ngx.time
 local type       = type
@@ -67,156 +68,98 @@ local function decode(value)
     return base64dec(value:gsub("[-_.]", DECODE_CHARS))
 end
 
-function setcookie(session, v, e)
-    if e then
-        e = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT"
-    else
-        e = ""
+function setcookie(session, value, expires)
+    local cookie = { session.name, "=", value }
+    local domain = session.cookie.domain
+    if expires then
+        cookie[#cookie + 1] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT"
     end
-    local d = session.cookie.domain
-    if d == "localhost" then
-        d = ""
-    else
-        d = "; Domain=" .. d
+    if domain ~= "localhost" then
+        cookie[#cookie + 1] = "; Domain="
+        cookie[#cookie + 1] = domain
     end
-    local s = ""
+    cookie[#cookie + 1] = "; Path="
+    cookie[#cookie + 1] = session.cookie.path or "/"
     if session.cookie.secure then
-        s = "; Secure"
+        cookie[#cookie + 1] = "; Secure"
     end
-    local h = ""
     if session.cookie.httponly then
-        h = "; HttpOnly"
+        cookie[#cookie + 1] = "; HttpOnly"
     end
-    local p = "; Path=" .. (session.cookie.path or "/")
-    local k = session.name .. "="
+    local needle = concat(cookie, nil, 1, 2)
+    cookie = concat(cookie)
     local cookies = ngx.header["Set-Cookie"]
     local t = type(cookies)
     if t == "table" then
         local found = false
         for i, cookie in ipairs(cookies) do
-            if (cookie:find(k, 1, true)) == 1 then
-                cookies[i] = k .. v .. e .. d .. p .. s .. h
+            if cookie:find(needle, 1, true) == 1 then
+                cookies[i] = cookie
                 found = true
                 break
             end
         end
         if not found then
-            cookies[#cookies + 1] = k .. v .. e .. d .. p .. s .. h
+            cookies[#cookies + 1] = cookie
         end
     elseif t == "string" then
-        if (cookies:find(k, 1, true)) == 1 then
-            cookies = k .. v .. e .. d .. p .. s .. h
+        if cookies:find(needle, 1, true) == 1 then
+            cookies = cookie
         else
-            cookies = { cookies, k .. v .. e .. d .. p .. s .. h }
+            cookies = { cookies, cookie }
         end
     else
-        cookies = k .. v .. e .. d .. p .. s .. h
+        cookies = cookie
     end
     ngx.header["Set-Cookie"] = cookies
     return true
 end
 
 local function getcookie(c)
-    if c == nil then return nil end
+    if c == nil then return end
     local r = {}
-    local p, s, e = 1, c:find("|", 1, true)
+    local i, p, s, e = 1, 1, c:find("|", 1, true)
     while s do
-        r[#r + 1] = c:sub(p, e - 1)
-        p = e + 1
+        if i > 3 then return end
+        r[i] = c:sub(p, e - 1)
+        i, p = i + 1, e + 1
         s, e = c:find("|", p, true)
     end
-    r[#r + 1] = c:sub(p)
-    if #r ~= 4 then return nil end
+    r[4] = c:sub(p)
     return decode(r[1]), tonumber(r[2]), decode(r[3]), decode(r[4])
 end
 
-local config
-
-do
-    local sn = ngx_var.session_name                      or "session"
-    local sr = ngx_var.session_cookie_renew              or 600
-    local sl = ngx_var.session_cookie_lifetime           or 3600
-    local sp = ngx_var.session_cookie_path               or "/"
-    local sd = ngx_var.session_cookie_domain
-    local ss = enabled(ngx_var.session_cookie_secure)
-    local sh = enabled(ngx_var.session_cookie_httponly   or true)
-    local su = enabled(ngx_var.session_check_ua          or true)
-    local sc = enabled(ngx_var.session_check_scheme      or true)
-    local sa = enabled(ngx_var.session_check_addr        or false)
-    local cm = CIPHER_MODES[ngx_var.session_cipher_mode] or "cbc"
-    local cs = CIPHER_SIZES[ngx_var.session_cipher_size] or 256
-    local ch = aes.hash[ngx_var.session_cipher_hash]     or aes.hash.sha512
-    local cr = ngx_var.session_cipher_rounds             or 1
-    local sk = ngx_var.session_secret                    or random(cs / 8)
-    local iz = ngx_var.session_identifier_length         or 16
-
-    if type(sr) ~= "number" then sr = tonumber(sr) or 600  end
-    if type(sl) ~= "number" then sl = tonumber(sl) or 3600 end
-    if type(cr) ~= "number" then cr = tonumber(cr) or 1    end
-    if type(iz) ~= "number" then iz = tonumber(iz) or 16   end
-
-    config = { name = sn, secret = sk, cookie = {
-        renew     = sr,
-        lifetime  = sl,
-        path      = sp,
-        domain    = sd,
-        secure    = ss,
-        httponly  = sh
-    },  cipher    = {
-          size    = cs,
-          mode    = cm,
-          hash    = ch,
-          rounds  = cr
+local session = {
+    _VERSION = "1.1",
+    name = ngx_var.session_name or "session",
+    cookie = {
+        renew    = tonumber(ngx_var.session_cookie_renew)    or 600,
+        lifetime = tonumber(ngx_var.session_cookie_lifetime) or 3600,
+        path     = ngx_var.session_cookie_path               or "/",
+        domain   = ngx_var.session_cookie_domain,
+        secure   = enabled(ngx_var.session_cookie_secure),
+        httponly = enabled(ngx_var.session_cookie_httponly   or true)
+    }, check = {
+        ua     = enabled(ngx_var.session_check_ua     or true),
+        scheme = enabled(ngx_var.session_check_scheme or true),
+        addr   = enabled(ngx_var.session_check_addr   or false)
+    }, cipher = {
+        size   = CIPHER_SIZES[ngx_var.session_cipher_size] or 256,
+        mode   = CIPHER_MODES[ngx_var.session_cipher_mode] or "cbc",
+        hash   = aes.hash[ngx_var.session_cipher_hash]     or aes.hash.sha512,
+        rounds = tonumber(ngx_var.session_cipher_rounds)   or 1
     }, identifier = {
-          length  = iz
-    }}
-end
+        length  = tonumber(ngx_var.session_identifier_length) or 16
+}}
 
-local session = {}
+session.secret = ngx_var.session_secret or random(session.cipher.size / 8)
 session.__index = session
 
 function session.start(opts)
     local self = setmetatable(opts or {}, session)
-    if not self.name   then self.name   = config.name   end
-    if not self.secret then self.secret = config.secret end
-    if not self.cookie then
-        self.cookie = {
-            renew    = config.cookie.renew,
-            lifetime = config.cookie.lifetime,
-            path     = config.cookie.path,
-            domain   = config.cookie.domain,
-            secure   = config.cookie.secure,
-            httponly = config.cookie.httponly
-        }
-    else
-        if not self.cookie.renew    then self.cookie.renew    = config.cookie.renew    end
-        if not self.cookie.lifetime then self.cookie.lifetime = config.cookie.lifetime end
-        if not self.cookie.path     then self.cookie.path     = config.cookie.path     end
-        if not self.cookie.domain   then self.cookie.domain   = config.cookie.domain   end
-        if not self.cookie.secure   then self.cookie.secure   = config.cookie.secure   end
-        if not self.cookie.httponly then self.cookie.httponly = config.cookie.httponly end
-    end
-    if not self.cipher then
-        self.cipher = {
-            size   = config.cipher.size,
-            mode   = config.cipher.mode,
-            hash   = config.cipher.hash,
-            rounds = config.cipher.rounds
-        }
-    else
-        if not self.cipher.size   then self.cipher.size   = config.cipher.size   end
-        if not self.cipher.mode   then self.cipher.mode   = config.cipher.mode   end
-        if not self.cipher.hash   then self.cipher.hash   = config.cipher.hash   end
-        if not self.cipher.rounds then self.cipher.rounds = config.cipher.rounds end
-    end
-    if not self.identifier then
-        self.identifier = { length = config.identifier.length }
-    else
-        if not self.identifier.length then self.identifier.length = config.identifier.length end
-    end
-    local si = ngx_var.ssl_session_id
+    local ssi = ngx_var.ssl_session_id
     if self.cookie.secure == nil then
-        if si then
+        if ssi then
             self.cookie.secure = true
         else
             self.cookie.secure = false
@@ -225,14 +168,12 @@ function session.start(opts)
     if self.cookie.domain == nil then
         self.cookie.domain = ngx_var.host
     end
-    self.key = ""
-    if si then self.key = self.key .. si end
-    if su then self.key = self.key .. ngx_var.http_user_agent end
-    if sa then self.key = self.key .. ngx_var.remote_addr end
-    if sc then self.key = self.key .. ngx_var.scheme end
-    if self.cookie.httponly == nil then
-        self.cookie.httponly = true
-    end
+    self.key = concat{
+        ssi                                           or "",
+        self.check.ua     and ngx_var.http_user_agent or "",
+        self.check.addr   and ngx_var.remote_addr     or "",
+        self.check.scheme and ngx_var.scheme          or ""
+    }
     local now, i, e, d, h = time(), getcookie(ngx.var["cookie_" .. self.name])
     if i and e and e > now then
         self.id = i
