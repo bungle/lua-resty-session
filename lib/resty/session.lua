@@ -115,17 +115,17 @@ function setcookie(session, value, expires)
     return true
 end
 
-local function getcookie(c)
-    if c == nil then return end
+local function getcookie(cookie)
+    if not cookie then return end
     local r = {}
-    local i, p, s, e = 1, 1, c:find("|", 1, true)
+    local i, p, s, e = 1, 1, cookie:find("|", 1, true)
     while s do
         if i > 3 then return end
-        r[i] = c:sub(p, e - 1)
+        r[i] = cookie:sub(p, e - 1)
         i, p = i + 1, e + 1
-        s, e = c:find("|", p, true)
+        s, e = cookie:find("|", p, true)
     end
-    r[4] = c:sub(p)
+    r[4] = cookie:sub(p)
     return decode(r[1]), tonumber(r[2]), decode(r[3]), decode(r[4])
 end
 
