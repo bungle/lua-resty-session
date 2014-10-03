@@ -279,6 +279,26 @@ want to turn this off, this can be configured with Nginx `set $session_cookie_ht
 
 `session.cipher.rounds` can be used to slow-down the encryption key, and iv derivation. By default this is set to `1` (the fastest). This can be configured with Nginx `set $session_cipher_rounds 1;`.
 
+#### boolean session.check.ua
+
+`session.check.ua` is additional check to validate that the request was made with the same user-agen browser string
+as where the original cookie was delivered. This check is enabled by default.
+
+#### boolean session.check.addr
+
+`session.check.addr` is additional check to validate that the request was made from the same remote ip-address
+as where the original cookie was delivered. This check is disabled by default.
+
+#### boolean session.check.addr
+
+`session.check.scheme` is additional check to validate that the request was made using the same protocol 
+as the one used when the original cookie was delivered. This check is enabled by default.
+
+#### Additional checks that are not configurable
+
+`lua-resty-session` will always check on TLS/SSL connection whether the cookie was send with the same `ssl_session_id`
+that was used when the cookie was originally delivered.
+
 ## Nginx Configuration Variables
 
 Here is a list of Nginx configuration variables that you can use to control `lua-resty-session`:
