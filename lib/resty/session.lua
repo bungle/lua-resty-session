@@ -61,11 +61,11 @@ local function enabled(val)
 end
 
 local function encode(value)
-    return base64enc(value):gsub("[+/=]", ENCODE_CHARS)
+    return (base64enc(value):gsub("[+/=]", ENCODE_CHARS))
 end
 
 local function decode(value)
-    return base64dec(value:gsub("[-_.]", DECODE_CHARS))
+    return base64dec((value:gsub("[-_.]", DECODE_CHARS)))
 end
 
 function setcookie(session, value, expires)
