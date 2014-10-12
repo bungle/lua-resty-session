@@ -1,4 +1,9 @@
 
+Changes with lua-resty-session 1.2                               12 Oct 2014
+
+    *) Bugfix: changed endoce and decode funtions to operate with corret
+       number of arguments. See issue #1.
+
 Changes with lua-resty-session 1.1                                3 Oct 2014
 
     *) Security: There was a bug where additional user agent, scheme, and
