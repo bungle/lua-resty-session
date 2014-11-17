@@ -68,11 +68,14 @@ local function decode(value)
     return base64dec((value:gsub("[-_.]", DECODE_CHARS)))
 end
 
-function setcookie(session, value, expires)
+local function setcookie(session, value, expires)
     local cookie = { session.name, "=", value }
     local domain = session.cookie.domain
     if expires then
-        cookie[#cookie + 1] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT"
+        cookie[#cookie + 1] =
+            string.format('; Expires="%s"',
+                expires == true and "Thu, 01 Jan 1970 00:00:01 GMT"
+                or ngx.cookie_time(expires))
     end
     if domain ~= "localhost" then
         cookie[#cookie + 1] = "; Domain="
@@ -134,8 +137,10 @@ local session = {
         path     = ngx_var.session_cookie_path               or "/",
         domain   = ngx_var.session_cookie_domain,
         secure   = enabled(ngx_var.session_cookie_secure),
-        httponly = enabled(ngx_var.session_cookie_httponly   or true)
+        httponly = enabled(ngx_var.session_cookie_httponly   or true),
+        persistent = enabled(ngx_var.session_cookie_persistent),
     }, check = {
+        ssi    = enabled(ngx_var.session_check_ssi    or true),
         ua     = enabled(ngx_var.session_check_ua     or true),
         scheme = enabled(ngx_var.session_check_scheme or true),
         addr   = enabled(ngx_var.session_check_addr   or false)
@@ -165,7 +170,7 @@ function session.start(opts)
         self.cookie.domain = ngx_var.host
     end
     self.key = concat{
-        ssi                                           or "",
+        self.check.ssi    and ssi                     or "",
         self.check.ua     and ngx_var.http_user_agent or "",
         self.check.addr   and ngx_var.remote_addr     or "",
         self.check.scheme and ngx_var.scheme          or ""
@@ -205,7 +210,8 @@ function session:save()
     local d = json.encode(self.data)
     local h = hmac(k, self.id .. self.expires .. d .. self.key)
     local a = aes:new(k, self.id, aes.cipher(self.cipher.size, self.cipher.mode), self.cipher.hash, self.cipher.rounds)
-    return setcookie(self, encode(self.id) .. "|" .. self.expires .. "|" .. encode(a:encrypt(d)) .. "|" .. encode(h))
+    return setcookie(self, encode(self.id) .. "|" .. self.expires .. "|" .. encode(a:encrypt(d)) .. "|" .. encode(h),
+        self.cookie.persistent and self.expires)
 end
 
 function session:destroy()
