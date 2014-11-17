@@ -129,11 +129,12 @@ local function getcookie(cookie)
     return decode(r[1]), tonumber(r[2]), decode(r[3]), decode(r[4])
 end
 
+local persistent = enabled(ngx_var.session_cookie_persistent or false)
 local session = {
     _VERSION = "1.1",
     name = ngx_var.session_name or "session",
     cookie = {
-        persistent = enabled(ngx_var.session_cookie_persistent or false),
+        persistent = persistent,
         renew      = tonumber(ngx_var.session_cookie_renew)    or 600,
         lifetime   = tonumber(ngx_var.session_cookie_lifetime) or 3600,
         path       = ngx_var.session_cookie_path               or "/",
@@ -141,7 +142,7 @@ local session = {
         secure     = enabled(ngx_var.session_cookie_secure),
         httponly   = enabled(ngx_var.session_cookie_httponly   or true)
     }, check = {
-        ssi    = enabled(ngx_var.session_check_ssi    or true),
+        ssi    = enabled(ngx_var.session_check_ssi    or persistent == false),
         ua     = enabled(ngx_var.session_check_ua     or true),
         scheme = enabled(ngx_var.session_check_scheme or true),
         addr   = enabled(ngx_var.session_check_addr   or false)
