@@ -76,7 +76,7 @@ function setcookie(session, value, expires)
         cookie[#cookie + 1] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
     elseif session.cookie.persistent then
         cookie[#cookie + 1] = "; Expires="
-        cookie[#cookie + 1] = cookie_time(time() + session.cookie.lifetime)
+        cookie[#cookie + 1] = cookie_time(session.expires)
         cookie[#cookie + 1] = "; Max-Age="
         cookie[#cookie + 1] = session.cookie.lifetime
     end
