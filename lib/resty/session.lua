@@ -74,7 +74,7 @@ function setcookie(session, value, expires)
     local domain = session.cookie.domain
     if expires then
         cookie[#cookie + 1] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
-    elseif session.cookie.permanent then
+    elseif session.cookie.persistent then
         cookie[#cookie + 1] = "; Expires="
         cookie[#cookie + 1] = cookie_time(time() + session.cookie.lifetime)
         cookie[#cookie + 1] = "; Max-Age="
@@ -135,13 +135,13 @@ local session = {
     _VERSION = "1.1",
     name = ngx_var.session_name or "session",
     cookie = {
-        permanent = enabled(ngx_var.session_cookie_httponly   or false),
-        renew     = tonumber(ngx_var.session_cookie_renew)    or 600,
-        lifetime  = tonumber(ngx_var.session_cookie_lifetime) or 3600,
-        path      = ngx_var.session_cookie_path               or "/",
-        domain    = ngx_var.session_cookie_domain,
-        secure    = enabled(ngx_var.session_cookie_secure),
-        httponly  = enabled(ngx_var.session_cookie_httponly   or true)
+        persistent = enabled(ngx_var.session_cookie_httponly   or false),
+        renew      = tonumber(ngx_var.session_cookie_renew)    or 600,
+        lifetime   = tonumber(ngx_var.session_cookie_lifetime) or 3600,
+        path       = ngx_var.session_cookie_path               or "/",
+        domain     = ngx_var.session_cookie_domain,
+        secure     = enabled(ngx_var.session_cookie_secure),
+        httponly   = enabled(ngx_var.session_cookie_httponly   or true)
     }, check = {
         ssi    = enabled(ngx_var.session_check_addr   or true),
         ua     = enabled(ngx_var.session_check_ua     or true),
