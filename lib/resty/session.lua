@@ -140,6 +140,7 @@ local session = {
         httponly = enabled(ngx_var.session_cookie_httponly   or true),
         persistent = enabled(ngx_var.session_cookie_persistent),
     }, check = {
+        ssi    = enabled(ngx_var.session_check_ssi    or true),
         ua     = enabled(ngx_var.session_check_ua     or true),
         scheme = enabled(ngx_var.session_check_scheme or true),
         addr   = enabled(ngx_var.session_check_addr   or false)
@@ -169,7 +170,7 @@ function session.start(opts)
         self.cookie.domain = ngx_var.host
     end
     self.key = concat{
-        ssi                                           or "",
+        self.check.ssi    and ssi                     or "",
         self.check.ua     and ngx_var.http_user_agent or "",
         self.check.addr   and ngx_var.remote_addr     or "",
         self.check.scheme and ngx_var.scheme          or ""
