@@ -162,7 +162,7 @@ function session.start(opts)
     local ssi = ngx_var.ssl_session_id
     if self.cookie.secure == nil then
         if ssi then
-           self.cookie.secure = true
+            self.cookie.secure = true
         else
             self.cookie.secure = false
         end
