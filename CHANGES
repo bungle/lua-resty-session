@@ -1,4 +1,13 @@
 
+Changes with lua-resty-session 1.3                               14 Nov 2014
+
+    *) Feature: Added support for persistent sessions. See issue #2.
+
+    *) Feature: Added session.check.ssi, session.cookie.persistent and
+       the related Nginx configuration variables.
+
+    *) Feature: Added Max-Age=0 to expiration code.
+
 Changes with lua-resty-session 1.2                               12 Oct 2014
 
     *) Bugfix: changed encode and decode funtions to operate with corret

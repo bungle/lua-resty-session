@@ -131,7 +131,7 @@ end
 
 local persistent = enabled(ngx_var.session_cookie_persistent or false)
 local session = {
-    _VERSION = "1.1",
+    _VERSION = "1.3",
     name = ngx_var.session_name or "session",
     cookie = {
         persistent = persistent,
