@@ -73,10 +73,12 @@ function setcookie(session, value, expires)
     local cookie = { session.name, "=", value }
     local domain = session.cookie.domain
     if expires then
-        cookie[#cookie + 1] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT"
+        cookie[#cookie + 1] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
     elseif session.cookie.permanent then
         cookie[#cookie + 1] = "; Expires="
         cookie[#cookie + 1] = cookie_time(time() + session.cookie.lifetime)
+        cookie[#cookie + 1] = "; Max-Age="
+        cookie[#cookie + 1] = session.cookie.lifetime
     end
     if domain ~= "localhost" then
         cookie[#cookie + 1] = "; Domain="
