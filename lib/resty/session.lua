@@ -1,18 +1,19 @@
-local base64enc  = ngx.encode_base64
-local base64dec  = ngx.decode_base64
-local ngx_var    = ngx.var
-local concat     = table.concat
-local hmac       = ngx.hmac_sha1
-local time       = ngx.time
-local type       = type
-local json       = require "cjson"
-local aes        = require "resty.aes"
-local ffi        = require "ffi"
-local ffi_cdef   = ffi.cdef
-local ffi_new    = ffi.new
-local ffi_str    = ffi.string
-local ffi_typeof = ffi.typeof
-local C          = ffi.C
+local base64enc   = ngx.encode_base64
+local base64dec   = ngx.decode_base64
+local ngx_var     = ngx.var
+local concat      = table.concat
+local hmac        = ngx.hmac_sha1
+local time        = ngx.time
+local cookie_time = ngx.cookie_time
+local type        = type
+local json        = require "cjson"
+local aes         = require "resty.aes"
+local ffi         = require "ffi"
+local ffi_cdef    = ffi.cdef
+local ffi_new     = ffi.new
+local ffi_str     = ffi.string
+local ffi_typeof  = ffi.typeof
+local C           = ffi.C
 
 local ENCODE_CHARS = {
     ["+"] = "-",
@@ -73,6 +74,9 @@ function setcookie(session, value, expires)
     local domain = session.cookie.domain
     if expires then
         cookie[#cookie + 1] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT"
+    elseif session.cookie.permanent then
+        cookie[#cookie + 1] = "; Expires="
+        cookie[#cookie + 1] = cookie_time(time() + session.cookie.lifetime)
     end
     if domain ~= "localhost" then
         cookie[#cookie + 1] = "; Domain="
@@ -129,13 +133,15 @@ local session = {
     _VERSION = "1.1",
     name = ngx_var.session_name or "session",
     cookie = {
-        renew    = tonumber(ngx_var.session_cookie_renew)    or 600,
-        lifetime = tonumber(ngx_var.session_cookie_lifetime) or 3600,
-        path     = ngx_var.session_cookie_path               or "/",
-        domain   = ngx_var.session_cookie_domain,
-        secure   = enabled(ngx_var.session_cookie_secure),
-        httponly = enabled(ngx_var.session_cookie_httponly   or true)
+        permanent = enabled(ngx_var.session_cookie_httponly   or false),
+        renew     = tonumber(ngx_var.session_cookie_renew)    or 600,
+        lifetime  = tonumber(ngx_var.session_cookie_lifetime) or 3600,
+        path      = ngx_var.session_cookie_path               or "/",
+        domain    = ngx_var.session_cookie_domain,
+        secure    = enabled(ngx_var.session_cookie_secure),
+        httponly  = enabled(ngx_var.session_cookie_httponly   or true)
     }, check = {
+        ssi    = enabled(ngx_var.session_check_addr   or true),
         ua     = enabled(ngx_var.session_check_ua     or true),
         scheme = enabled(ngx_var.session_check_scheme or true),
         addr   = enabled(ngx_var.session_check_addr   or false)
@@ -156,7 +162,7 @@ function session.start(opts)
     local ssi = ngx_var.ssl_session_id
     if self.cookie.secure == nil then
         if ssi then
-            self.cookie.secure = true
+           self.cookie.secure = true
         else
             self.cookie.secure = false
         end
@@ -165,7 +171,7 @@ function session.start(opts)
         self.cookie.domain = ngx_var.host
     end
     self.key = concat{
-        ssi                                           or "",
+        self.check.ssi    and ssi                     or "",
         self.check.ua     and ngx_var.http_user_agent or "",
         self.check.addr   and ngx_var.remote_addr     or "",
         self.check.scheme and ngx_var.scheme          or ""
