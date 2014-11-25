@@ -299,7 +299,7 @@ as where the original cookie was delivered. This check is enabled by default.
 `session.check.addr` is additional check to validate that the request was made from the same remote ip-address
 as where the original cookie was delivered. This check is disabled by default.
 
-#### boolean session.check.addr
+#### boolean session.check.scheme
 
 `session.check.scheme` is additional check to validate that the request was made using the same protocol 
 as the one used when the original cookie was delivered. This check is enabled by default.
