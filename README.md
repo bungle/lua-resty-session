@@ -351,7 +351,9 @@ parameters on Nginx configuration even on that case. But if you are really suppo
 configurations (e.g. different `session.secret` on each site), you should set these in code (see: `session.new`
 and `session.start`).
 
-Here is a list of Nginx configuration variables that you can use to control `lua-resty-session`:
+Please note that Nginx has also its own SSL/TLS caches and timeouts. Especially note `ssl_session_timeout` if you are running services over SSL/TLS as this will end sessions regardless of `session.cookie.lifetime`. Please adjust that accordingly or disable `ssl_session_id` check `session.check.ssi = false` (in code) or `set $session_check_ssi off;` (in Nginx configuration).
+
+Here is a list of lua-resty-session related Nginx configuration variables that you can use to control `lua-resty-session`:
 
 ```nginx
 set $session_name              session;
