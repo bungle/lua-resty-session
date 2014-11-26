@@ -277,7 +277,7 @@ with Nginx `set $session_cookie_renew 600;` (600 seconds is the default value).
 `session.cookie.lifetime` holds the cookie lifetime in seconds in the future. By default this is set
 to 3,600 seconds. This can be configured with Nginx `set $session_cookie_lifetime 3600;`. This does not
 set cookie's expiration time on session only (by default) cookies, but it is used if the cookies are
-configured persistent with `session.cookie.persistent == true`.
+configured persistent with `session.cookie.persistent == true`. See also notes about [ssl_session_timeout](#nginx-configuration-variables).
 
 #### string session.cookie.path
 
@@ -344,7 +344,7 @@ as the one used when the original cookie was delivered. This check is enabled by
 
 ## Nginx Configuration Variables
 
-You can set default configuration parameters directly from Nginx configuration. It's *IMPORTANT* to understand
+You can set default configuration parameters directly from Nginx configuration. It's **IMPORTANT** to understand
 that these are read only once (not on every request), for performance reasons. This is especially important if
 you run multiple sites (with different configurations) on the same Nginx server. You can of course set the common
 parameters on Nginx configuration even on that case. But if you are really supporting multiple site with different
