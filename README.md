@@ -342,11 +342,6 @@ as where the original cookie was delivered. This check is disabled by default.
 `session.check.scheme` is additional check to validate that the request was made using the same protocol 
 as the one used when the original cookie was delivered. This check is enabled by default.
 
-#### Additional checks that are not configurable
-
-`lua-resty-session` will always check on TLS/SSL connection whether the cookie was send with the same `ssl_session_id`
-that was used when the cookie was originally delivered.
-
 ## Nginx Configuration Variables
 
 You can set default configuration parameters directly from Nginx configuration. It's *IMPORTANT* to understand
