@@ -71,7 +71,7 @@ end
 
 function setcookie(session, value, expires)
     local cookie = { session.name, "=", value }
-    local domain = session.cookie.domain
+    local domain = session.cookie_domain
     if expires then
         cookie[#cookie + 1] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
     elseif session.cookie.persistent then
@@ -84,7 +84,7 @@ function setcookie(session, value, expires)
     end
     cookie[#cookie + 1] = "; Path="
     cookie[#cookie + 1] = session.cookie.path or "/"
-    if session.cookie.secure then
+    if session.cookie_secure then
         cookie[#cookie + 1] = "; Secure"
     end
     if session.cookie.httponly then
@@ -137,10 +137,11 @@ local defaults = {
         renew      = tonumber(ngx_var.session_cookie_renew)    or 600,
         lifetime   = tonumber(ngx_var.session_cookie_lifetime) or 3600,
         path       = ngx_var.session_cookie_path               or "/",
-        domain     = ngx_var.session_cookie_domain,
-        secure     = enabled(ngx_var.session_cookie_secure),
         httponly   = enabled(ngx_var.session_cookie_httponly   or true)
-    }, check = {
+    },
+    cookie_domain = ngx_var.session_cookie_domain,
+    cookie_secure = enabled(ngx_var.session_cookie_secure),
+    check = {
         ssi    = enabled(ngx_var.session_check_ssi    or persistent == false),
         ua     = enabled(ngx_var.session_check_ua     or true),
         scheme = enabled(ngx_var.session_check_scheme or true),
@@ -200,15 +201,15 @@ end
 function session.start(opts)
     local self = session.new(opts)
     local ssi = ngx_var.ssl_session_id
-    if self.cookie.secure == nil then
+    if self.cookie_secure == nil then
         if ssi then
-            self.cookie.secure = true
+            self.cookie_secure = true
         else
-            self.cookie.secure = false
+            self.cookie_secure = false
         end
     end
-    if self.cookie.domain == nil then
-        self.cookie.domain = ngx_var.host
+    if self.cookie_domain == nil then
+        self.cookie_domain = ngx_var.host
     end
     self.key = concat{
         self.check.ssi    and ssi                     or "",
