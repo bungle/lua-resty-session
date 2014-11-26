@@ -116,17 +116,54 @@ could be added to this module as well (all contributions are welcomed).
 
 ### Functions and Methods
 
-#### table session.start(opts or nil)
+#### table session.new(opts or nil)
 
-With this function you can start a new session. It will create a new session Lua `table` on each call.
-Right now you should only start session once per request as calling this function repeatedly will overwrite the previously
-started session cookie and session data. This function will return a new session `table` as a result. If the session cookie
-is supplied with user's HTTP(S) client then this function validates the supplied session cookie. If validation
-is successful, the user supplied session data will be used (if not, a new session is generated with empty data).
-You may supply optional session configuration variables with `opts` argument, but be aware that many of these
-will only have effect if the session is a fresh session (i.e. not loaded from user supplied cookie). This function
-does also manage session cookie renewing configured with `$session_cookie_renew`. E.g. it will send a new cookie
-with a new expiration time if the following is met `session.expires - now < session.cookie.renew`.
+With this function you can create a new session table (i.e. the actual session instance). This allows
+you to generate session table first, and set invidual configuration before calling `session:start()`.
+You can also pass in `opts` Lua `table` with the configurations.
+
+```lua
+local session = require("resty.session").new()
+-- set the configuration parameters before calling start
+session.cookie.domain = "mydomain.com"
+-- call start before setting session.data parameters
+session:start()
+session.data.uid = 1
+-- save session and update the cookie to be sent to the client
+session:save()
+```
+
+This is equivalent to this:
+
+```lua
+local session = require("resty.session").new{ cookie = { domain = "mydomain.com" } }
+session:start()
+session.data.uid = 1
+session:save()
+```
+
+As well as with this:
+
+```lua
+local session = require("resty.session").start{ cookie = { domain = "mydomain.com" } }
+session.data.uid = 1
+session:save()
+```
+
+#### table, boolean session.start(opts or nil)
+
+With this function you can start a new session. It will create a new session Lua `table` on each call (unless called with
+colon `:` as in examples above with `session.new`). Right now you should only start session once per request as calling
+this function repeatedly will overwrite the previously started session cookie and session data. This function will return
+a (new) session `table` as a result. If the session cookie is supplied with user's HTTP(S) client then this function
+validates the supplied session cookie. If validation is successful, the user supplied session data will be used
+(if not, a new session is generated with empty data). You may supply optional session configuration variables
+with `opts` argument, but be aware that many of these will only have effect if the session is a fresh session
+(i.e. not loaded from user supplied cookie). This function does also manage session cookie renewing configured
+with `$session_cookie_renew`. E.g. it will send a new cookie with a new expiration time if the following is
+met `session.expires - now < session.cookie.renew`. The second `boolean` return argument will be `true` if the user
+client send a valid cookie (meaning that session was already started on some earlier request), and `false` if the
+new session was created (either because user client didn't send a cookie or that the cookie was not a valid one).
 
 ```lua
 local session = require("resty.session").start()
@@ -136,8 +173,8 @@ local session = require("resty.session").start{ identifier = { length = 32 }}
 
 #### boolean session:regenerate(flush or nil)
 
-This function regenerates a session. It will generate a new session identifier and optionally flush the
-session data if `flush` argument evaluates `true`. It will automatically `session:save` which
+This function regenerates a session. It will generate a new session identifier (`session.id`) and optionally
+flush the session data if `flush` argument evaluates `true`. It will automatically `session:save` which
 means that a new expires flag is set on the cookie, and the data is encrypted with the new parameters. With
 client side sessions (server side sessions are not yet supported) this overwrites the current cookie with
 a new one (but it doesn't invalidate the old one as there is no state held on server side - invalidation
@@ -153,10 +190,11 @@ session:regenerate(true)
 
 #### boolean session:save()
 
-This function saves the session and sends a new cookie to client (with a new expiration time and encrypted data).
-You need to call this function whenever you want to save the changes made to `session.data` table. It is
-advised that you call this function only once per request (no need to encrypt and set cookie many times).
-This function returns a boolean value if everything went as planned (you may assume that it is always the case).
+This function saves the session and sends (not immediate though, as actual sending is handled by Nginx/OpenResty)
+a new cookie to client (with a new expiration time and encrypted data). You need to call this function whenever
+you want to save the changes made to `session.data` table. It is advised that you call this function only once
+per request (no need to encrypt and set cookie many times). This function returns a boolean value if everything
+went as planned (you may assume that it is always the case).
 
 ```lua
 local session = require("resty.session").start()
@@ -191,7 +229,7 @@ This can be configured with Nginx `set $session_identifier_length 16;`.
 #### string session.key
 
 `session.key` holds the HMAC key. It is automatically generated. Nginx configuration like
-`set $session_check_ua on;`, `set $session_check_scheme on;` and `set $session_check_addr on;`
+`set $session_check_ssi on;`, `set $session_check_ua on;`, `set $session_check_scheme on;` and `set $session_check_addr on;`
  will have effect on the generated key.
 
 #### table session.data
@@ -238,8 +276,8 @@ with Nginx `set $session_cookie_renew 600;` (600 seconds is the default value).
 
 `session.cookie.lifetime` holds the cookie lifetime in seconds in the future. By default this is set
 to 3,600 seconds. This can be configured with Nginx `set $session_cookie_lifetime 3600;`. This does not
-set cookie's expiration time on session only (by default), but it is used if the cookies are configured
-persistent with `session.cookie.persistent`.
+set cookie's expiration time on session only (by default) cookies, but it is used if the cookies are
+configured persistent with `session.cookie.persistent == true`.
 
 #### string session.cookie.path
 
@@ -310,6 +348,13 @@ as the one used when the original cookie was delivered. This check is enabled by
 that was used when the cookie was originally delivered.
 
 ## Nginx Configuration Variables
+
+You can set default configuration parameters directly from Nginx configuration. It's *IMPORTANT* to understand
+that these are read only once (not on every request), for performance reasons. This is especially important if
+you run multiple sites (with different configurations) on the same Nginx server. You can of course set the common
+parameters on Nginx configuration even on that case. But if you are really supporting multiple site with different
+configurations (e.g. different `session.secret` on each site), you should set these in code (see: `session.new`
+and `session.start`).
 
 Here is a list of Nginx configuration variables that you can use to control `lua-resty-session`:
 

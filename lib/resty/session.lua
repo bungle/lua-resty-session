@@ -156,7 +156,7 @@ local defaults = {
 defaults.secret = ngx_var.session_secret or random(defaults.cipher.size / 8)
 
 local session = {
-    _VERSION = "1.4-rc1"
+    _VERSION = "1.4"
 }
 session.__index = session
 
@@ -230,13 +230,13 @@ function session.start(opts)
                 if self.expires - now < self.cookie.renew then
                     self:save()
                 end
-                return self
+                return self, true
             end
         end
     end
     if type(self.data) ~= "table" then self.data = {} end
     self:regenerate()
-    return self
+    return self, false
 end
 
 function session:regenerate(flush)
