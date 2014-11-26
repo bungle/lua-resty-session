@@ -353,6 +353,13 @@ and `session.start`).
 
 Please note that Nginx has also its own SSL/TLS caches and timeouts. Especially note `ssl_session_timeout` if you are running services over SSL/TLS as this will end sessions regardless of `session.cookie.lifetime`. Please adjust that accordingly or disable `ssl_session_id` check `session.check.ssi = false` (in code) or `set $session_check_ssi off;` (in Nginx configuration).
 
+You may want to add something like this to your Nginx SSL/TLS config (quite a huge cache in this example, 1 MB is about 4000 SSL Sessions):
+
+```nginx
+ssl_session_cache shared:SSL:100m;
+ssl_session_timeout 60m;
+```
+
 Here is a list of lua-resty-session related Nginx configuration variables that you can use to control `lua-resty-session`:
 
 ```nginx
