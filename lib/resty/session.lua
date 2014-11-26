@@ -130,8 +130,7 @@ local function getcookie(cookie)
 end
 
 local persistent = enabled(ngx_var.session_cookie_persistent or false)
-local session = {
-    _VERSION = "1.3",
+local defaults = {
     name = ngx_var.session_name or "session",
     cookie = {
         persistent = persistent,
@@ -154,12 +153,52 @@ local session = {
     }, identifier = {
         length  = tonumber(ngx_var.session_identifier_length) or 16
 }}
+defaults.secret = ngx_var.session_secret or random(defaults.cipher.size / 8)
 
-session.secret = ngx_var.session_secret or random(session.cipher.size / 8)
+local session = {
+    _VERSION = "1.4-rc1"
+}
 session.__index = session
 
+function session.new(opts)
+    if getmetatable(opts) == session then
+        return opts
+    end
+    local z = defaults
+    local y = opts or z
+    local a, b = y.cookie     or z.cookie,     z.cookie
+    local c, d = y.check      or z.check,      z.check
+    local e, f = y.cipher     or z.cipher,     z.cipher
+    local g, h = y.identifier or z.identifier, z.identifier
+    return setmetatable({
+        name   = y.name   or z.name,
+        secret = y.secret or z.secret,
+        cookie = {
+            persistent = a.persistent or b.persistent,
+            renew      = a.renew      or b.renew,
+            lifetime   = a.lifetime   or b.lifetime,
+            path       = a.path       or b.path,
+            domain     = a.domain     or b.domain,
+            secure     = a.secure     or b.secure,
+            httponly   = a.httponly   or b.httponly
+        }, check = {
+            ssi        = c.ssi        or d.ssi,
+            ua         = c.ua         or d.ua,
+            scheme     = c.scheme     or d.scheme,
+            addr       = c.addr       or d.addr
+        }, cipher = {
+            size       = e.size       or f.size,
+            mode       = e.mode       or f.mode,
+            hash       = e.hash       or f.hash,
+            rounds     = e.rounds     or f.rounds
+        }, identifier = {
+            length     = g.length     or h.length
+        }
+    }, session)
+end
+
 function session.start(opts)
-    local self = setmetatable(opts or {}, session)
+    local self = session.new(opts)
     local ssi = ngx_var.ssl_session_id
     if self.cookie.secure == nil then
         if ssi then
