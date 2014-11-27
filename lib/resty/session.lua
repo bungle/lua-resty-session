@@ -156,7 +156,7 @@ local defaults = {
 defaults.secret = ngx_var.session_secret or random(defaults.cipher.size / 8)
 
 local session = {
-    _VERSION = "1.5"
+    _VERSION = "1.6-dev"
 }
 session.__index = session
 
@@ -218,7 +218,7 @@ function session.start(opts)
         local k = hmac(self.secret, self.id .. self.expires)
         local a = aes:new(k, self.id, aes.cipher(self.cipher.size, self.cipher.mode), self.cipher.hash, self.cipher.rounds)
         d = a:decrypt(d)
-        if d and hmac(k, self.id .. self.expires .. d .. self.key) == h then
+        if d and hmac(k, concat{ self.id, self.expires, d, self.key }) == h then
             local data = json.decode(d)
             if type(data) == "table" then
                 self.data = data
@@ -244,9 +244,9 @@ function session:save()
     self.expires = time() + self.cookie.lifetime
     local k = hmac(self.secret, self.id .. self.expires)
     local d = json.encode(self.data)
-    local h = hmac(k, self.id .. self.expires .. d .. self.key)
+    local h = hmac(k, concat{ self.id, self.expires, d, self.key })
     local a = aes:new(k, self.id, aes.cipher(self.cipher.size, self.cipher.mode), self.cipher.hash, self.cipher.rounds)
-    return setcookie(self, encode(self.id) .. "|" .. self.expires .. "|" .. encode(a:encrypt(d)) .. "|" .. encode(h))
+    return setcookie(self, concat({ encode(self.id), self.expires, encode(a:encrypt(d)), encode(h) }, "|"))
 end
 
 function session:destroy()
