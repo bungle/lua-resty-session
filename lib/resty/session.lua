@@ -78,7 +78,7 @@ function setcookie(session, value, expires)
         cookie[#cookie + 1] = "; Expires="
         cookie[#cookie + 1] = cookie_time(session.expires)
     end
-    if domain ~= "localhost" then
+    if domain ~= "localhost" and domain ~= "" then
         cookie[#cookie + 1] = "; Domain="
         cookie[#cookie + 1] = domain
     end
