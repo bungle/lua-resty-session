@@ -1,4 +1,14 @@
 
+Changes with lua-resty-session 1.5                               27 Nov 2014
+
+    *) Bugfix: Cookies are not always "secure":
+       https://github.com/bungle/lua-resty-session/issues/5
+
+       Thanks @vladimir-smirnov-sociomantic
+
+    *) Documentation: Added documentation about Nginx SSL/TLS configuration
+       settings related to session lifetime and ssl session ids.
+
 Changes with lua-resty-session 1.4                               26 Nov 2014
 
     *) Bugfix: Fixed an issue where session configurations did get cached

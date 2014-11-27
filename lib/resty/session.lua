@@ -156,7 +156,7 @@ local defaults = {
 defaults.secret = ngx_var.session_secret or random(defaults.cipher.size / 8)
 
 local session = {
-    _VERSION = "1.4"
+    _VERSION = "1.5"
 }
 session.__index = session
 
@@ -199,22 +199,17 @@ end
 
 function session.start(opts)
     local self = session.new(opts)
-    local ssi = ngx_var.ssl_session_id
     if self.cookie.secure == nil then
-        if ssi then
-            self.cookie.secure = true
-        else
-            self.cookie.secure = false
-        end
+        self.cookie.secure = ngx_var.https == "on"
     end
     if self.cookie.domain == nil then
         self.cookie.domain = ngx_var.host
     end
     self.key = concat{
-        self.check.ssi    and ssi                     or "",
-        self.check.ua     and ngx_var.http_user_agent or "",
-        self.check.addr   and ngx_var.remote_addr     or "",
-        self.check.scheme and ngx_var.scheme          or ""
+        self.check.ssi    and (ngx_var.ssl_session_id  or "") or "",
+        self.check.ua     and (ngx_var.http_user_agent or "") or "",
+        self.check.addr   and (ngx_var.remote_addr     or "") or "",
+        self.check.scheme and (ngx_var.scheme          or "") or ""
     }
     local now, i, e, d, h = time(), getcookie(ngx.var["cookie_" .. self.name])
     if i and e and e > now then
