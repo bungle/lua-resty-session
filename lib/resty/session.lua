@@ -120,18 +120,44 @@ function setcookie(session, value, expires)
     return true
 end
 
-local function getcookie(cookie)
-    if not cookie then return end
+local function getfields(data)
+    if not data then return end
     local r = {}
-    local i, p, s, e = 1, 1, cookie:find("|", 1, true)
+    local i, p, s, e = 1, 1, data:find("|", 1, true)
     while s do
         if i > 3 then return end
-        r[i] = cookie:sub(p, e - 1)
+        r[i] = data:sub(p, e - 1)
         i, p = i + 1, e + 1
-        s, e = cookie:find("|", p, true)
+        s, e = data:find("|", p, true)
     end
-    r[4] = cookie:sub(p)
+    r[4] = data:sub(p)
     return decode(r[1]), tonumber(r[2]), decode(r[3]), decode(r[4])
+end
+
+local function decrypt_data_structure(session, data, h, now)
+    local k = hmac(session.secret, session.id .. session.expires)
+    local a = aes:new(k, session.id, aes.cipher(session.cipher.size, session.cipher.mode), session.cipher.hash, session.cipher.rounds)
+    local d = a:decrypt(data)
+
+    if d and hmac(k, concat{ session.id, session.expires, d, session.key }) == h then
+        local data = json.decode(d)
+        if type(data) == "table" then
+            session.data = data
+            if session.expires - now < session.cookie.renew then
+                session:save()
+            end
+            return data
+        end
+    end
+    return {}
+end
+
+local function encrypt_data_structure(session)
+    local k = hmac(session.secret, session.id .. session.expires)
+    local d = json.encode(session.data)
+    local h = hmac(k, concat{ session.id, session.expires, d, session.key })
+    local a = aes:new(k, session.id, aes.cipher(session.cipher.size, session.cipher.mode), session.cipher.hash, session.cipher.rounds)
+    return concat({ encode(session.id), session.expires, encode(a:encrypt(d)), encode(h)}, "|")
 end
 
 local persistent = enabled(ngx_var.session_cookie_persistent or false)
@@ -241,8 +267,15 @@ function session.start(opts)
             return self, true
         end
 
-        ngx.log(ngx.DEBUG, "[session_redis] debug: ", data)
-        self.data = json.decode(data)
+        if ngx_var.session_redis_encryption then
+            local now, i, e, d, h = time(), getfields(data)
+            self.id = i
+            self.expires = e
+            self.data = decrypt_data_structure(self, d, h, now)
+        else
+            self.data = json.decode(data)
+        end
+
         if type(self.data) ~= "table" then
             self.data = {}
             self:regenerate()
@@ -256,22 +289,16 @@ function session.start(opts)
         return self, false
     end
 
-    local now, i, e, d, h = time(), getcookie(ngx.var["cookie_" .. self.name])
+    local now, i, e, d, h = time(), getfields(ngx.var["cookie_" .. self.name])
     if i and e and e > now then
         self.id = i
         self.expires = e
-        local k = hmac(self.secret, self.id .. self.expires)
-        local a = aes:new(k, self.id, aes.cipher(self.cipher.size, self.cipher.mode), self.cipher.hash, self.cipher.rounds)
-        d = a:decrypt(d)
-        if d and hmac(k, concat{ self.id, self.expires, d, self.key }) == h then
-            local data = json.decode(d)
-            if type(data) == "table" then
-                self.data = data
-                if self.expires - now < self.cookie.renew then
-                    self:save()
-                end
-                return self, true
+        self.data = decrypt_data_structure(self, d, h, now)
+        if type(self.data) == "table" then
+            if self.expires - now < self.cookie.renew then
+                self:save()
             end
+            return self, true
         end
     end
     if type(self.data) ~= "table" then self.data = {} end
@@ -286,8 +313,14 @@ function session:regenerate(flush)
 end
 
 function session:save()
+    self.expires = time() + self.cookie.lifetime
     if redis then
-        local ok, err = self.redis:set(self.key, json.encode(self.data))
+        local ok, err = nil, nil
+        if ngx_var.session_redis_encryption then
+            ok, err = self.redis:set(self.key, encrypt_data_structure(self))
+        else
+            ok, err = self.redis:set(self.key, json.encode(self.data))
+        end
         if not ok then
             return false, err
         end
@@ -297,12 +330,7 @@ function session:save()
         end
         return true
     end
-    self.expires = time() + self.cookie.lifetime
-    local k = hmac(self.secret, self.id .. self.expires)
-    local d = json.encode(self.data)
-    local h = hmac(k, concat{ self.id, self.expires, d, self.key })
-    local a = aes:new(k, self.id, aes.cipher(self.cipher.size, self.cipher.mode), self.cipher.hash, self.cipher.rounds)
-    return setcookie(self, concat({ encode(self.id), self.expires, encode(a:encrypt(d)), encode(h) }, "|"))
+    return setcookie(self, encrypt_data_structure(self))
 end
 
 function session:destroy()
