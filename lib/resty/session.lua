@@ -14,6 +14,11 @@ local ffi_new     = ffi.new
 local ffi_str     = ffi.string
 local ffi_typeof  = ffi.typeof
 local C           = ffi.C
+local redis       = nil
+
+if ngx_var.session_redis then
+    redis = require "resty.redis"
+end
 
 local ENCODE_CHARS = {
     ["+"] = "-",
@@ -211,6 +216,46 @@ function session.start(opts)
         self.check.addr   and (ngx_var.remote_addr     or "") or "",
         self.check.scheme and (ngx_var.scheme          or "") or ""
     }
+
+    if redis then
+        self.redis = redis:new()
+        local timeout = ngx_var.session_redis_timeout or 1000
+        self.redis:set_timeout(tonumber(timeout))
+        local redis_host = ngx_var.session_redis_host or "127.0.0.1"
+        local redis_port = ngx_var.session_redis_port or 6379
+        local data, err = self.redis:connect(redis_host, tonumber(redis_port))
+        if err then
+            ngx.log(ngx.ERR, "Failed to connect to ", redis_host, ":", redis_port, ", msg: ", err)
+            return nil, err
+        end
+
+        data, err = self.redis:get(self.key)
+        if not data then
+            ngx.log(ngx.ERR, "Failed to get data from redis: ", err)
+            return nil, err
+        end
+
+        if data == ngx.null then
+            self.data = {}
+            self:regenerate()
+            return self, true
+        end
+
+        ngx.log(ngx.DEBUG, "[session_redis] debug: ", data)
+        self.data = json.decode(data)
+        if type(self.data) ~= "table" then
+            self.data = {}
+            self:regenerate()
+            return self, false
+        elseif tonumber(self.redis:ttl(self.key)) < self.cookie.renew then
+            self:save()
+            return self, true
+        end
+
+        self:regenerate()
+        return self, false
+    end
+
     local now, i, e, d, h = time(), getcookie(ngx.var["cookie_" .. self.name])
     if i and e and e > now then
         self.id = i
@@ -241,6 +286,17 @@ function session:regenerate(flush)
 end
 
 function session:save()
+    if redis then
+        local ok, err = self.redis:set(self.key, json.encode(self.data))
+        if not ok then
+            return false, err
+        end
+        ok, err = self.redis:expire(self.key, tostring(self.cookie.lifetime))
+        if not ok then
+            return false, err
+        end
+        return true
+    end
     self.expires = time() + self.cookie.lifetime
     local k = hmac(self.secret, self.id .. self.expires)
     local d = json.encode(self.data)
