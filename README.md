@@ -324,8 +324,13 @@ want to turn this off, this can be configured with Nginx `set $session_cookie_ht
 
 #### boolean session.check.ssi
 
-`session.check.ssi` is additional check to validate that the request was made with the same SSL Session as when
-the original cookie was delivered. This check is enabled by default on non-persistent sessions and disabled by default on persistent sessions.
+`session.check.ssi` is additional check to validate that the request was made with the same SSL session as when
+the original cookie was delivered. This check is enabled by default on non-persistent sessions and disabled by default on persistent sessions. Please note that on TLS with TLS Tickets enabled, this will be empty )and not used. This is discussed
+on issue #5 (https://github.com/bungle/lua-resty-session/issues/5). You can disable TLS tickets with Nginx configuration:
+
+```nginx
+ssl_session_tickets off;
+```
 
 #### boolean session.check.ua
 
@@ -359,6 +364,14 @@ You may want to add something like this to your Nginx SSL/TLS config (quite a hu
 ssl_session_cache shared:SSL:100m;
 ssl_session_timeout 60m;
 ```
+
+Also note that the `ssl_session_id` may be `null` if the TLS tickets are enabled. You can disable tickets in Nginx server with the configuration below:
+
+```nginx
+ssl_session_tickets off;
+```
+
+Right now this is a workaround and may change in a future if we find alternative ways to have the added security that we have with `ssl_session_id` with TLS tickets too. Right not, while TLS tickets are great, they also have effect on (Perfect) Forward Secrecy, and it is adviced to disable tickets until the problems mentioned in [The Sad State of Server-Side TLS Session Resumption Implementations](https://timtaubert.de/blog/2014/11/the-sad-state-of-server-side-tls-session-resumption-implementations/) article are resolved.
 
 Here is a list of lua-resty-session related Nginx configuration variables that you can use to control `lua-resty-session`:
 
