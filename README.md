@@ -53,6 +53,14 @@ http {
 }
 ```
 
+## Roadmap
+
+1. Implement 'read-only' property so that session.data manipulations can be prevented (this will come handy when server-side session storages are implemented, as they need locking on sessions)
+2. Implement generic locking mechanism for server-side storage engines using `resty.lock`
+3. Implement pluggable server-side storage engines for session data (shm, files, memcached, redis...)
+4. Implement cookieless server-side session support using `ssl_session_id` as a `session.id` (using server-side storage)
+5. Add support for `lua-resty-nettle` for more wide variety of encryption algorithms
+
 ## Installation
 
 Just place [`session.lua`](https://github.com/bungle/lua-resty-session/blob/master/lib/resty/session.lua) somewhere in your `package.path`, preferably under `resty` directory. If you are using OpenResty, the default location would be `/usr/local/openresty/lualib/resty`.
