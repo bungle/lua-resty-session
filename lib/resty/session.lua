@@ -9,12 +9,17 @@ local type        = type
 local json        = require "cjson"
 local aes         = require "resty.aes"
 local ffi         = require "ffi"
+local lock, err   = require("resty.lock"):new("session_locks")
 local ffi_cdef    = ffi.cdef
 local ffi_new     = ffi.new
 local ffi_str     = ffi.string
 local ffi_typeof  = ffi.typeof
 local C           = ffi.C
 local redis       = nil
+
+if not lock then
+    ngx.log(ngx.ERR, "Failed to initialize resty.locks with: ", err, ". It's highly adviced to place 'lua_shared_dict session_locks 100k' in you config")
+end
 
 if ngx_var.session_redis then
     redis = require "resty.redis"
@@ -117,6 +122,9 @@ function setcookie(session, value, expires)
         cookies = cookie
     end
     ngx.header["Set-Cookie"] = cookies
+    if lock then
+        lock:unlock()
+    end
     return true
 end
 
@@ -138,7 +146,6 @@ local function decrypt_data_structure(session, data, h, now)
     local k = hmac(session.secret, session.id .. session.expires)
     local a = aes:new(k, session.id, aes.cipher(session.cipher.size, session.cipher.mode), session.cipher.hash, session.cipher.rounds)
     local d = a:decrypt(data)
-
     if d and hmac(k, concat{ session.id, session.expires, d, session.key }) == h then
         local data = json.decode(d)
         if type(data) == "table" then
@@ -229,6 +236,9 @@ function session.new(opts)
 end
 
 function session.start(opts)
+    if lock then
+        lock:lock(ngx_var.ssl_session_id)
+    end
     local self = session.new(opts)
     if self.cookie.secure == nil then
         self.cookie.secure = ngx_var.https == "on"
@@ -273,7 +283,10 @@ function session.start(opts)
             self.expires = e
             self.data = decrypt_data_structure(self, d, h, now)
         else
-            self.data = json.decode(data)
+            status, self.data = pcall(json.decode(data))
+            if not status then
+                self.data = nil
+            end
         end
 
         if type(self.data) ~= "table" then
@@ -307,7 +320,11 @@ function session.start(opts)
 end
 
 function session:regenerate(flush)
-    self.id = random(self.identifier.length)
+    if ngx_var.ssl_session_id then
+        self.id = ngx_var.ssl_session_id
+    else
+        self.id = random(self.identifier.length)
+    end
     if flush then self.data = {} end
     return self:save()
 end
