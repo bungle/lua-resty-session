@@ -283,7 +283,7 @@ function session.start(opts)
             self.expires = e
             self.data = decrypt_data_structure(self, d, h, now)
         else
-            status, self.data = pcall(json.decode(data))
+            status, self.data = pcall(json.decode, data)
             if not status then
                 self.data = nil
             end
