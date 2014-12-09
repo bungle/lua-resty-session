@@ -1,6 +1,7 @@
 local base64enc   = ngx.encode_base64
 local base64dec   = ngx.decode_base64
 local ngx_var     = ngx.var
+local ngx_header  = ngx.header
 local concat      = table.concat
 local hmac        = ngx.hmac_sha1
 local time        = ngx.time
@@ -92,7 +93,7 @@ function setcookie(session, value, expires)
     end
     local needle = concat(cookie, nil, 1, 2)
     cookie = concat(cookie)
-    local cookies = ngx.header["Set-Cookie"]
+    local cookies = ngx_header["Set-Cookie"]
     local t = type(cookies)
     if t == "table" then
         local found = false
@@ -111,7 +112,7 @@ function setcookie(session, value, expires)
     else
         cookies = cookie
     end
-    ngx.header["Set-Cookie"] = cookies
+    ngx_header["Set-Cookie"] = cookies
     return true
 end
 
@@ -199,19 +200,46 @@ end
 
 function session.start(opts)
     local self = session.new(opts)
+    local scheme = ngx_header["X-Forwarded-Proto"]
     if self.cookie.secure == nil then
-        self.cookie.secure = ngx_var.https == "on"
+        if scheme then
+            self.cookie.secure = scheme == "https"
+        else
+            self.cookie.secure = ngx_var.https == "on"
+        end
     end
+    scheme = self.check.scheme and (scheme or ngx_var.scheme or "") or ""
     if self.cookie.domain == nil then
         self.cookie.domain = ngx_var.host
+    end
+    local addr = ""
+    if self.check.addr then
+        addr = ngx_header["CF-Connecting-IP"] or
+               ngx_header["Fastly-Client-IP"] or
+               ngx_header["Incap-Client-IP"]  or
+               ngx_header["X-Real-IP"]
+        if not addr then
+            addr = ngx_header["X-Forwarded-For"]
+            if addr then
+                -- We shouldn't really get the left-most address, because of spoofing,
+                -- but this is better handled with a module, like nginx realip module,
+                -- anyway (see also: http://goo.gl/Z6u2oR).
+                local s = (addr:find(',', 1, true))
+                if s then
+                    addr = addr:sub(1, s - 1)
+                end
+            else
+                addr = ngx_var.remote_addr
+            end
+        end
     end
     self.key = concat{
         self.check.ssi    and (ngx_var.ssl_session_id  or "") or "",
         self.check.ua     and (ngx_var.http_user_agent or "") or "",
-        self.check.addr   and (ngx_var.remote_addr     or "") or "",
-        self.check.scheme and (ngx_var.scheme          or "") or ""
+        addr,
+        scheme
     }
-    local now, i, e, d, h = time(), getcookie(ngx.var["cookie_" .. self.name])
+    local now, i, e, d, h = time(), getcookie(ngx_var["cookie_" .. self.name])
     if i and e and e > now then
         self.id = i
         self.expires = e
