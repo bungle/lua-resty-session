@@ -127,7 +127,9 @@ local function getcookie(cookie)
         s, e = cookie:find("|", p, true)
     end
     r[4] = cookie:sub(p)
-    return decode(r[1]), tonumber(r[2]), decode(r[3]), decode(r[4])
+    if r[1] and r[2] and r[3] and r[4] then
+      return decode(r[1]), tonumber(r[2]), decode(r[3]), decode(r[4])
+    end
 end
 
 local persistent = enabled(ngx_var.session_cookie_persistent or false)
