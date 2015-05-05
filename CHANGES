@@ -1,3 +1,9 @@
+Changes with lua-resty-session 1.6                                5 May 2015
+
+    *) Bugfix: Fixed truncated cookie value bug:
+       https://github.com/bungle/lua-resty-session/pull/8
+
+       Thanks @kipras
 
 Changes with lua-resty-session 1.5                               27 Nov 2014
 
