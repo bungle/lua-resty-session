@@ -97,8 +97,8 @@ function setcookie(session, value, expires)
     local t = type(cookies)
     if t == "table" then
         local found = false
-        for i, cookie in ipairs(cookies) do
-            if cookie:find(needle, 1, true) == 1 then
+        for i, set_cookie in ipairs(cookies) do
+            if set_cookie:find(needle, 1, true) == 1 then
                 cookies[i] = cookie
                 found = true
                 break
