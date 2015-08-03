@@ -1,20 +1,20 @@
-local base64enc   = ngx.encode_base64
-local base64dec   = ngx.decode_base64
-local ngx_var     = ngx.var
-local ngx_header  = ngx.header
-local concat      = table.concat
-local hmac        = ngx.hmac_sha1
-local time        = ngx.time
-local cookie_time = ngx.cookie_time
-local type        = type
-local json        = require "cjson"
-local aes         = require "resty.aes"
-local ffi         = require "ffi"
-local ffi_cdef    = ffi.cdef
-local ffi_new     = ffi.new
-local ffi_str     = ffi.string
-local ffi_typeof  = ffi.typeof
-local C           = ffi.C
+local base64enc  = ngx.encode_base64
+local base64dec  = ngx.decode_base64
+local ngx_var    = ngx.var
+local ngx_header = ngx.header
+local concat     = table.concat
+local hmac       = ngx.hmac_sha1
+local time       = ngx.time
+local http_time  = ngx.http_time
+local type       = type
+local json       = require "cjson"
+local aes        = require "resty.aes"
+local ffi        = require "ffi"
+local ffi_cdef   = ffi.cdef
+local ffi_new    = ffi.new
+local ffi_str    = ffi.string
+local ffi_typeof = ffi.typeof
+local C          = ffi.C
 
 local ENCODE_CHARS = {
     ["+"] = "-",
@@ -77,7 +77,7 @@ function setcookie(session, value, expires)
         cookie[#cookie + 1] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
     elseif session.cookie.persistent then
         cookie[#cookie + 1] = "; Expires="
-        cookie[#cookie + 1] = cookie_time(session.expires)
+        cookie[#cookie + 1] = http_time(session.expires)
     end
     if domain ~= "localhost" and domain ~= "" then
         cookie[#cookie + 1] = "; Domain="
