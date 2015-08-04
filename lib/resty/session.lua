@@ -178,7 +178,7 @@ function session.new(opts)
         name   = y.name   or z.name,
         data   = y.data   or {},
         secret = y.secret or z.secret,
-        existing = false,
+        present = false,
         opened = false,
         started = false,
         destroyed = false,
@@ -208,7 +208,7 @@ end
 
 function session.open(opts)
     if getmetatable(opts) == session and opts.opened then
-        return opts, opts.existing
+        return opts, opts.present
     end
     local self = session.new(opts)
     local scheme = ngx_header["X-Forwarded-Proto"]
@@ -259,20 +259,20 @@ function session.open(opts)
         d = a:decrypt(d)
         if d and hmac(k, concat{ self.id, self.expires, d, self.key }) == h then
             self.data = json.decode(d)
-            self.existing = true
+            self.present = true
         end
     end
     if type(self.data) ~= "table" then self.data = {} end
     self.opened = true
-    return self, self.existing
+    return self, self.present
 end
 
 function session.start(opts)
     if getmetatable(opts) == session and opts.started then
-        return opts, opts.existing
+        return opts, opts.present
     end
-    local self, existing = session.open(opts)
-    if existing then
+    local self, present = session.open(opts)
+    if present then
         if self.expires - time() < self.cookie.renew then
             self:save()
         end
@@ -280,7 +280,7 @@ function session.start(opts)
         self:regenerate()
     end
     self.started = true
-    return self, existing
+    return self, present
 end
 
 function session:regenerate(flush)
@@ -300,7 +300,7 @@ end
 
 function session:destroy()
     self.data = {}
-    self.existing = false
+    self.present = false
     self.opened = false
     self.started = false
     self.destroyed = true

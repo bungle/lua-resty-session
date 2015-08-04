@@ -177,7 +177,7 @@ local session = require("resty.session").open()
 -- Set some options (overwriting the defaults or nginx configuration variables)
 local session = require("resty.session").open{ identifier = { length = 32 }}
 -- Read some data
-if session.existing then
+if session.present then
     ngx.print(session.data.uid)
 end
 -- Now let's really start the session
@@ -260,9 +260,9 @@ session:destroy()
 `session.id` holds the current session id. By default it is 16 bytes long (raw binary bytes).
 It is automatically generated.
 
-#### boolean session.existing
+#### boolean session.present
 
-`session.existing` can be used to check if the session that was opened with `session.open` or `session.start`
+`session.present` can be used to check if the session that was opened with `session.open` or `session.start`
 was really a one the was received from a client. If the session is a new one, this will be false.
 
 #### boolean session.opened
@@ -279,7 +279,7 @@ object.
 #### boolean session.destroyed
 
 `session.destroyed` can be used to check if the `session:destroy()` was called for the current session
-object. It will also set `session.opened`, `session.started`,  and `session.existing` to false.
+object. It will also set `session.opened`, `session.started`,  and `session.present` to false.
 
 
 #### number session.identifier.length
