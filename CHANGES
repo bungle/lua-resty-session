@@ -1,3 +1,22 @@
+Changes with lua-resty-session 1.7                                3 Aug 2015
+
+    *) Feature: Added session.open() function that only opens a session
+       but doesn't send the cookie (until start is called).
+
+       See also: https://github.com/bungle/lua-resty-session/issues/12
+
+       Thanks @junhanamaki
+
+    *) Bugfix: Fixed cookie expiration time format on Firefox bug:
+       https://github.com/bungle/lua-resty-session/pull/10
+
+       Thanks @junhanamaki
+
+    *) Bugfix: Fixed an issue of overwriting a variable:
+       https://github.com/bungle/lua-resty-session/pull/11
+
+       Thanks @junhanamaki
+
 Changes with lua-resty-session 1.6                                5 May 2015
 
     *) Bugfix: Fixed truncated cookie value bug:

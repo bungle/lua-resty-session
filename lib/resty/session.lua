@@ -70,8 +70,8 @@ local function decode(value)
     return base64dec((value:gsub("[-_.]", DECODE_CHARS)))
 end
 
-function setcookie(session, value, expires)
-    local cookie = { session.name, "=", value }
+local function setcookie(session, value, expires)
+    local cookie = { session.name, "=", value or "" }
     local domain = session.cookie.domain
     if expires then
         cookie[#cookie + 1] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
@@ -97,8 +97,8 @@ function setcookie(session, value, expires)
     local t = type(cookies)
     if t == "table" then
         local found = false
-        for i, set_cookie in ipairs(cookies) do
-            if set_cookie:find(needle, 1, true) == 1 then
+        for i, c in ipairs(cookies) do
+            if c:find(needle, 1, true) == 1 then
                 cookies[i] = cookie
                 found = true
                 break
@@ -161,6 +161,7 @@ defaults.secret = ngx_var.session_secret or random(defaults.cipher.size / 8)
 local session = {
     _VERSION = "1.6-dev"
 }
+
 session.__index = session
 
 function session.new(opts)
@@ -175,7 +176,12 @@ function session.new(opts)
     local g, h = y.identifier or z.identifier, z.identifier
     return setmetatable({
         name   = y.name   or z.name,
+        data   = y.data   or {},
         secret = y.secret or z.secret,
+        existing = false,
+        opened = false,
+        started = false,
+        destroyed = false,
         cookie = {
             persistent = a.persistent or b.persistent,
             renew      = a.renew      or b.renew,
@@ -200,7 +206,10 @@ function session.new(opts)
     }, session)
 end
 
-function session.start(opts)
+function session.open(opts)
+    if getmetatable(opts) == session and opts.opened then
+        return opts, opts.existing
+    end
     local self = session.new(opts)
     local scheme = ngx_header["X-Forwarded-Proto"]
     if self.cookie.secure == nil then
@@ -236,32 +245,42 @@ function session.start(opts)
         end
     end
     self.key = concat{
-        self.check.ssi    and (ngx_var.ssl_session_id  or "") or "",
-        self.check.ua     and (ngx_var.http_user_agent or "") or "",
+        self.check.ssi and (ngx_var.ssl_session_id  or "") or "",
+        self.check.ua  and (ngx_var.http_user_agent or "") or "",
         addr,
         scheme
     }
-    local now, i, e, d, h = time(), getcookie(ngx_var["cookie_" .. self.name])
-    if i and e and e > now then
+    local i, e, d, h = getcookie(ngx_var["cookie_" .. self.name])
+    if i and e and e > time() then
         self.id = i
         self.expires = e
         local k = hmac(self.secret, self.id .. self.expires)
         local a = aes:new(k, self.id, aes.cipher(self.cipher.size, self.cipher.mode), self.cipher.hash, self.cipher.rounds)
         d = a:decrypt(d)
         if d and hmac(k, concat{ self.id, self.expires, d, self.key }) == h then
-            local data = json.decode(d)
-            if type(data) == "table" then
-                self.data = data
-                if self.expires - now < self.cookie.renew then
-                    self:save()
-                end
-                return self, true
-            end
+            self.data = json.decode(d)
+            self.existing = true
         end
     end
     if type(self.data) ~= "table" then self.data = {} end
-    self:regenerate()
-    return self, false
+    self.opened = true
+    return self, self.existing
+end
+
+function session.start(opts)
+    if getmetatable(opts) == session and opts.started then
+        return opts, opts.existing
+    end
+    local self, existing = session.open(opts)
+    if existing then
+        if self.expires - time() < self.cookie.renew then
+            self:save()
+        end
+    else
+        self:regenerate()
+    end
+    self.started = true
+    return self, existing
 end
 
 function session:regenerate(flush)
@@ -281,6 +300,10 @@ end
 
 function session:destroy()
     self.data = {}
+    self.existing = false
+    self.opened = false
+    self.started = false
+    self.destroyed = true
     return setcookie(self, "", true)
 end
 

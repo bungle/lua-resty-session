@@ -158,6 +158,37 @@ session.data.uid = 1
 session:save()
 ```
 
+#### table, boolean session.open(opts or nil)
+
+With this function you can open a new session. It will create a new session Lua `table` on each call (unless called with
+colon `:` as in examples above with `session.new`). Calling this function repeatedly will be a no-op when using colon `:`.
+This function will return a (new) session `table` as a result. If the session cookie is supplied with user's HTTP(S)
+client then this function validates the supplied session cookie. If validation is successful, the user supplied session
+data will be used (if not, a new session is generated with empty data). You may supply optional session configuration
+variables with `opts` argument, but be aware that many of these will only have effect if the session is a fresh session
+(i.e. not loaded from user supplied cookie). The second `boolean` return argument will be `true` if the user
+client send a valid cookie (meaning that session was already started on some earlier request), and `false` if the
+new session was created (either because user client didn't send a cookie or that the cookie was not a valid one). This
+function will not set a client cookie. You need to call `session:start()` to really start the session. This open is mainly
+used if you only want to read data and avoid automatically sending a cookie.
+
+```lua
+local session = require("resty.session").open()
+-- Set some options (overwriting the defaults or nginx configuration variables)
+local session = require("resty.session").open{ identifier = { length = 32 }}
+-- Read some data
+if session.existing then
+    ngx.print(session.data.uid)
+end
+-- Now let's really start the session
+-- (session.started will be always false in this example):
+if not session.started then 
+    session:start()
+end
+session.data.greeting = "Hello, World!"
+session:save()
+```
+
 #### table, boolean session.start(opts or nil)
 
 With this function you can start a new session. It will create a new session Lua `table` on each call (unless called with
@@ -228,6 +259,28 @@ session:destroy()
 
 `session.id` holds the current session id. By default it is 16 bytes long (raw binary bytes).
 It is automatically generated.
+
+#### boolean session.existing
+
+`session.existing` can be used to check if the session that was opened with `session.open` or `session.start`
+was really a one the was received from a client. If the session is a new one, this will be false.
+
+#### boolean session.opened
+
+`session.opened` can be used to check if the `session:open()` was called for the current session
+object.
+
+
+#### boolean session.started
+
+`session.started` can be used to check if the `session:start()` was called for the current session
+object.
+
+#### boolean session.destroyed
+
+`session.destroyed` can be used to check if the `session:destroy()` was called for the current session
+object. It will also set `session.opened`, `session.started`,  and `session.existing` to false.
+
 
 #### number session.identifier.length
 
