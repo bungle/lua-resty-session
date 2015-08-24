@@ -40,19 +40,22 @@ function shm:start(i)
     self.lock:lock(i)
 end
 
-function shm:save(i, e, d, h)
+function shm:save(i, e, d, h, close)
     local l = e - now()
     if l > 0 then
         local ok, err = self.sessions:set(i, d, l)
+        if close then
+            self.lock:unlock()
+        end
         if ok then
             return concat({ encode(i), e, encode(h) }, "|")
         end
+        return nil, err
     end
-    return nil, err
-end
-
-function shm:close()
-    self.lock:unlock()
+    if close then
+        self.lock:unlock()
+    end
+    return nil, "expired"
 end
 
 function shm:destroy(i)

@@ -101,11 +101,8 @@ local function save(session, close)
     local d = session.serializer.encode(session.data)
     local h = hmac(k, concat{ i, e, d, session.key })
     local a = aes:new(k, i, aes.cipher(c.size, c.mode), c.hash, c.rounds)
-    local cookie = s:save(i, e, a:encrypt(d), h)
+    local cookie = s:save(i, e, a:encrypt(d), h, close)
     setcookie(session, cookie)
-    if close and s.close then
-        s:close(i)
-    end
 end
 
 local function regenerate(session, flush)
