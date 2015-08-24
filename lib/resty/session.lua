@@ -1,32 +1,18 @@
-local base64enc  = ngx.encode_base64
-local base64dec  = ngx.decode_base64
-local ngx_var    = ngx.var
-local ngx_header = ngx.header
-local concat     = table.concat
-local hmac       = ngx.hmac_sha1
-local time       = ngx.time
-local http_time  = ngx.http_time
-local type       = type
-local json       = require "cjson"
-local aes        = require "resty.aes"
-local ffi        = require "ffi"
-local ffi_cdef   = ffi.cdef
-local ffi_new    = ffi.new
-local ffi_str    = ffi.string
-local ffi_typeof = ffi.typeof
-local C          = ffi.C
-
-local ENCODE_CHARS = {
-    ["+"] = "-",
-    ["/"] = "_",
-    ["="] = "."
-}
-
-local DECODE_CHARS = {
-    ["-"] = "+",
-    ["_"] = "/",
-    ["."] = "="
-}
+local ngx_var      = ngx.var
+local ngx_header   = ngx.header
+local concat       = table.concat
+local hmac         = ngx.hmac_sha1
+local time         = ngx.time
+local http_time    = ngx.http_time
+local type         = type
+local setmetatable = setmetatable
+local aes          = require "resty.aes"
+local ffi          = require "ffi"
+local ffi_cdef     = ffi.cdef
+local ffi_new      = ffi.new
+local ffi_str      = ffi.string
+local ffi_typeof   = ffi.typeof
+local C            = ffi.C
 
 local CIPHER_MODES = {
     ecb    = "ecb",
@@ -62,20 +48,13 @@ local function enabled(val)
     return val == true or (val == "1" or val == "true" or val == "on")
 end
 
-local function encode(value)
-    return (base64enc(value):gsub("[+/=]", ENCODE_CHARS))
-end
-
-local function decode(value)
-    return base64dec((value:gsub("[-_.]", DECODE_CHARS)))
-end
-
 local function setcookie(session, value, expires)
+    local c = session.cookie
     local cookie = { session.name, "=", value or "" }
-    local domain = session.cookie.domain
+    local domain = c.domain
     if expires then
         cookie[#cookie + 1] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
-    elseif session.cookie.persistent then
+    elseif c.persistent then
         cookie[#cookie + 1] = "; Expires="
         cookie[#cookie + 1] = http_time(session.expires)
     end
@@ -84,11 +63,11 @@ local function setcookie(session, value, expires)
         cookie[#cookie + 1] = domain
     end
     cookie[#cookie + 1] = "; Path="
-    cookie[#cookie + 1] = session.cookie.path or "/"
-    if session.cookie.secure then
+    cookie[#cookie + 1] = c.path or "/"
+    if c.secure then
         cookie[#cookie + 1] = "; Secure"
     end
-    if session.cookie.httponly then
+    if c.httponly then
         cookie[#cookie + 1] = "; HttpOnly"
     end
     local needle = concat(cookie, nil, 1, 2)
@@ -113,28 +92,38 @@ local function setcookie(session, value, expires)
         cookies = cookie
     end
     ngx_header["Set-Cookie"] = cookies
-    return true
 end
 
-local function getcookie(cookie)
-    if not cookie then return end
-    local r = {}
-    local i, p, s, e = 1, 1, cookie:find("|", 1, true)
-    while s do
-        if i > 3 then return end
-        r[i] = cookie:sub(p, e - 1)
-        i, p = i + 1, e + 1
-        s, e = cookie:find("|", p, true)
+local function save(session, close)
+    session.expires = time() + session.cookie.lifetime
+    local i, e, c, s = session.id, session.expires, session.cipher, session.storage
+    local k = hmac(session.secret, i .. e)
+    local d = session.serializer.encode(session.data)
+    local h = hmac(k, concat{ i, e, d, session.key })
+    local a = aes:new(k, i, aes.cipher(c.size, c.mode), c.hash, c.rounds)
+    local cookie = s:save(i, e, a:encrypt(d), h)
+    setcookie(session, cookie)
+    if close and s.close then
+        s:close(i)
     end
-    r[4] = cookie:sub(p)
-    if r[1] and r[2] and r[3] and r[4] then
-      return decode(r[1]), tonumber(r[2]), decode(r[3]), decode(r[4])
+end
+
+local function regenerate(session, flush)
+    local i = session.present and session.id or nil
+    session.id = random(session.identifier.length)
+    if flush then
+        if i then
+            session.storage.destroy(i);
+        end
+        session.data = {}
     end
 end
 
 local persistent = enabled(ngx_var.session_cookie_persistent or false)
 local defaults = {
-    name = ngx_var.session_name or "session",
+    name       = ngx_var.session_name       or "session",
+    storage    = ngx_var.session_storage    or "cookie",
+    serializer = ngx_var.session_serializer or "json",
     cookie = {
         persistent = persistent,
         renew      = tonumber(ngx_var.session_cookie_renew)    or 600,
@@ -155,11 +144,12 @@ local defaults = {
         rounds = tonumber(ngx_var.session_cipher_rounds)   or 1
     }, identifier = {
         length  = tonumber(ngx_var.session_identifier_length) or 16
-}}
+    }
+}
 defaults.secret = ngx_var.session_secret or random(defaults.cipher.size / 8)
 
 local session = {
-    _VERSION = "1.7"
+    _VERSION = "1.8-dev"
 }
 
 session.__index = session
@@ -174,14 +164,24 @@ function session.new(opts)
     local c, d = y.check      or z.check,      z.check
     local e, f = y.cipher     or z.cipher,     z.cipher
     local g, h = y.identifier or z.identifier, z.identifier
+    local o, s = pcall(require, "resty.session.storage." .. (y.storage or z.storage))
+    if not o then
+        s = require "resty.session.storage.cookie"
+    end
+    local o, x = pcall(require, "resty.session.serializers." .. (y.serializer or z.serializer))
+    if not o then
+        x = require "resty.session.serializers.json"
+    end
     return setmetatable({
-        name   = y.name   or z.name,
-        data   = y.data   or {},
-        secret = y.secret or z.secret,
-        present = false,
-        opened = false,
-        started = false,
-        destroyed = false,
+        name       = y.name    or z.name,
+        storage    = s.new(),
+        serializer = x,
+        data       = y.data    or {},
+        secret     = y.secret  or z.secret,
+        present    = false,
+        opened     = false,
+        started    = false,
+        destroyed  = false,
         cookie = {
             persistent = a.persistent or b.persistent,
             renew      = a.renew      or b.renew,
@@ -207,10 +207,14 @@ function session.new(opts)
 end
 
 function session.open(opts)
-    if getmetatable(opts) == session and opts.opened then
-        return opts, opts.present
+    local self = opts
+    if getmetatable(self) == session then
+        if self.opened then
+            return self, self.present
+        end
+    else
+        self = session.new(opts)
     end
-    local self = session.new(opts)
     local scheme = ngx_header["X-Forwarded-Proto"]
     if self.cookie.secure == nil then
         if scheme then
@@ -250,17 +254,24 @@ function session.open(opts)
         addr,
         scheme
     }
-    local i, e, d, h = getcookie(ngx_var["cookie_" .. self.name])
-    if i and e and e > time() then
-        self.id = i
-        self.expires = e
-        local k = hmac(self.secret, self.id .. self.expires)
-        local a = aes:new(k, self.id, aes.cipher(self.cipher.size, self.cipher.mode), self.cipher.hash, self.cipher.rounds)
-        d = a:decrypt(d)
-        if d and hmac(k, concat{ self.id, self.expires, d, self.key }) == h then
-            self.data = json.decode(d)
-            self.present = true
+    local cookie = ngx_var["cookie_" .. self.name]
+    if cookie then
+        local i, e, d, h = self.storage:open(cookie, self.cookie.lifetime)
+        if i and e and e > time() and d and h then
+            self.id = i
+            self.expires = e
+            local c = self.cipher
+            local k = hmac(self.secret, self.id .. e)
+            local a = aes:new(k, i, aes.cipher(c.size, c.mode), c.hash, c.rounds)
+            d = a:decrypt(d)
+            if d and hmac(k, concat{ i, e, d, self.key }) == h then
+                self.data = self.serializer.decode(d)
+                self.present = true
+            end
         end
+    end
+    if not self.present then
+        regenerate(self)
     end
     if type(self.data) ~= "table" then self.data = {} end
     self.opened = true
@@ -273,32 +284,32 @@ function session.start(opts)
     end
     local self, present = session.open(opts)
     if present then
+        if self.storage.start then
+            self.storage:start(self.id)
+        end
         if self.expires - time() < self.cookie.renew then
-            self:save()
+            save(self)
         end
     else
-        self:regenerate()
+        save(self)
     end
     self.started = true
     return self, present
 end
 
 function session:regenerate(flush)
-    self.id = random(self.identifier.length)
-    if flush then self.data = {} end
-    return self:save()
+    regenerate(self, flush)
+    return save(self)
 end
 
 function session:save()
-    self.expires = time() + self.cookie.lifetime
-    local k = hmac(self.secret, self.id .. self.expires)
-    local d = json.encode(self.data)
-    local h = hmac(k, concat{ self.id, self.expires, d, self.key })
-    local a = aes:new(k, self.id, aes.cipher(self.cipher.size, self.cipher.mode), self.cipher.hash, self.cipher.rounds)
-    return setcookie(self, concat({ encode(self.id), self.expires, encode(a:encrypt(d)), encode(h) }, "|"))
+    return save(self, true)
 end
 
 function session:destroy()
+    if self.storage.destroy then
+        self.storage:destroy(self.id)
+    end
     self.data = {}
     self.present = false
     self.opened = false

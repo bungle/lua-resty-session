@@ -16,6 +16,10 @@ dependencies = {
 build = {
     type = "builtin",
     modules = {
-        ["resty.session"] = "lib/resty/session.lua"
+        ["resty.session"]                  = "lib/resty/session.lua",
+        ["resty.session.utils"]            = "lib/resty/session/utils.lua",
+        ["resty.session.storage.shm"]      = "lib/resty/session/storage/shm.lua",
+        ["resty.session.storage.cookie"]   = "lib/resty/session/storage/cookie.lua",
+        ["resty.session.serializers.json"] = "lib/resty/session/serializers/json.lua"
     }
 }
