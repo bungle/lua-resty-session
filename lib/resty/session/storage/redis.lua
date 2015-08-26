@@ -50,16 +50,6 @@ local function connect_host(r)
     return r:connect(host, port)
 end
 
-local function disconnect(r)
-    if pool_timeout then
-        if pool_size then
-            return r:set_keepalive(pool_timeout, pool_size)
-        end
-        return r:set_keepalive(pool_timeout)
-    end
-    return r:set_keepalive()
-end
-
 local function disconnect_two(r)
     return r:set_keepalive(pool_timeout, pool_size)
 end
