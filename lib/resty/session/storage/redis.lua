@@ -20,20 +20,22 @@ local prefix       = ngx.var.session_redis_prefix or "sessions"
 local pool_timeout = tonumber(ngx.var.session_redis_pool_timeout)
 local pool_size    = tonumber(ngx.var.session_redis_pool_size)
 local socket       = ngx.var.session_redis_socket
+local iterations   = 1000000 / spinlockwait * maxlockwait
+local wait         = spinlockwait / 1000000
+local lockexpires  = maxlockwait + 1
 
 local function noop()
     return true, nil
 end
 
 local function lock_real(r, k)
-    local spinlockwait, maxlockwait = spinlockwait, maxlockwait
     local l = concat({ k, "lock" }, "." )
-    for _ = 0, 1000000 / spinlockwait * maxlockwait do
+    for _ = 0, iterations do
         local ok = r:setnx(l, '1')
         if ok then
-            return r:expire(l, maxlockwait + 1)
+            return r:expire(l, lockexpires)
         end
-        sleep(spinlockwait / 1000000)
+        sleep(wait)
     end
     return false, "no lock"
 end

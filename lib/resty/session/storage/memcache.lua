@@ -20,20 +20,22 @@ local prefix       = ngx.var.session_memcache_prefix or "sessions"
 local pool_timeout = tonumber(ngx.var.session_memcache_pool_timeout)
 local pool_size    = tonumber(ngx.var.session_memcache_pool_size)
 local socket       = ngx.var.session_memcache_socket
+local iterations   = 1000000 / spinlockwait * maxlockwait
+local wait         = spinlockwait / 1000000
+local lockexpires  = maxlockwait + 1
 
 local function noop()
     return true, nil
 end
 
 local function lock_real(m, k)
-    local spinlockwait, maxlockwait = spinlockwait, maxlockwait
     local l = concat({ k, "lock" }, "." )
-    for _ = 0, 1000000 / spinlockwait * maxlockwait do
-        local ok = m:add(l, "1", maxlockwait + 1)
+    for _ = 0, iterations do
+        local ok = m:add(l, "1", lockexpires)
         if ok then
             return true, nil
         end
-        sleep(spinlockwait / 1000000)
+        sleep(wait)
     end
     return false, "no lock"
 end
