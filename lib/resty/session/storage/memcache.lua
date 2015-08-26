@@ -9,21 +9,23 @@ local now          = ngx.now
 local shared       = ngx.shared
 local setmetatable = setmetatable
 local floor        = math.floor
-local uselocking   = ngx.var.session_memcache_uselocking or true
+local concat       = table.concat
+local enabled      = utils.enabled
+local uselocking   = enabled(ngx.var.session_memcache_uselocking or true)
 local server       = ngx.var.session_memcache_server or "127.0.0.1"
-local port         = ngx.var.session_memcache_port or 11211
-local spinlockwait = ngx.var.session_memcache_spinlockwait or 10000
-local maxlockwait  = ngx.var.session_memcache_maxlockwait or 30
-local lockprefix   = ngx.var.session_memcache_lockprefix or "session-memcache-lock"
+local port         = tonumber(ngx.var.session_memcache_port) or 11211
+local spinlockwait = tonumber(ngx.var.session_memcache_spinlockwait) or 10000
+local maxlockwait  = tonumber(ngx.var.session_memcache_maxlockwait) or 30
+local prefix       = ngx.var.session_memcache_prefix or "sessions"
 local memcache = {}
 
 memcache.__index = memcache
 
-local function lock(m, i)
+local function lock(m, sk)
     if uselocking then
-        k = lockprefix .. "." .. encode(i)
+        local lk = concat({ sk, "lock" }, "." )
         for j = 0, (1000000 / spinlockwait) * maxlockwait do
-            local ok, err = m.memc:add(k, '1', maxlockwait+1)
+            local ok, err = m.memc:add(lk, '1', maxlockwait+1)
             if ok then
                 m.locked = true
                 return true, nil
@@ -35,16 +37,17 @@ local function lock(m, i)
     return true, nil
 end
 
-local function unlock(m, i)
+local function unlock(m, sk)
     if uselocking then
-        m.memc:delete(lockprefix .. "." .. encode(i))
+        local lk = concat({ sk, "lock" }, "." )
+        m.memc:delete(lk)
         m.locked = false
     end
     return true, nil
 end
 
 function memcache.new()
-    local m, err = memcached:new()
+    local m =  memcached:new()
     m:connect(server, port)
     return setmetatable({ memc = m, locked = false }, memcache)
 end
@@ -53,13 +56,14 @@ function memcache:open(cookie, lifetime)
     local r = split(cookie, "|", 3)
     if r and r[1] and r[2] and r[3] then
         local i, e, h = decode(r[1]), tonumber(r[2]), decode(r[3])
-        local ok, err = lock(self, i)
+        local sk = concat({ prefix, encode(i) }, ":" )
+        local ok, err = lock(self, sk)
         if ok then
-            local d, flags, err = self.memc:get(encode(i))        
+            local d, flags, err = self.memc:get(sk)
             if not err and d then
-                self.memc:set(encode(i), d, floor(lifetime))
+                self.memc:touch(sk, floor(lifetime))
             end
-            unlock(self, i)
+            unlock(self, sk)
             return i, e, d, h
         end
         return nil, err
@@ -68,15 +72,18 @@ function memcache:open(cookie, lifetime)
 end
 
 function memcache:start(i)
-    lock(self, i)
+    local sk = concat({ prefix, encode(i) }, ":" )
+    lock(self, sk)
 end
 
 function memcache:save(i, e, d, h, close)
     local l = e - now()
+    local sk = concat({ prefix, encode(i) }, ":" )
     if l > 0 then
-        local ok, err = self.memc:set(encode(i), d, floor(l))
+        local ok, err = self.memc:set(sk, d, floor(l))
         if close then
-            unlock(self, i)
+            unlock(self, sk)
+            self.memc:close() 
         end
         if ok then
             return concat({ encode(i), e, encode(h) }, "|")
@@ -84,14 +91,16 @@ function memcache:save(i, e, d, h, close)
         return nil, err
     end
     if close then
-        unlock(self, i)
+        unlock(self, sk)
+        self.memc:close() 
     end
     return nil, "expired"
 end
 
 function memcache:destroy(i)
-    self.memc:delete(encode(i))
-    unlock(self, i)
+    local sk = concat({ prefix, encode(i) }, ":" )
+    self.memc:delete(sk)
+    unlock(self, sk)
     self.memc:close()
 end
 
