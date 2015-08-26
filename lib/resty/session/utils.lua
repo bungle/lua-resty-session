@@ -39,4 +39,9 @@ function utils.split(str, del, parts)
     return r
 end
 
+function utils.enabled(val)
+    if val == nil then return nil end
+    return val == true or (val == "1" or val == "true" or val == "on")
+end
+
 return utils
