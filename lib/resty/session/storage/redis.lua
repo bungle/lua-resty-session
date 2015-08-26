@@ -60,16 +60,16 @@ local function disconnect(r)
     return r:set_keepalive()
 end
 
-local function disconnect_two(m)
-    return m:set_keepalive(pool_timeout, pool_size)
+local function disconnect_two(r)
+    return r:set_keepalive(pool_timeout, pool_size)
 end
 
-local function disconnect_one(m)
-    return m:set_keepalive(pool_timeout)
+local function disconnect_one(r)
+    return r:set_keepalive(pool_timeout)
 end
 
-local function disconnect_zero(m)
-    return m:set_keepalive()
+local function disconnect_zero(r)
+    return r:set_keepalive()
 end
 
 local connect = socket     and connect_socket or connect_host
