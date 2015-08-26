@@ -26,7 +26,7 @@ local function lock(r, k)
         return true, nil
     end
     local l = concat({ k, "lock" }, "." )
-    for _ = 0, (1000000 / spinlockwait) * maxlockwait do
+    for _ = 0, 1000000 / spinlockwait * maxlockwait do
         local ok = r:setnx(l, '1')
         if ok then
             return r:expire(l, maxlockwait + 1)
@@ -43,19 +43,20 @@ local function unlock(r, k)
 end
 
 local function connect(r)
-    return socket and r:connect(socket) or r:connect(host, port)
+    if socket then
+        return r:connect(socket)
+    end
+    return r:connect(host, port)
 end
 
 local function disconnect(r)
     if pool_timeout then
         if pool_size then
-            r:set_keepalive(pool_timeout, pool_size)
-        else
-            r:set_keepalive(pool_timeout)
+            return r:set_keepalive(pool_timeout, pool_size)
         end
-    else
-        r:set_keepalive()
+        return r:set_keepalive(pool_timeout)
     end
+    return r:set_keepalive()
 end
 
 local redis = {}
@@ -69,11 +70,11 @@ end
 function redis:open(cookie, lifetime)
     local c = split(cookie, "|", 3)
     if c and c[1] and c[2] and c[3] then
-        local i, e, h = decode(c[1]), tonumber(c[2]), decode(c[3])
-        local k = concat({ prefix, encode(i) }, ":" )
         local r = self.redis
         local ok, err = connect(r)
         if ok then
+            local i, e, h = decode(c[1]), tonumber(c[2]), decode(c[3])
+            local k = concat({ prefix, encode(i) }, ":" )
             ok, err = lock(r, k)
             if ok then
                 local d = r:get(k)
@@ -94,10 +95,10 @@ function redis:open(cookie, lifetime)
 end
 
 function redis:start(i)
-    local r, k = self.redis, concat({ prefix, encode(i) }, ":" )
+    local r = self.redis
     local ok, err = connect(r)
     if ok then
-        ok, err = lock(r, k)
+        ok, err = lock(r, concat({ prefix, encode(i) }, ":" ))
         disconnect(r)
     end
     return ok, err
@@ -129,9 +130,10 @@ function redis:save(i, e, d, h, close)
 end
 
 function redis:destroy(i)
-    local r, k = self.redis, concat({ prefix, encode(i) }, ":" )
+    local r = self.redis
     local ok, err = connect(r)
     if ok then
+        local k = concat({ prefix, encode(i) }, ":" )
         r:del(k)
         unlock(r, k)
         disconnect(r)

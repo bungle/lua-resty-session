@@ -3,126 +3,143 @@ local utils        = require "resty.session.utils"
 local split        = utils.split
 local decode       = utils.decode
 local encode       = utils.encode
+local enabled      = utils.enabled
 local concat       = table.concat
 local tonumber     = tonumber
 local now          = ngx.now
-local shared       = ngx.shared
+local sleep        = ngx.sleep
 local setmetatable = setmetatable
 local floor        = math.floor
 local concat       = table.concat
-local enabled      = utils.enabled
 local uselocking   = enabled(ngx.var.session_memcache_uselocking or true)
 local host         = ngx.var.session_memcache_host or "127.0.0.1"
 local port         = tonumber(ngx.var.session_memcache_port) or 11211
 local spinlockwait = tonumber(ngx.var.session_memcache_spinlockwait) or 10000
 local maxlockwait  = tonumber(ngx.var.session_memcache_maxlockwait) or 30
 local prefix       = ngx.var.session_memcache_prefix or "sessions"
-local pool_timeout = tonumber(ngx.var.session_memcache_pool_timeout) or 20
-local pool_size    = tonumber(ngx.var.session_memcache_pool_size) or 10
+local pool_timeout = tonumber(ngx.var.session_memcache_pool_timeout)
+local pool_size    = tonumber(ngx.var.session_memcache_pool_size)
 local socket       = ngx.var.session_memcache_socket
-local memcache = {}
 
-memcache.__index = memcache
-
-local function lock(m, sk)
-    if uselocking then
-        local lk = concat({ sk, "lock" }, "." )
-        for j = 0, (1000000 / spinlockwait) * maxlockwait do
-            local ok, err = m.memc:add(lk, '1', maxlockwait+1)
-            if ok then
-                m.locked = true
-                return true, nil
-            end
-            ngx.sleep(spinlockwait / 1000000)
-        end
-        return false, "no lock"
+local function lock(m, k)
+    if not uselocking then
+        return true, nil
     end
-    return true, nil
+    local l = concat({ k, "lock" }, "." )
+    for _ = 0, 1000000 / spinlockwait * maxlockwait do
+        local ok = m:add(l, "1", maxlockwait + 1)
+        if ok then
+            return true, nil
+        end
+        sleep(spinlockwait / 1000000)
+    end
+    return false, "no lock"
 end
 
-local function unlock(m, sk)
+local function unlock(m, k)
     if uselocking then
-        local lk = concat({ sk, "lock" }, "." )
-        m.memc:delete(lk)
-        m.locked = false
+        m:delete(concat({ k, "lock" }, "." ))
     end
-    return true, nil
 end
 
 local function connect(m)
     if socket then
-        m.memc:connect(socket)
-    else
-        m.memc:connect(host, port)
+        return m:connect(socket)
     end
+    return m:connect(host, port)
 end
 
 local function disconnect(m)
-    --m.memc:close()
-    m.memc:set_keepalive(pool_timeout, pool_size)
+    if pool_timeout then
+        if pool_size then
+            return m:set_keepalive(pool_timeout, pool_size)
+        end
+        return m:set_keepalive(pool_timeout)
+    end
+    return m:set_keepalive()
 end
 
+local memcache = {}
+
+memcache.__index = memcache
+
 function memcache.new()
-    return setmetatable({ memc = memcached:new(), locked = false }, memcache)
+    return setmetatable({ memc = memcached:new() }, memcache)
 end
 
 function memcache:open(cookie, lifetime)
-    local r = split(cookie, "|", 3)
-    if r and r[1] and r[2] and r[3] then
-        local i, e, h = decode(r[1]), tonumber(r[2]), decode(r[3])
-        local sk = concat({ prefix, encode(i) }, ":" )
-        connect(self)
-        local ok, err = lock(self, sk)
+    local c = split(cookie, "|", 3)
+    if c and c[1] and c[2] and c[3] then
+        local m = self.memc
+        local ok, err = connect(m)
         if ok then
-            local d, flags, err = self.memc:get(sk)
-            if not err and d then
-                self.memc:touch(sk, floor(lifetime))
+            local i, e, h = decode(c[1]), tonumber(c[2]), decode(c[3])
+            local k = concat({ prefix, encode(i) }, ":" )
+            ok, err = lock(m, k)
+            if ok then
+                local d = m:get(k)
+                if d then
+                    m:touch(k, floor(lifetime))
+                end
+                unlock(m, k)
+                disconnect(m)
+                return i, e, d, h
             end
-            unlock(self, sk)
-            disconnect(self)
-            return i, e, d, h
+            disconnect(m)
+            return nil, err
+        else
+            return nil, err
         end
-        disconnect(self)
-        return nil, err
     end
     return nil, "invalid"
 end
 
 function memcache:start(i)
-    local sk = concat({ prefix, encode(i) }, ":" )
-    connect(self)
-    lock(self, sk)
-    disconnect(self)
+    local m = self.memc
+    local ok, err = connect(m)
+    if ok then
+        ok, err = lock(m, concat({ prefix, encode(i) }, ":" ))
+        disconnect(m)
+    end
+    return ok, err
 end
 
 function memcache:save(i, e, d, h, close)
-    local l = e - now()
-    local sk = concat({ prefix, encode(i) }, ":" )
-    connect(self)
-    if l > 0 then
-        local ok, err = self.memc:set(sk, d, floor(l))
+    local m = self.memc
+    local ok, err = connect(m)
+    if ok then
+        local l, k = e - now(), concat({ prefix, encode(i) }, ":" )
+        if l > 0 then
+            ok, err = m:set(k, d, floor(l))
+            if close then
+                unlock(m, k)
+            end
+            disconnect(m)
+            if ok then
+                return concat({ encode(i), e, encode(h) }, "|")
+            end
+            return ok, err
+        end
         if close then
-            unlock(self, sk)
+            unlock(m, k)
+            disconnect(m)
         end
-        disconnect(self)
-        if ok then
-            return concat({ encode(i), e, encode(h) }, "|")
-        end
-        return nil, err
+        return nil, "expired"
     end
-    if close then
-        unlock(self, sk)
-        disconnect(self)
-    end
-    return nil, "expired"
+    return ok, err
+
 end
 
 function memcache:destroy(i)
-    local sk = concat({ prefix, encode(i) }, ":" )
-    connect(self)
-    self.memc:delete(sk)
-    unlock(self, sk)
-    disconnect(self)
+    local m = self.memc
+    local ok, err = connect(m)
+    if ok then
+        local k = concat({ prefix, encode(i) }, ":" )
+        m:delete(k)
+        unlock(m, k)
+        disconnect(m)
+    end
+    return ok, err
 end
 
 return memcache
