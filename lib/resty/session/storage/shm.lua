@@ -22,29 +22,38 @@ end
 function shm:open(cookie, lifetime)
     local r = split(cookie, "|", 3)
     if r and r[1] and r[2] and r[3] then
-        local i, e, h, l = decode(r[1]), tonumber(r[2]), decode(r[3]), self.lock
-        local ok, err = l:lock(i)
-        if ok then
+        local i, e, h = decode(r[1]), tonumber(r[2]), decode(r[3])
+        if self.lock then
+            local ok, err = self.lock:lock(i)
+            if ok then
+                local s = self.sessions
+                local d = s:get(i)
+                s:set(i, d, lifetime)
+                self.lock:unlock()
+                return i, e, d, h
+            end
+            return nil, err
+        else
             local s = self.sessions
             local d = s:get(i)
             s:set(i, d, lifetime)
-            l:unlock()
             return i, e, d, h
         end
-        return nil, err
     end
     return nil, "invalid"
 end
 
 function shm:start(i)
-    self.lock:lock(i)
+    if self.lock then
+        self.lock:lock(i)
+    end
 end
 
 function shm:save(i, e, d, h, close)
     local l = e - now()
     if l > 0 then
         local ok, err = self.sessions:set(i, d, l)
-        if close then
+        if self.lock and close then
             self.lock:unlock()
         end
         if ok then
@@ -52,7 +61,7 @@ function shm:save(i, e, d, h, close)
         end
         return nil, err
     end
-    if close then
+    if self.lock and close then
         self.lock:unlock()
     end
     return nil, "expired"
@@ -60,7 +69,9 @@ end
 
 function shm:destroy(i)
     self.sessions:delete(i)
-    self.lock:unlock()
+    if self.lock then
+        self.lock:unlock()
+    end
 end
 
 return shm
