@@ -21,8 +21,9 @@ memcache.__index = memcache
 
 local function lock(m, i)
     if uselocking then
+        k = lockprefix .. "." .. encode(i)
         for j = 0, (1000000 / spinlockwait) * maxlockwait do
-            local ok, err = m.memc:add(lockprefix .. "." .. encode(i), '1', maxlockwait+1)
+            local ok, err = m.memc:add(k, '1', maxlockwait+1)
             if ok then
                 m.locked = true
                 return true, nil
