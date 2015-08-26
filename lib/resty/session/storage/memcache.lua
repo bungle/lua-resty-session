@@ -30,7 +30,7 @@ end
 
 local function lock_real(m, k)
     local l = concat({ k, "lock" }, "." )
-    for _ = 0, iterations do
+    for _ = 1, iterations do
         local ok = m:add(l, "1", lockexpires)
         if ok then
             return true, nil
