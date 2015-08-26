@@ -34,7 +34,7 @@ local function lock(m, i)
     return true, nil
 end
 
-function unlock(m, i)
+local function unlock(m, i)
     if uselocking then
         m.memc:delete(lockprefix .. "." .. encode(i))
         m.locked = false
