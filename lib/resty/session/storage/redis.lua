@@ -21,10 +21,12 @@ local pool_timeout = tonumber(ngx.var.session_redis_pool_timeout)
 local pool_size    = tonumber(ngx.var.session_redis_pool_size)
 local socket       = ngx.var.session_redis_socket
 
-local function lock(r, k)
-    if not uselocking then
-        return true, nil
-    end
+local function noop()
+    return true, nil
+end
+
+local function lock_real(r, k)
+    local spinlockwait, maxlockwait = spinlockwait, maxlockwait
     local l = concat({ k, "lock" }, "." )
     for _ = 0, 1000000 / spinlockwait * maxlockwait do
         local ok = r:setnx(l, '1')
@@ -36,16 +38,15 @@ local function lock(r, k)
     return false, "no lock"
 end
 
-local function unlock(r, k)
-    if uselocking then
-        r:del(concat({ k, "lock" }, "." ))
-    end
+local function unlock_real(r, k)
+    return r:del(concat({ k, "lock" }, "." ))
 end
 
-local function connect(r)
-    if socket then
-        return r:connect(socket)
-    end
+local function connect_socket(r)
+    return r:connect(socket)
+end
+
+local function connect_host(r)
     return r:connect(host, port)
 end
 
@@ -57,6 +58,31 @@ local function disconnect(r)
         return r:set_keepalive(pool_timeout)
     end
     return r:set_keepalive()
+end
+
+local function disconnect_two(m)
+    return m:set_keepalive(pool_timeout, pool_size)
+end
+
+local function disconnect_one(m)
+    return m:set_keepalive(pool_timeout)
+end
+
+local function disconnect_zero(m)
+    return m:set_keepalive()
+end
+
+local connect = socket     and connect_socket or connect_host
+local lock    = uselocking and lock_real      or noop
+local unlock  = uselocking and unlock_real    or noop
+local disconnect
+
+if pool_timeout and pool_size then
+    disconnect = disconnect_two
+elseif pool_timeout then
+    disconnect = disconnect_one
+else
+    disconnect = disconnect_zero
 end
 
 local redis = {}

@@ -21,10 +21,12 @@ local pool_timeout = tonumber(ngx.var.session_memcache_pool_timeout)
 local pool_size    = tonumber(ngx.var.session_memcache_pool_size)
 local socket       = ngx.var.session_memcache_socket
 
-local function lock(m, k)
-    if not uselocking then
-        return true, nil
-    end
+local function noop()
+    return true, nil
+end
+
+local function lock_real(m, k)
+    local spinlockwait, maxlockwait = spinlockwait, maxlockwait
     local l = concat({ k, "lock" }, "." )
     for _ = 0, 1000000 / spinlockwait * maxlockwait do
         local ok = m:add(l, "1", maxlockwait + 1)
@@ -36,27 +38,41 @@ local function lock(m, k)
     return false, "no lock"
 end
 
-local function unlock(m, k)
-    if uselocking then
-        m:delete(concat({ k, "lock" }, "." ))
-    end
+local function unlock_real(m, k)
+    m:delete(concat({ k, "lock" }, "." ))
 end
 
-local function connect(m)
-    if socket then
-        return m:connect(socket)
-    end
+local function connect_socket(m)
+    return m:connect(socket)
+end
+
+local function connect_host(m)
     return m:connect(host, port)
 end
 
-local function disconnect(m)
-    if pool_timeout then
-        if pool_size then
-            return m:set_keepalive(pool_timeout, pool_size)
-        end
-        return m:set_keepalive(pool_timeout)
-    end
+local function disconnect_two(m)
+    return m:set_keepalive(pool_timeout, pool_size)
+end
+
+local function disconnect_one(m)
+    return m:set_keepalive(pool_timeout)
+end
+
+local function disconnect_zero(m)
     return m:set_keepalive()
+end
+
+local connect = socket     and connect_socket or connect_host
+local lock    = uselocking and lock_real      or noop
+local unlock  = uselocking and unlock_real    or noop
+local disconnect
+
+if pool_timeout and pool_size then
+    disconnect = disconnect_two
+elseif pool_timeout then
+    disconnect = disconnect_one
+else
+    disconnect = disconnect_zero
 end
 
 local memcache = {}
@@ -127,7 +143,6 @@ function memcache:save(i, e, d, h, close)
         return nil, "expired"
     end
     return ok, err
-
 end
 
 function memcache:destroy(i)
