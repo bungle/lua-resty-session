@@ -58,7 +58,7 @@ local function setcookie(session, value, expires)
         cookie[#cookie + 1] = "; Expires="
         cookie[#cookie + 1] = http_time(session.expires)
     end
-    if domain ~= "localhost" and domain ~= "" then
+    if domain and domain ~= "localhost" and domain ~= "" then
         cookie[#cookie + 1] = "; Domain="
         cookie[#cookie + 1] = domain
     end
@@ -221,9 +221,6 @@ function session.open(opts)
         end
     end
     scheme = self.check.scheme and (scheme or ngx_var.scheme or "") or ""
-    if self.cookie.domain == nil then
-        self.cookie.domain = ngx_var.host
-    end
     local addr = ""
     if self.check.addr then
         addr = ngx_header["CF-Connecting-IP"] or
