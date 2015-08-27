@@ -17,7 +17,7 @@ http {
         }
         location /start {
             content_by_lua '
-                local session = require("resty.session").start()
+                local session = require "resty.session".start()
                 session.data.name = "OpenResty Fan"
                 session:save()
                 ngx.say("<html><body>Session started. ",
@@ -26,7 +26,7 @@ http {
         }
         location /test {
             content_by_lua '
-                local session = require("resty.session").open()
+                local session = require "resty.session".open()
                 ngx.say("<html><body>Session was started by <strong>",
                         session.data.name or "Anonymous",
                         "</strong>! <a href=/destroy>Destroy the session</a>.</body></html>")
@@ -34,7 +34,7 @@ http {
         }
         location /destroy {
             content_by_lua '
-                local session = require("resty.session").start()
+                local session = require "resty.session".start()
                 session:destroy()
                 ngx.say("<html><body>Session was destroyed. ",
                         "<a href=/check>Is it really so</a>?</body></html>")
@@ -42,7 +42,7 @@ http {
         }
         location /check {
             content_by_lua '
-                local session = require("resty.session").open()
+                local session = require "resty.session".open()
                 ngx.say("<html><body>Session was really destroyed, you are known as ",
                         "<strong>",
                         session.data.name or "Anonymous",
