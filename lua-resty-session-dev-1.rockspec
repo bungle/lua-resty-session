@@ -21,6 +21,7 @@ build = {
         ["resty.session.storage.shm"]      = "lib/resty/session/storage/shm.lua",
         ["resty.session.storage.cookie"]   = "lib/resty/session/storage/cookie.lua",
         ["resty.session.storage.memcache"] = "lib/resty/session/storage/memcache.lua",
+        ["resty.session.storage.redis"]    = "lib/resty/session/storage/redis.lua",
         ["resty.session.serializers.json"] = "lib/resty/session/serializers/json.lua"
     }
 }
