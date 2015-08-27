@@ -45,8 +45,9 @@ end
 
 function shm:start(i)
     if self.lock then
-        self.lock:lock(i)
+        return self.lock:lock(i)
     end
+    return true, nil
 end
 
 function shm:save(i, e, d, h, close)
@@ -72,6 +73,7 @@ function shm:destroy(i)
     if self.lock then
         self.lock:unlock()
     end
+    return true, nil
 end
 
 return shm
