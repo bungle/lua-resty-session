@@ -57,6 +57,8 @@ local function setcookie(session, value, expires)
     elseif c.persistent then
         cookie[#cookie + 1] = "; Expires="
         cookie[#cookie + 1] = http_time(session.expires)
+        cookie[#cookie + 1] = "; Max-Age="
+        cookie[#cookie + 1] = c.lifetime
     end
     if domain and domain ~= "localhost" and domain ~= "" then
         cookie[#cookie + 1] = "; Domain="
