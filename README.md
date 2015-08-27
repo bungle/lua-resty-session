@@ -17,7 +17,7 @@ http {
         }
         location /start {
             content_by_lua '
-                local session = require("resty.session").start()
+                local session = require "resty.session".start()
                 session.data.name = "OpenResty Fan"
                 session:save()
                 ngx.say("<html><body>Session started. ",
@@ -26,7 +26,7 @@ http {
         }
         location /test {
             content_by_lua '
-                local session = require("resty.session").start()
+                local session = require "resty.session".open()
                 ngx.say("<html><body>Session was started by <strong>",
                         session.data.name or "Anonymous",
                         "</strong>! <a href=/destroy>Destroy the session</a>.</body></html>")
@@ -34,7 +34,7 @@ http {
         }
         location /destroy {
             content_by_lua '
-                local session = require("resty.session").start()
+                local session = require "resty.session".start()
                 session:destroy()
                 ngx.say("<html><body>Session was destroyed. ",
                         "<a href=/check>Is it really so</a>?</body></html>")
@@ -42,7 +42,7 @@ http {
         }
         location /check {
             content_by_lua '
-                local session = require("resty.session").start()
+                local session = require "resty.session".open()
                 ngx.say("<html><body>Session was really destroyed, you are known as ",
                         "<strong>",
                         session.data.name or "Anonymous",
@@ -55,9 +55,9 @@ http {
 
 ## Roadmap
 
-1. Implement 'read-only' property so that session.data manipulations can be prevented (this will come handy when server-side session storages are implemented, as they need locking on sessions)
-2. Implement generic locking mechanism for server-side storage engines using `resty.lock`
-3. Implement pluggable server-side storage engines for session data (shm, files, memcached, redis...)
+1. ~~Implement 'read-only' property so that session.data manipulations can be prevented (this will come handy when server-side session storages are implemented, as they need locking on sessions)~~ (DONE)
+2. ~~Implement generic locking mechanism for server-side storage engines using `resty.lock`~~ (Cannot be Generic)
+3. ~~Implement pluggable server-side storage engines for session data (shm, files, memcached, redis...)~~ (Done in storages branch)
 4. Implement cookieless server-side session support using `ssl_session_id` as a `session.id` (using server-side storage)
 5. Add support for `lua-resty-nettle` for more wide variety of encryption algorithms
 
@@ -131,7 +131,7 @@ you to generate session table first, and set invidual configuration before calli
 You can also pass in `opts` Lua `table` with the configurations.
 
 ```lua
-local session = require("resty.session").new()
+local session = require "resty.session".new()
 -- set the configuration parameters before calling start
 session.cookie.domain = "mydomain.com"
 -- call start before setting session.data parameters
@@ -144,7 +144,7 @@ session:save()
 This is equivalent to this:
 
 ```lua
-local session = require("resty.session").new{ cookie = { domain = "mydomain.com" } }
+local session = require "resty.session".new{ cookie = { domain = "mydomain.com" } }
 session:start()
 session.data.uid = 1
 session:save()
@@ -153,7 +153,7 @@ session:save()
 As well as with this:
 
 ```lua
-local session = require("resty.session").start{ cookie = { domain = "mydomain.com" } }
+local session = require "resty.session".start{ cookie = { domain = "mydomain.com" } }
 session.data.uid = 1
 session:save()
 ```
@@ -173,9 +173,9 @@ function will not set a client cookie. You need to call `session:start()` to rea
 used if you only want to read data and avoid automatically sending a cookie.
 
 ```lua
-local session = require("resty.session").open()
+local session = require "resty.session".open()
 -- Set some options (overwriting the defaults or nginx configuration variables)
-local session = require("resty.session").open{ identifier = { length = 32 }}
+local session = require "resty.session".open{ identifier = { length = 32 }}
 -- Read some data
 if session.present then
     ngx.print(session.data.uid)
@@ -205,9 +205,9 @@ client send a valid cookie (meaning that session was already started on some ear
 new session was created (either because user client didn't send a cookie or that the cookie was not a valid one).
 
 ```lua
-local session = require("resty.session").start()
+local session = require "resty.session".start()
 -- Set some options (overwriting the defaults or nginx configuration variables)
-local session = require("resty.session").start{ identifier = { length = 32 }}
+local session = require "resty.session".start{ identifier = { length = 32 }}
 ```
 
 #### boolean session:regenerate(flush or nil)
@@ -221,7 +221,7 @@ actually happens when the cookie's expiration time is not valid anymore). This f
 value if everything went as planned (you may assume that it is always the case).
 
 ```lua
-local session = require("resty.session").start()
+local session = require "resty.session".start()
 session:regenerate()
 -- Flush the current data
 session:regenerate(true)
@@ -236,7 +236,7 @@ per request (no need to encrypt and set cookie many times). This function return
 went as planned (you may assume that it is always the case).
 
 ```lua
-local session = require("resty.session").start()
+local session = require "resty.session".start()
 session.data.uid = 1
 session:save()
 ```
@@ -249,7 +249,7 @@ should remove the cookie, and not send it back again). This function returns a b
 as planned (you may assume that it is always the case).
 
 ```lua
-local session = require("resty.session").start()
+local session = require "resty.session".start()
 session:destroy()
 ```
 
@@ -302,7 +302,7 @@ you need to call `session:save` method.
 **Setting session variable:**
 
 ```lua
-local session = require("resty.session").start()
+local session = require "resty.session".start()
 session.data.uid = 1
 session:save()
 ```
@@ -310,7 +310,7 @@ session:save()
 **Retrieving session variable (in other request):**
 
 ```lua
-local session = require("resty.session").start()
+local session = require "resty.session".open()
 local uid = session.data.uid
 ```
 
