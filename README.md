@@ -26,7 +26,7 @@ http {
         }
         location /test {
             content_by_lua '
-                local session = require("resty.session").start()
+                local session = require("resty.session").open()
                 ngx.say("<html><body>Session was started by <strong>",
                         session.data.name or "Anonymous",
                         "</strong>! <a href=/destroy>Destroy the session</a>.</body></html>")
@@ -42,7 +42,7 @@ http {
         }
         location /check {
             content_by_lua '
-                local session = require("resty.session").start()
+                local session = require("resty.session").open()
                 ngx.say("<html><body>Session was really destroyed, you are known as ",
                         "<strong>",
                         session.data.name or "Anonymous",
