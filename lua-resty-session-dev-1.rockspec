@@ -17,11 +17,13 @@ build = {
     type = "builtin",
     modules = {
         ["resty.session"]                  = "lib/resty/session.lua",
-        ["resty.session.utils"]            = "lib/resty/session/utils.lua",
         ["resty.session.storage.shm"]      = "lib/resty/session/storage/shm.lua",
         ["resty.session.storage.redis"]    = "lib/resty/session/storage/redis.lua",
         ["resty.session.storage.cookie"]   = "lib/resty/session/storage/cookie.lua",
         ["resty.session.storage.memcache"] = "lib/resty/session/storage/memcache.lua",
+        ["resty.session.encoders.hex"]     = "lib/resty/session/encoders/hex.lua",
+        ["resty.session.encoders.base16"]  = "lib/resty/session/encoders/base16.lua",
+        ["resty.session.encoders.base64"]  = "lib/resty/session/encoders/base64.lua",
         ["resty.session.serializers.json"] = "lib/resty/session/serializers/json.lua"
     }
 }
