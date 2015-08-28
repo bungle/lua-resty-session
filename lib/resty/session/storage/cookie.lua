@@ -8,9 +8,9 @@ cookie.__index = cookie
 
 function cookie.new(config)
     return setmetatable({
-        encode     = config.encoder.encode,
-        decode     = config.encoder.decode,
-        delimiter  = config.cookie.delimiter
+        encode    = config.encoder.encode,
+        decode    = config.encoder.decode,
+        delimiter = config.cookie.delimiter
     }, cookie)
 end
 

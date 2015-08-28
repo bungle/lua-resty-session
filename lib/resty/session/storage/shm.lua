@@ -15,11 +15,11 @@ local defaults = {
     locks      = ngx.var.session_shm_locks or "sessions_locks",
     uselocking = enabled(ngx.var.session_shm_uselocking or true),
     lock       = {
-        exptime    = tonumber(ngx.var.session_shm_lock_exptime) or 30,
-        timeout    = tonumber(ngx.var.session_shm_lock_timeout) or 5,
-        step       = tonumber(ngx.var.session_shm_lock_step) or 0.001,
-        ratio      = tonumber(ngx.var.session_shm_lock_ratio) or 2,
-        max_step   = tonumber(ngx.var.session_shm_lock_max_step) or 0.5,
+        exptime  = tonumber(ngx.var.session_shm_lock_exptime) or 30,
+        timeout  = tonumber(ngx.var.session_shm_lock_timeout) or 5,
+        step     = tonumber(ngx.var.session_shm_lock_step) or 0.001,
+        ratio    = tonumber(ngx.var.session_shm_lock_ratio) or 2,
+        max_step = tonumber(ngx.var.session_shm_lock_max_step) or 0.5,
     }
 }
 
@@ -43,11 +43,11 @@ function shm.new(config)
     if l then
         local x = c.lock or defaults.lock
         local s = {
-            exptime   = tonumber(x.exptime)  or defaults.exptime,
-            timeout   = tonumber(x.timeout)  or defaults.timeout,
-            step      = tonumber(x.step)     or defaults.step,
-            ratio     = tonumber(x.ratio)    or defaults.ratio,
-            max_step  = tonumber(x.max_step) or defaults.max_step
+            exptime  = tonumber(x.exptime)  or defaults.exptime,
+            timeout  = tonumber(x.timeout)  or defaults.timeout,
+            step     = tonumber(x.step)     or defaults.step,
+            ratio    = tonumber(x.ratio)    or defaults.ratio,
+            max_step = tonumber(x.max_step) or defaults.max_step
         }
         self.locks = lock:new(c.locks or defaults.locks, s)
     end
