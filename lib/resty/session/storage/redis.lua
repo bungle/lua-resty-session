@@ -1,109 +1,170 @@
 local red          = require "resty.redis"
-local utils        = require "resty.session.utils"
-local split        = utils.split
-local decode       = utils.decode
-local encode       = utils.encode
-local enabled      = utils.enabled
-local concat       = table.concat
-local tonumber     = tonumber
-local now          = ngx.now
-local sleep        = ngx.sleep
 local setmetatable = setmetatable
-local floor        = math.floor
+local tonumber     = tonumber
 local concat       = table.concat
-local uselocking   = enabled(ngx.var.session_redis_uselocking or true)
-local host         = ngx.var.session_redis_host or "127.0.0.1"
-local port         = tonumber(ngx.var.session_redis_port) or 6379
-local spinlockwait = tonumber(ngx.var.session_redis_spinlockwait) or 10000
-local maxlockwait  = tonumber(ngx.var.session_redis_maxlockwait) or 30
-local prefix       = ngx.var.session_redis_prefix or "sessions"
-local pool_timeout = tonumber(ngx.var.session_redis_pool_timeout)
-local pool_size    = tonumber(ngx.var.session_redis_pool_size)
-local socket       = ngx.var.session_redis_socket
-local iterations   = 1000000 / spinlockwait * maxlockwait
-local wait         = spinlockwait / 1000000
-local lockexpires  = maxlockwait + 1
+local floor        = math.floor
+local sleep        = ngx.sleep
+local null         = ngx.null
+local now          = ngx.now
 
-local function noop()
-    return true, nil
+local function enabled(val)
+    if val == nil then return nil end
+    return val == true or (val == "1" or val == "true" or val == "on")
 end
 
-local function lock_real(r, k)
-    local l = concat({ k, "lock" }, "." )
-    for _ = 1, iterations do
-        local ok = r:setnx(l, '1')
-        if ok then
-            return r:expire(l, lockexpires)
-        end
-        sleep(wait)
-    end
-    return false, "no lock"
-end
-
-local function unlock_real(r, k)
-    return r:del(concat({ k, "lock" }, "." ))
-end
-
-local function connect_socket(r)
-    return r:connect(socket)
-end
-
-local function connect_host(r)
-    return r:connect(host, port)
-end
-
-local function disconnect_two(r)
-    return r:set_keepalive(pool_timeout, pool_size)
-end
-
-local function disconnect_one(r)
-    return r:set_keepalive(pool_timeout)
-end
-
-local function disconnect_zero(r)
-    return r:set_keepalive()
-end
-
-local connect = socket     and connect_socket or connect_host
-local lock    = uselocking and lock_real      or noop
-local unlock  = uselocking and unlock_real    or noop
-local disconnect
-
-if pool_timeout and pool_size then
-    disconnect = disconnect_two
-elseif pool_timeout then
-    disconnect = disconnect_one
-else
-    disconnect = disconnect_zero
-end
+local defaults = {
+    prefix       = ngx.var.session_redis_prefix or "sessions",
+    socket       = ngx.var.session_redis_socket,
+    host         = ngx.var.session_redis_host or "127.0.0.1",
+    port         = tonumber(ngx.var.session_redis_port) or 6379,
+    uselocking   = enabled(ngx.var.session_redis_uselocking or true),
+    spinlockwait = tonumber(ngx.var.session_redis_spinlockwait) or 10000,
+    maxlockwait  = tonumber(ngx.var.session_redis_maxlockwait) or 30,
+    pool = {
+        timeout  = tonumber(ngx.var.session_redis_pool_timeout),
+        size     = tonumber(ngx.var.session_redis_pool_size)
+    }
+}
 
 local redis = {}
 
 redis.__index = redis
 
-function redis.new()
-    return setmetatable({ redis = red:new() }, redis)
+function redis.new(config)
+    local r = config.redis or defaults
+    local p = r.pool       or defaults.pool
+    local l = enabled(r.uselocking)
+    if l == nil then
+        l = defaults.uselocking
+    end
+    local self = {
+        redis        = red:new(),
+        encode       = config.encoder.encode,
+        decode       = config.encoder.decode,
+        delimiter    = config.cookie.delimiter,
+        prefix       = r.prefix or defaults.prefix,
+        uselocking   = l,
+        spinlockwait = tonumber(r.spinlockwait) or defaults.spinlockwait,
+        maxlockwait  = tonumber(r.maxlockwait)  or defaults.maxlockwait,
+        pool = {
+            timeout  = tonumber(p.timeout) or defaults.pool.timeout,
+            size     = tonumber(p.size)    or defaults.pool.size
+        }
+    }
+    local s = r.socket or defaults.socket
+    if s then
+        self.socket = s
+    else
+        self.host = r.host or defaults.host
+        self.port = r.port or defaults.port
+    end
+    return setmetatable(self, redis)
+end
+
+function redis:connect()
+    local socket = self.socket
+    if socket then
+        return self.redis:connect(socket)
+    end
+    return self.redis:connect(self.host, self.port)
+end
+
+function redis:set_keepalive()
+    local pool = self.pool
+    local timeout, size = pool.timeout, pool.size
+    if timeout and size then
+        return self.redis:set_keepalive(timeout, size)
+    end
+    if timeout then
+        return self.redis:set_keepalive(timeout)
+    end
+    return self.redis:set_keepalive()
+end
+
+function redis:key(i)
+    return concat({ self.prefix, self.encode(i) }, ":" )
+end
+
+function redis:lock(k)
+    if not self.uselocking then
+        return true, nil
+    end
+    local s = self.spinlockwait
+    local m = self.maxlockwait
+    local w = s / 1000000
+    local r = self.redis
+    local i = 1000000 / s * m
+    local l = concat({ k, "lock" }, "." )
+    for _ = 1, i do
+        local ok = r:setnx(l, "1")
+        if ok then
+            return r:expire(l, m + 1)
+        end
+        sleep(w)
+    end
+    return false, "no lock"
+end
+
+function redis:unlock(k)
+    if self.uselocking then
+        return self.redis:del(concat({ k, "lock" }, "." ))
+    end
+    return true, nil
+end
+
+function redis:get(k)
+    local d = self.redis:get(k)
+    return d ~= null and d or nil
+end
+
+function redis:set(k, d, l)
+    return self.redis:setex(k, l, d)
+end
+
+function redis:expire(k, l)
+    self.redis:expire(k, l)
+end
+
+function redis:delete(k)
+    self.redis:del(k)
+end
+
+function redis:cookie(c)
+    local r, d = {}, self.delimiter
+    local i, p, s, e = 1, 1, c:find(d, 1, true)
+    while s do
+        if i > 2 then
+            return nil
+        end
+        r[i] = c:sub(p, e - 1)
+        i, p = i + 1, e + 1
+        s, e = c:find(d, p, true)
+    end
+    if i ~= 3 then
+        return nil
+    end
+    r[3] = c:sub(p)
+    return r
 end
 
 function redis:open(cookie, lifetime)
-    local c = split(cookie, "|", 3)
+    local c = self:cookie(cookie)
     if c and c[1] and c[2] and c[3] then
-        local r = self.redis
-        local ok, err = connect(r)
+        local ok, err = self:connect()
         if ok then
-            local i, e, h = decode(c[1]), tonumber(c[2]), decode(c[3])
-            local k = concat({ prefix, encode(i) }, ":" )
-            ok, err = lock(r, k)
+            local i, e, h = self.decode(c[1]), tonumber(c[2]), self.decode(c[3])
+            local k = self:key(i)
+            ok, err = self:lock(k)
             if ok then
-                local d = r:get(k)
+                local d = self:get(k)
                 if d then
-                    r:expire(k, floor(lifetime))
+                    self:expire(k, floor(lifetime))
                 end
-                unlock(r, k)
-                disconnect(r)
+                self:unlock(k)
+                self:set_keepalive()
                 return i, e, d, h
             end
-            disconnect(r)
+            self:set_keepalive()
             return nil, err
         else
             return nil, err
@@ -113,34 +174,32 @@ function redis:open(cookie, lifetime)
 end
 
 function redis:start(i)
-    local r = self.redis
-    local ok, err = connect(r)
+    local ok, err = self:connect()
     if ok then
-        ok, err = lock(r, concat({ prefix, encode(i) }, ":" ))
-        disconnect(r)
+        ok, err = self:lock(self:key(i))
+        self:set_keepalive()
     end
     return ok, err
 end
 
 function redis:save(i, e, d, h, close)
-    local r = self.redis
-    local ok, err = connect(r)
+    local ok, err = self:connect()
     if ok then
-        local l, k = e - now(), concat({ prefix, encode(i) }, ":" )
+        local l, k = floor(e - now()), self:key(i)
         if l > 0 then
-            ok, err = r:setex(k, floor(l), d)
+            ok, err = self:set(k, d, l)
             if close then
-                unlock(r, k)
+                self:unlock(k)
             end
-            disconnect(r)
+            self:set_keepalive()
             if ok then
-                return concat({ encode(i), e, encode(h) }, "|")
+                return concat({ self.encode(i), e, self.encode(h) }, self.delimiter)
             end
             return ok, err
         end
         if close then
-            unlock(r, k)
-            disconnect(r)
+            self:unlock(k)
+            self:set_keepalive()
         end
         return nil, "expired"
     end
@@ -148,13 +207,12 @@ function redis:save(i, e, d, h, close)
 end
 
 function redis:destroy(i)
-    local r = self.redis
-    local ok, err = connect(r)
+    local ok, err = self:connect()
     if ok then
-        local k = concat({ prefix, encode(i) }, ":" )
-        r:del(k)
-        unlock(r, k)
-        disconnect(r)
+        local k = self:key(i)
+        self:delete(k)
+        self:unlock(k)
+        self:set_keepalive()
     end
     return ok, err
 end

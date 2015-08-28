@@ -123,6 +123,7 @@ local defaults = {
     name       = ngx_var.session_name       or "session",
     storage    = ngx_var.session_storage    or "cookie",
     serializer = ngx_var.session_serializer or "json",
+    encoder    = ngx_var.session_encoder    or "base64",
     cookie = {
         persistent = persistent,
         renew      = tonumber(ngx_var.session_cookie_renew)    or 600,
@@ -130,7 +131,8 @@ local defaults = {
         path       = ngx_var.session_cookie_path               or "/",
         domain     = ngx_var.session_cookie_domain,
         secure     = enabled(ngx_var.session_cookie_secure),
-        httponly   = enabled(ngx_var.session_cookie_httponly   or true)
+        httponly   = enabled(ngx_var.session_cookie_httponly   or true),
+        delimiter  = ngx_var.session_cookie_delimiter          or "|"
     }, check = {
         ssi    = enabled(ngx_var.session_check_ssi    or persistent == false),
         ua     = enabled(ngx_var.session_check_ua     or true),
@@ -163,24 +165,24 @@ function session.new(opts)
     local c, d = y.check      or z.check,      z.check
     local e, f = y.cipher     or z.cipher,     z.cipher
     local g, h = y.identifier or z.identifier, z.identifier
-    local o, s = pcall(require, "resty.session.storage." .. (y.storage or z.storage))
+    local o, i = pcall(require, "resty.session.storage." .. (y.storage or z.storage))
     if not o then
-        s = require "resty.session.storage.cookie"
+        i = require "resty.session.storage.cookie"
     end
-    local o, x = pcall(require, "resty.session.serializers." .. (y.serializer or z.serializer))
+    local o, j = pcall(require, "resty.session.serializers." .. (y.serializer or z.serializer))
     if not o then
-        x = require "resty.session.serializers.json"
+        j = require "resty.session.serializers.json"
     end
-    return setmetatable({
+    local o, k = pcall(require, "resty.session.encoders." .. (y.encoder or z.encoder))
+    if not o then
+        k = require "resty.session.encoders.base64"
+    end
+    local self = {
         name       = y.name    or z.name,
-        storage    = s.new(),
-        serializer = x,
+        serializer = j,
+        encoder    = k,
         data       = y.data    or {},
         secret     = y.secret  or z.secret,
-        present    = false,
-        opened     = false,
-        started    = false,
-        destroyed  = false,
         cookie = {
             persistent = a.persistent or b.persistent,
             renew      = a.renew      or b.renew,
@@ -188,7 +190,8 @@ function session.new(opts)
             path       = a.path       or b.path,
             domain     = a.domain     or b.domain,
             secure     = a.secure     or b.secure,
-            httponly   = a.httponly   or b.httponly
+            httponly   = a.httponly   or b.httponly,
+            delimiter  = a.delimiter  or b.delimiter,
         }, check = {
             ssi        = c.ssi        or d.ssi,
             ua         = c.ua         or d.ua,
@@ -202,7 +205,9 @@ function session.new(opts)
         }, identifier = {
             length     = g.length     or h.length
         }
-    }, session)
+    }
+    self.storage = i.new(self)
+    return setmetatable(self, session)
 end
 
 function session.open(opts)
@@ -306,10 +311,10 @@ function session:destroy()
     if self.storage.destroy then
         self.storage:destroy(self.id)
     end
-    self.data = {}
-    self.present = false
-    self.opened = false
-    self.started = false
+    self.data      = {}
+    self.present   = nil
+    self.opened    = nil
+    self.started   = nil
     self.destroyed = true
     return setcookie(self, "", true)
 end
