@@ -306,7 +306,7 @@ It is possible to implement additional storage adapters using the plugin archite
 You need to implement at least these to APIs:
 
 * `table adapter.new(opts)`
-* `id, expires, data, hmac adapter:open(cookie)`
+* `id, expires, data, hmac adapter:open(cookie, lifetime)`
 * `cookie adapter:save(id, expires, data, hmac)`
 
 There are a few additional hooks that you may want to attach:
