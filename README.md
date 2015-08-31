@@ -255,7 +255,31 @@ set $session_memcache_spinlockwait  10000,
 set $session_memcache_maxlockwait   30,
 set $session_memcache_pool_timeout  45
 set $session_memcache_pool_size     10
-}
+```
+
+#### Redis Storage Adapter
+
+Redis storage adapter stores the session data inside Redis server.
+It is scalable and works with web farms. 
+
+Redis adapter can be selected with configuration:
+
+```nginx
+set $session_storage redis;
+```
+
+Additionally you can configure Redis adapter with these settings:
+
+```nginx
+set $session_redis_prefix        sessions;
+set $session_redis_socket        unix:///var/run/redis/redis.sock;
+set $session_redis_host          127.0.0.1;
+set $session_redis_port          6379;
+set $session_redis_uselocking    on;
+set $session_redis_spinlockwait  10000,
+set $session_redis_maxlockwait   30,
+set $session_redis_pool_timeout  45
+set $session_redis_pool_size     10
 ```
 
 ## Lua API
