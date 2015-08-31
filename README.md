@@ -314,6 +314,52 @@ There are a few additional hooks that you may want to attach:
 * `ok, error adapter:start(id)`
 * `ok, error adapter:destroy(id)`
 
+You have to place your adapter inside `resty.session.storage` for auto-loader to work.
+
+To configure session to use your adapter, you can do so with Nginx configuration (or in Lua code):
+
+```nginx
+# Just an example. Pull request for MySQL support are greatly welcomed.
+set $session_storage mysql;
+```
+
+## Pluggable Serializers
+
+Currently we only support JSON serializer, but there is a plugin architecture that you can use to
+plugin your own serializer. The serializer is used to serialize session data in a form that can be
+later deserialized and stored in some of our supported storages.
+
+You need only to implement two functions to write an adapter:
+
+* `string adapter.serialize(table)`
+* `table adapter.deserialize(string)`
+
+You have to place your adapter inside `resty.session.serializers` for auto-loader to work.
+
+To configure session to use your adapter, you can do so with Nginx configuration (or in Lua code):
+
+```nginx
+set $session_serializer json;
+```
+
+## Pluggable Encoders
+
+Cookie data needs to be encoded in cookie form before it is send to client. We support
+two encoding methods by default: modified cookie friendly base-64, and base-16 (or hexadecimal encoding).
+
+If you want to write your own encoder, you need to implement these two methods:
+
+* `string adapter.encode(string)`
+* `string adapter.decode(string)`
+
+You have to place your adapter inside `resty.session.encoders` for auto-loader to work.
+
+To configure session to use your adapter, you can do so with Nginx configuration (or in Lua code):
+
+```nginx
+set $session_encoder base64;
+```
+
 ## Lua API
 
 ### Functions and Methods
