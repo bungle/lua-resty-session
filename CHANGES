@@ -1,4 +1,4 @@
-Changes with lua-resty-session 2.0                                x Xxx 2015
+Changes with lua-resty-session 2.0                               31 Aug 2015
 
     *) Feature: Added architecture for Storage adapter plugins.
 
