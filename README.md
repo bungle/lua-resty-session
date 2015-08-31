@@ -157,12 +157,12 @@ session.secret = "623q4hR325t36VsCD3g567922IC0073T"
 With version 2.0 we started to support pluggable session data storage adapters. We do currently have
 support for these backends:
 
-* `cookie` aka Client Side Cookie
+* `cookie` aka Client Side Cookie (this is the default adapter)
 * `shm` aka Lua Shared Dictionary
 * `memcache` aka Memcached Storage Backend (thanks @zandbelt)
 * `redis` aka Redis Backend
 
-Here are some comparision about the backends:
+Here are some comparisons about the backends:
 
 |                               | cookie | shm  | memcache | redis |
 | :---------------------------- | :----: | :--: | :------: | :---: |
@@ -186,6 +186,75 @@ Or with Lua code like this:
 ```lua
 local session = require "resty.session".new()
 session.storage = "shm"
+```
+
+#### Cookie Storage Adapter
+
+Cookie storage adapter is the default adapter that is used if storage adapter has not been configured. Cookie
+adapter does not have any settings.
+
+Cookie adapter can be selected with configuration (if no configuration is present, the cookie adapter is picked up):
+
+```nginx
+set $session_storage cookie;
+```
+
+#### Shared Dictionary Storage Adapter
+
+Shared dictionary uses OpenResty shared dictionary and works with multiple worker processes, but it isn't a good
+choice if you want to run multiple separate frontends. It is relatively easy to configure and has some added
+benefits on security side compared to `cookie`, although the normal cookie adapters is really secure as well.
+
+Shared dictionary adapter can be selected with configuration:
+
+```nginx
+set $session_storage shm;
+```
+
+But for this to work, you will also need a storage configured for that:
+
+```nginx
+http {
+   lua_shared_dict sessions 10m;
+}
+```
+
+Additionally you can configure the locking and some other things as well:
+
+```nginx
+set $session_shm_store         sessions;
+set $session_shm_uselocking    on;
+set $session_shm_lock_exptime  30;
+set $session_shm_lock_timeout  5;
+set $session_shm_lock_step     0.001;
+set $session_shm_lock_ratio    2;
+set $session_shm_lock_max_step 0.5;
+```
+
+#### Memcache Storage Adapter
+
+Memcache storage adapters stores the session data inside Memcached server.
+It is scalable and works with web farms. 
+
+Memcache adapter can be selected with configuration:
+
+```nginx
+set $session_storage memcache;
+```
+
+Additionally you can configure Memcache adapter with these settings:
+
+```nginx
+set $session_memcache_prefix        sessions;
+set $session_memcache_socket        unix:///var/run/memcached/memcached.sock;
+set $session_memcache_host          127.0.0.1;
+set $session_memcache_port          11211;
+set $session_memcache_uselocking    on;
+set $session_memcache_spinlockwait  10000,
+set $session_memcache_maxlockwait   30,
+set $session_memcache_pool_timeout  45
+set $session_memcache_pool_size     10
+}
 ```
 
 ## Lua API
@@ -435,6 +504,12 @@ and I cannot think of an situation where one would want to turn this off. By kee
 prevent your session cookies access from Javascript and give some safety of XSS attacks. If you really
 want to turn this off, this can be configured with Nginx `set $session_cookie_httponly off;`.
 
+#### string session.cookie.delimiter
+
+`session.cookie.delimiter` is used to configure how the different parts of the data stored in a cookie is
+delimiter. By default it is a pipe character, `|`. It is up to storage adapter to decide if this configuration
+parameter is used.
+
 #### number session.cipher.size
 
 `session.cipher.size` holds the size of the cipher (`lua-resty-string` supports AES in `128`, `192`,
@@ -529,6 +604,9 @@ Here is a list of `lua-resty-session` related Nginx configuration variables that
 ```nginx
 set $session_name              session;
 set $session_secret            623q4hR325t36VsCD3g567922IC0073T;
+set $session_storage           cookie;
+set $session_encoder           base64;
+set $session_serializer        json;
 set $session_cookie_persistent off;
 set $session_cookie_renew      600;
 set $session_cookie_lifetime   3600;
@@ -536,6 +614,7 @@ set $session_cookie_path       /;
 set $session_cookie_domain     openresty.org;
 set $session_cookie_secure     on;
 set $session_cookie_httponly   on;
+set $session_cookie_delimiter  |;
 set $session_cipher_mode       cbc;
 set $session_cipher_size       256;
 set $session_cipher_hash       sha512;

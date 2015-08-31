@@ -12,7 +12,6 @@ end
 
 local defaults = {
     store      = ngx.var.session_shm_store or "sessions",
-    locks      = ngx.var.session_shm_locks or "sessions_locks",
     uselocking = enabled(ngx.var.session_shm_uselocking or true),
     lock       = {
         exptime  = tonumber(ngx.var.session_shm_lock_exptime) or 30,
@@ -33,8 +32,9 @@ function shm.new(config)
     if l == nil then
         l = defaults.uselocking
     end
+    local m = c.store or defaults.store
     local self = {
-        store      = shared[c.store or defaults.store],
+        store      = shared[m],
         encode     = config.encoder.encode,
         decode     = config.encoder.decode,
         delimiter  = config.cookie.delimiter,
@@ -49,9 +49,13 @@ function shm.new(config)
             ratio    = tonumber(x.ratio)    or defaults.ratio,
             max_step = tonumber(x.max_step) or defaults.max_step
         }
-        self.locks = lock:new(c.locks or defaults.locks, s)
+        self.lock = lock:new(m, s)
     end
     return setmetatable(self, shm)
+end
+
+function shm:key(i)
+    return self.encode(i)
 end
 
 function shm:cookie(c)
@@ -76,21 +80,22 @@ function shm:open(cookie, lifetime)
     local r = self:cookie(cookie)
     if r and r[1] and r[2] and r[3] then
         local i, e, h = self.decode(r[1]), tonumber(r[2]), self.decode(r[3])
+        local k = self:key(i)
         if self.uselocking then
-            local l = self.locks
-            local ok, err = l:lock(i)
+            local l = self.lock
+            local ok, err = l:lock(concat{k, ".lock"})
             if ok then
                 local s = self.store
-                local d = s:get(i)
-                s:set(i, d, lifetime)
+                local d = s:get(k)
+                s:set(k, d, lifetime)
                 l:unlock()
                 return i, e, d, h
             end
             return nil, err
         else
             local s = self.store
-            local d = s:get(i)
-            s:set(i, d, lifetime)
+            local d = s:get(k)
+            s:set(k, d, lifetime)
             return i, e, d, h
         end
     end
@@ -99,7 +104,7 @@ end
 
 function shm:start(i)
     if self.uselocking then
-        return self.locks:lock(i)
+        return self.lock:lock(concat{self:key(i), ".lock"})
     end
     return true, nil
 end
@@ -107,25 +112,26 @@ end
 function shm:save(i, e, d, h, close)
     local l = e - now()
     if l > 0 then
-        local ok, err = self.store:set(i, d, l)
+        local k = self:key(i)
+        local ok, err = self.store:set(k, d, l)
         if self.uselocking and close then
-            self.locks:unlock()
+            self.lock:unlock()
         end
         if ok then
-            return concat({ self.encode(i), e, self.encode(h) }, self.delimiter)
+            return concat({ k, e, self.encode(h) }, self.delimiter)
         end
         return nil, err
     end
     if self.uselocking and close then
-        self.locks:unlock()
+        self.lock:unlock()
     end
     return nil, "expired"
 end
 
 function shm:destroy(i)
-    self.store:delete(i)
+    self.store:delete(self:key(i))
     if self.uselocking then
-        self.locks:unlock()
+        self.lock:unlock()
     end
     return true, nil
 end

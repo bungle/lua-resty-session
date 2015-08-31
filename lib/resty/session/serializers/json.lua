@@ -1,6 +1,6 @@
 local json = require "cjson"
 
 return {
-    encode = json.encode,
-    decode = json.decode
+    serialize   = json.encode,
+    deserialize = json.decode
 }

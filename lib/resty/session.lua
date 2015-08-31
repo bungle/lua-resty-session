@@ -101,7 +101,7 @@ local function save(session, close)
     session.expires = time() + session.cookie.lifetime
     local i, e, c, s = session.id, session.expires, session.cipher, session.storage
     local k = hmac(session.secret, i .. e)
-    local d = session.serializer.encode(session.data)
+    local d = session.serializer.serialize(session.data)
     local h = hmac(k, concat{ i, e, d, session.key })
     local a = aes:new(k, i, aes.cipher(c.size, c.mode), c.hash, c.rounds)
     local cookie, err = s:save(i, e, a:encrypt(d), h, close)
@@ -270,7 +270,7 @@ function session.open(opts)
             local a = aes:new(k, i, aes.cipher(c.size, c.mode), c.hash, c.rounds)
             d = a:decrypt(d)
             if d and hmac(k, concat{ i, e, d, self.key }) == h then
-                self.data = self.serializer.decode(d)
+                self.data = self.serializer.deserialize(d)
                 self.present = true
             end
         end
