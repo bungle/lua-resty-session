@@ -159,7 +159,7 @@ support for these backends:
 
 * `cookie` aka Client Side Cookie (this is the default adapter)
 * `shm` aka Lua Shared Dictionary
-* `memcache` aka Memcached Storage Backend (thanks @zandbelt)
+* `memcache` aka Memcached Storage Backend (thanks [@zandbelt](https://github.com/zandbelt))
 * `redis` aka Redis Backend
 
 Here are some comparisons about the backends:
