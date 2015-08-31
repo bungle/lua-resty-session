@@ -133,8 +133,8 @@ lua_code_cache off;
 
 The problem is caused by the fact that by default we do generate session secret automatically with
 a random generator. If the code cache is turned off, we regenerate the secret on each request. That
-will invalidate the cookies aka making sesions non-functioning. The cure for this problem is to
-define the secret in Nginx or in Lua code.
+will invalidate the cookies aka making sessions non-functioning. The cure for this problem is to
+define the secret in Nginx or in Lua code (it is good idea to always have session_secret defined).
 
 Nginx:
 
