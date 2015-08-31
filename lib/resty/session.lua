@@ -94,6 +94,7 @@ local function setcookie(session, value, expires)
         cookies = cookie
     end
     ngx_header["Set-Cookie"] = cookies
+    return true
 end
 
 local function save(session, close)
@@ -103,8 +104,11 @@ local function save(session, close)
     local d = session.serializer.encode(session.data)
     local h = hmac(k, concat{ i, e, d, session.key })
     local a = aes:new(k, i, aes.cipher(c.size, c.mode), c.hash, c.rounds)
-    local cookie = s:save(i, e, a:encrypt(d), h, close)
-    setcookie(session, cookie)
+    local cookie, err = s:save(i, e, a:encrypt(d), h, close)
+    if cookie then
+        return setcookie(session, cookie)
+    end
+    return nil, err
 end
 
 local function regenerate(session, flush)
