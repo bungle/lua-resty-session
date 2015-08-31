@@ -236,6 +236,11 @@ set $session_shm_lock_ratio    2;
 set $session_shm_lock_max_step 0.5;
 ```
 
+The keys stored in shared dictionary are in form:
+
+`{session id}` and `{session id}.lock`.
+
+
 #### Memcache Storage Adapter
 
 Memcache storage adapter stores the session data inside Memcached server.
@@ -261,6 +266,10 @@ set $session_memcache_pool_timeout  45;
 set $session_memcache_pool_size     10;
 ```
 
+The keys stored in Memcached are in form:
+
+`{prefix}:{session id}` and `{prefix}:{session id}.lock`.
+
 #### Redis Storage Adapter
 
 Redis storage adapter stores the session data inside Redis server.
@@ -285,6 +294,25 @@ set $session_redis_maxlockwait   30;
 set $session_redis_pool_timeout  45;
 set $session_redis_pool_size     10;
 ```
+
+The keys stored in Redis are in form:
+
+`{prefix}:{session id}` and `{prefix}:{session id}.lock`.
+
+#### Implementing a Storage Adapter
+
+It is possible to implement additional storage adapters using the plugin architecture in `lua-resty-session`.
+
+You need to implement at least these to APIs:
+
+* `table adapter.new(opts)`
+* `id, expires, data, hmac adapter:open(cookie)`
+* `cookie adapter:save(id, expires, data, hmac)`
+
+There are a few additional hooks that you may want to attach:
+
+* `ok, error adapter:start(id)`
+* `ok, error adapter:destroy(id)`
 
 ## Lua API
 
