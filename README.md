@@ -251,10 +251,10 @@ set $session_memcache_socket        unix:///var/run/memcached/memcached.sock;
 set $session_memcache_host          127.0.0.1;
 set $session_memcache_port          11211;
 set $session_memcache_uselocking    on;
-set $session_memcache_spinlockwait  10000,
-set $session_memcache_maxlockwait   30,
-set $session_memcache_pool_timeout  45
-set $session_memcache_pool_size     10
+set $session_memcache_spinlockwait  10000;
+set $session_memcache_maxlockwait   30;
+set $session_memcache_pool_timeout  45;
+set $session_memcache_pool_size     10;
 ```
 
 #### Redis Storage Adapter
@@ -276,10 +276,10 @@ set $session_redis_socket        unix:///var/run/redis/redis.sock;
 set $session_redis_host          127.0.0.1;
 set $session_redis_port          6379;
 set $session_redis_uselocking    on;
-set $session_redis_spinlockwait  10000,
-set $session_redis_maxlockwait   30,
-set $session_redis_pool_timeout  45
-set $session_redis_pool_size     10
+set $session_redis_spinlockwait  10000;
+set $session_redis_maxlockwait   30;
+set $session_redis_pool_timeout  45;
+set $session_redis_pool_size     10;
 ```
 
 ## Lua API
