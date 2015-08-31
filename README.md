@@ -120,6 +120,38 @@ There is no state held in server (except the configuration directives), and all 
 in the cookie as specified in Secure Cookie Protocol paper. In the future, the server side backend
 could be added to this module as well (all contributions are welcomed).
 
+## Notes About Turning Lua Code Cache Off
+
+In issue ([#15](https://github.com/bungle/lua-resty-session/issues/15)) it was raised that there may
+be problems of using `lua-resty-session` when the `lua_code_cache` setting has been turned off.
+
+Nginx:
+
+```nginx
+lua_code_cache off;
+```
+
+The problem is caused by the fact that by default we do generate session secret automatically with
+a random generator. If the code cache is turned off, we regenerate the secret on each request. That
+will invalidate the cookies aka making sesions non-functioning. The cure for this problem is to
+define the secret in Nginx or in Lua code.
+
+Nginx:
+
+```nginx
+set $session_secret 623q4hR325t36VsCD3g567922IC0073T;
+```
+
+Lua:
+
+```lua
+local session = require "resty.session".start{ secret = "623q4hR325t36VsCD3g567922IC0073T" }
+-- or
+local session = require "resty.session".new()
+session.secret = "623q4hR325t36VsCD3g567922IC0073T"
+```
+
+
 ## Lua API
 
 ### Functions and Methods
