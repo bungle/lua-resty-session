@@ -154,7 +154,7 @@ local defaults = {
 defaults.secret = ngx_var.session_secret or random(defaults.cipher.size / 8)
 
 local session = {
-    _VERSION = "1.8-dev"
+    _VERSION = "2.0"
 }
 
 session.__index = session
