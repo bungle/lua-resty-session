@@ -176,6 +176,7 @@ Here are some comparisons about the backends:
 | Extra Security ²              |        | ✓    | ✓        | ✓     | 
 
 ¹ Can be configured lockless.
+
 ² HMAC is stored on client but the data is stored on a server. That means that you are unable to edit
   cookie if you cannot edit server side storage as well, and vice-versa.
 
