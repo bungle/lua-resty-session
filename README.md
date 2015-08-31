@@ -233,7 +233,7 @@ set $session_shm_lock_max_step 0.5;
 
 #### Memcache Storage Adapter
 
-Memcache storage adapters stores the session data inside Memcached server.
+Memcache storage adapter stores the session data inside Memcached server.
 It is scalable and works with web farms. 
 
 Memcache adapter can be selected with configuration:
