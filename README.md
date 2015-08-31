@@ -159,19 +159,19 @@ support for these backends:
 
 * `cookie` aka Client Side Cookie
 * `shm` aka Lua Shared Dictionary
-* `memcache` aka Memcached Storage Backend
+* `memcache` aka Memcached Storage Backend (thanks @zandbelt)
 * `redis` aka Redis Backend
 
 Here are some comparision about the backends:
 
-|                               | cookie   | shm   | memcache   | redis   |
-| :---------------------------- | :------: | :---: | :--------: | :-----: |
-| Stateless                     | [x]      | [ ]   | [ ]        | [ ]     |
-| Lockless                      | [x]      | [ ]¹  | [ ]¹       | [ ]¹    |
-| Works with Web Farms          | [x]      | [ ]   | [x]        | [x]     |
-| Session Data Stored on Client | [x]      | [ ]   | [ ]        | [ ]     |
-| Zero Configuration            | [x]      | [ ]   | [ ]        | [ ]     |
-| Extra Dependencies            | [ ]      | [ ]   | [x]        | [x]     |
+|                               | cookie | shm  | memcache | redis |
+| :---------------------------- | :----: | :--: | :------: | :---: |
+| Stateless                     | ✓      |      |          |       |
+| Lockless                      | ✓      | ¹    | ¹        | ¹     |
+| Works with Web Farms          | ✓      |      | ✓        | ✓     |
+| Session Data Stored on Client | ✓      |      |          |       |
+| Zero Configuration            | ✓      |      |          |       |
+| Extra Dependencies            |        |      | ✓        | ✓     |
 
 ¹ Can be configured lockless.
 
