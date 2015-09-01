@@ -62,7 +62,7 @@ http {
 
 ## Installation
 
-Just place [`session.lua`](https://github.com/bungle/lua-resty-session/blob/master/lib/resty/session.lua) somewhere in your `package.path`, preferably under `resty` directory. If you are using OpenResty, the default location would be `/usr/local/openresty/lualib/resty`.
+Just place [`session`] directory somewhere in your `package.path`, preferably under `resty` directory. If you are using OpenResty, the default location would be `/usr/local/openresty/lualib/resty`.
 
 ### Using LuaRocks or MoonRocks
 
