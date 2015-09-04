@@ -6,29 +6,12 @@ local time         = ngx.time
 local http_time    = ngx.http_time
 local type         = type
 local setmetatable = setmetatable
-local aes          = require "resty.aes"
 local ffi          = require "ffi"
 local ffi_cdef     = ffi.cdef
 local ffi_new      = ffi.new
 local ffi_str      = ffi.string
 local ffi_typeof   = ffi.typeof
 local C            = ffi.C
-
-local CIPHER_MODES = {
-    ecb    = "ecb",
-    cbc    = "cbc",
-    cfb1   = "cfb1",
-    cfb8   = "cfb8",
-    cfb128 = "cfb128",
-    ofb    = "ofb",
-    ctr    = "ctr"
-}
-
-local CIPHER_SIZES = {
-    ["128"] = 128,
-    ["192"] = 192,
-    ["256"] = 256
-}
 
 ffi_cdef[[
 typedef unsigned char u_char;
@@ -99,12 +82,11 @@ end
 
 local function save(session, close)
     session.expires = time() + session.cookie.lifetime
-    local i, e, c, s = session.id, session.expires, session.cipher, session.storage
+    local i, e, s = session.id, session.expires, session.storage
     local k = hmac(session.secret, i .. e)
     local d = session.serializer.serialize(session.data)
     local h = hmac(k, concat{ i, e, d, session.key })
-    local a = aes:new(k, i, aes.cipher(c.size, c.mode), c.hash, c.rounds)
-    local cookie, err = s:save(i, e, a:encrypt(d), h, close)
+    local cookie, err = s:save(i, e, session.cipher:encrypt(d, k, i), h, close)
     if cookie then
         return setcookie(session, cookie)
     end
@@ -128,6 +110,7 @@ local defaults = {
     storage    = ngx_var.session_storage    or "cookie",
     serializer = ngx_var.session_serializer or "json",
     encoder    = ngx_var.session_encoder    or "base64",
+    cipher     = ngx_var.session_cipher     or "aes",
     cookie = {
         persistent = persistent,
         renew      = tonumber(ngx_var.session_cookie_renew)    or 600,
@@ -142,11 +125,6 @@ local defaults = {
         ua     = enabled(ngx_var.session_check_ua     or true),
         scheme = enabled(ngx_var.session_check_scheme or true),
         addr   = enabled(ngx_var.session_check_addr   or false)
-    }, cipher = {
-        size   = CIPHER_SIZES[ngx_var.session_cipher_size] or 256,
-        mode   = CIPHER_MODES[ngx_var.session_cipher_mode] or "cbc",
-        hash   = aes.hash[ngx_var.session_cipher_hash]     or aes.hash.sha512,
-        rounds = tonumber(ngx_var.session_cipher_rounds)   or 1
     }, identifier = {
         length  = tonumber(ngx_var.session_identifier_length) or 16
     }
@@ -154,7 +132,7 @@ local defaults = {
 defaults.secret = ngx_var.session_secret or random(defaults.cipher.size / 8)
 
 local session = {
-    _VERSION = "2.0"
+    _VERSION = "2.1-dev"
 }
 
 session.__index = session
@@ -201,16 +179,21 @@ function session.new(opts)
             ua         = c.ua         or d.ua,
             scheme     = c.scheme     or d.scheme,
             addr       = c.addr       or d.addr
-        }, cipher = {
-            size       = e.size       or f.size,
-            mode       = e.mode       or f.mode,
-            hash       = e.hash       or f.hash,
-            rounds     = e.rounds     or f.rounds
         }, identifier = {
             length     = g.length     or h.length
         }
     }
     self.storage = i.new(self)
+    if type(e) == "table" then
+        -- This is for backward compability
+        self.aes = e
+        e = "aes"
+    end
+    local o, l = pcall(require, "resty.session.ciphers." .. (e or f))
+    if not o then
+        l = require "resty.session.ciphers.aes"
+    end
+    self.cipher = l.new(self)
     return setmetatable(self, session)
 end
 
@@ -265,10 +248,8 @@ function session.open(opts)
         if i and e and e > time() and d and h then
             self.id = i
             self.expires = e
-            local c = self.cipher
             local k = hmac(self.secret, self.id .. e)
-            local a = aes:new(k, i, aes.cipher(c.size, c.mode), c.hash, c.rounds)
-            d = a:decrypt(d)
+            d = self.cipher:decrypt(d, k, i)
             if d and hmac(k, concat{ i, e, d, self.key }) == h then
                 self.data = self.serializer.deserialize(d)
                 self.present = true
