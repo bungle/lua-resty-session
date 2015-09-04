@@ -22,9 +22,12 @@ build = {
         ["resty.session.storage.cookie"]    = "lib/resty/session/storage/cookie.lua",
         ["resty.session.storage.memcache"]  = "lib/resty/session/storage/memcache.lua",
         ["resty.session.storage.memcached"] = "lib/resty/session/storage/memcached.lua",
+        ["resty.session.ciphers.aes"]       = "lib/resty/session/ciphers/aes.lua",
+        ["resty.session.ciphers.none"]      = "lib/resty/session/ciphers/none.lua",
         ["resty.session.encoders.hex"]      = "lib/resty/session/encoders/hex.lua",
         ["resty.session.encoders.base16"]   = "lib/resty/session/encoders/base16.lua",
         ["resty.session.encoders.base64"]   = "lib/resty/session/encoders/base64.lua",
         ["resty.session.serializers.json"]  = "lib/resty/session/serializers/json.lua"
+
     }
 }
