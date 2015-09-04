@@ -1,4 +1,5 @@
 local setmetatable = setmetatable
+local tonumber     = tonumber
 local aes          = require "resty.aes"
 local cip          = aes.cipher
 local hashes       = aes.hash

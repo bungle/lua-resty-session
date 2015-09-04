@@ -1,3 +1,4 @@
+local setmetatable = setmetatable
 local singleton
 local cipher = {}
 
