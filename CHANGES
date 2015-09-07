@@ -1,3 +1,19 @@
+Changes with lua-resty-session 2.1                                7 Sep 2015
+
+    *) Feature: Added architecture for Cipher adapter plugins.'
+
+    See Also: https://github.com/bungle/lua-resty-session/issues/16
+
+    Thanks @mingfang
+
+    *) Feature: Implemented AES cipher adapter (just like it was before)
+
+    *) Feature: Implemented None cipher adapter (no encryption)
+
+    *) Change: Changed JSON serializer to use cjson.safe instead
+
+    *) Documentation: Added documentation about pluggable ciphers
+
 Changes with lua-resty-session 2.0                               31 Aug 2015
 
     *) Feature: Added architecture for Storage adapter plugins.

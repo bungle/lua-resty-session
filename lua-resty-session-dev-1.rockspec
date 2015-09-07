@@ -28,6 +28,5 @@ build = {
         ["resty.session.encoders.base16"]   = "lib/resty/session/encoders/base16.lua",
         ["resty.session.encoders.base64"]   = "lib/resty/session/encoders/base64.lua",
         ["resty.session.serializers.json"]  = "lib/resty/session/serializers/json.lua"
-
     }
 }
