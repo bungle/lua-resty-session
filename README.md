@@ -62,7 +62,7 @@ http {
 
 ## Installation
 
-Just place [`session.lua`](https://github.com/bungle/lua-resty-session/blob/master/lib/resty/session.lua) somewhere in your `package.path`, preferably under `resty` directory. If you are using OpenResty, the default location would be `/usr/local/openresty/lualib/resty`.
+Just place [`session.lua`](https://github.com/bungle/lua-resty-session/blob/master/lib/resty/session.lua) and [`session`](https://github.com/bungle/lua-resty-session/tree/master/lib/resty/session) directory somewhere in your `package.path`, preferably under `resty` directory. If you are using OpenResty, the default location would be `/usr/local/openresty/lualib/resty`.
 
 ### Using LuaRocks or MoonRocks
 
@@ -306,7 +306,7 @@ It is possible to implement additional storage adapters using the plugin archite
 You need to implement at least these to APIs:
 
 * `table adapter.new(opts)`
-* `id, expires, data, hmac adapter:open(cookie)`
+* `id, expires, data, hmac adapter:open(cookie, lifetime)`
 * `cookie adapter:save(id, expires, data, hmac)`
 
 There are a few additional hooks that you may want to attach:
