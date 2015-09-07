@@ -86,7 +86,7 @@ local function save(session, close)
     local k = hmac(session.secret, i .. e)
     local d = session.serializer.serialize(session.data)
     local h = hmac(k, concat{ i, e, d, session.key })
-    local cookie, err = s:save(i, e, session.cipher:encrypt(d, k, i), h, close)
+    local cookie, err = s:save(i, e, session.cipher:encrypt(d, k, i, session.key), h, close)
     if cookie then
         return setcookie(session, cookie)
     end
@@ -249,7 +249,7 @@ function session.open(opts)
             self.id = i
             self.expires = e
             local k = hmac(self.secret, self.id .. e)
-            d = self.cipher:decrypt(d, k, i)
+            d = self.cipher:decrypt(d, k, i, self.key)
             if d and hmac(k, concat{ i, e, d, self.key }) == h then
                 self.data = self.serializer.deserialize(d)
                 self.present = true
