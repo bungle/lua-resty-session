@@ -56,7 +56,6 @@ http {
 ## Roadmap
 
 * [ ] Implement cookieless server-side session support using `ssl_session_id` as a `session.id` (using a server-side storage).
-* [ ] Add support for cipher plugins.
 * [ ] Add support for session id generator plugins.
 * [ ] Add support for `lua-resty-nettle` for more wide variety of encryption algorithms as a plugin.
 
