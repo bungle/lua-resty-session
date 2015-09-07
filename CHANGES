@@ -1,6 +1,6 @@
 Changes with lua-resty-session 2.1                                7 Sep 2015
 
-    *) Feature: Added architecture for Cipher adapter plugins.'
+    *) Feature: Added architecture for Cipher adapter plugins.
 
     See Also: https://github.com/bungle/lua-resty-session/issues/16
 
