@@ -55,9 +55,10 @@ http {
 
 ## Roadmap
 
-* [ ] Implement cookieless server-side session support using `ssl_session_id` as a `session.id` (using a server-side storage).
-* [ ] Add support for session id generator plugins.
+* [ ] Add support for hmac plugins (e.g. in case where we have cipher that already supports authentication with associated data aka AEAD)
+* [ ] Add support for session id generator plugins (maybe you don't want to use random data, and want UUID or maybe some kind of database identifier instead).
 * [ ] Add support for `lua-resty-nettle` for more wide variety of encryption algorithms as a plugin.
+* [ ] Implement cookieless server-side session support using `ssl_session_id` as a `session.id` (using a server-side storage).
 
 ## Installation
 
