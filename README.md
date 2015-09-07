@@ -806,6 +806,7 @@ Here is a list of `lua-resty-session` related Nginx configuration variables that
 set $session_name              session;
 set $session_secret            623q4hR325t36VsCD3g567922IC0073T;
 set $session_storage           cookie;
+set $session_cipher            aes;
 set $session_encoder           base64;
 set $session_serializer        json;
 set $session_cookie_persistent off;
