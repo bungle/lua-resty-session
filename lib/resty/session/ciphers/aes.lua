@@ -47,7 +47,7 @@ function cipher:encrypt(d, k, s)
 end
 
 function cipher:decrypt(d, k, s)
-    return aes:new(k, s, aes.cipher(self.size, self.mode), self.hash, self.rounds):decrypt(d)
+    return aes:new(k, s, cip(self.size, self.mode), self.hash, self.rounds):decrypt(d)
 end
 
 return cipher
