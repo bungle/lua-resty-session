@@ -341,9 +341,6 @@ Or with Lua code like this:
 
 ```lua
 local session = require "resty.session".start{ cipher = "aes" }
--- or
-local session = require "resty.session".new()
-session.cipher = "aes"
 ```
 
 #### AES Cipher
