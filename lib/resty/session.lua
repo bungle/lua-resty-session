@@ -129,10 +129,10 @@ local defaults = {
         length  = tonumber(ngx_var.session_identifier_length) or 16
     }
 }
-defaults.secret = ngx_var.session_secret or random(defaults.cipher.size / 8)
+defaults.secret = ngx_var.session_secret or random(32)
 
 local session = {
-    _VERSION = "2.1"
+    _VERSION = "2.2"
 }
 
 session.__index = session
@@ -159,6 +159,10 @@ function session.new(opts)
     if not o then
         k = require "resty.session.encoders.base64"
     end
+    local o, l = pcall(require, "resty.session.ciphers." .. (e or f))
+    if not o then
+        l = require "resty.session.ciphers.aes"
+    end
     local self = {
         name       = y.name    or z.name,
         serializer = j,
@@ -173,7 +177,7 @@ function session.new(opts)
             domain     = a.domain     or b.domain,
             secure     = a.secure     or b.secure,
             httponly   = a.httponly   or b.httponly,
-            delimiter  = a.delimiter  or b.delimiter,
+            delimiter  = a.delimiter  or b.delimiter
         }, check = {
             ssi        = c.ssi        or d.ssi,
             ua         = c.ua         or d.ua,
@@ -184,15 +188,6 @@ function session.new(opts)
         }
     }
     self.storage = i.new(self)
-    if type(e) == "table" then
-        -- This is for backward compability
-        self.aes = e
-        e = "aes"
-    end
-    local o, l = pcall(require, "resty.session.ciphers." .. (e or f))
-    if not o then
-        l = require "resty.session.ciphers.aes"
-    end
     self.cipher = l.new(self)
     return setmetatable(self, session)
 end

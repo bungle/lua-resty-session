@@ -1,3 +1,17 @@
+Changes with lua-resty-session 2.2                               17 Sep 2015
+
+    *) Change: Removed all session_cipher_* deprecated settings
+       (it was somewhat broken in 2.1).
+
+    *) Change: Changed session secret to be by default 32 bytes random data
+
+    See Also: https://github.com/bungle/lua-resty-session/issues/18
+
+    Thanks @iain-buclaw-sociomantic
+
+    *) Documentation: Added documentation about removed features and
+       corrected about session secret size accordingly.
+
 Changes with lua-resty-session 2.1                                7 Sep 2015
 
     *) Feature: Added architecture for Cipher adapter plugins.
