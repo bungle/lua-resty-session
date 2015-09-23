@@ -15,14 +15,14 @@ local C            = ffi.C
 
 ffi_cdef[[
 typedef unsigned char u_char;
-int RAND_pseudo_bytes(u_char *buf, int num);
+int RAND_bytes(u_char *buf, int num);
 ]]
 
 local t = ffi_typeof("uint8_t[?]")
 
 local function random(len)
     local s = ffi_new(t, len)
-    C.RAND_pseudo_bytes(s, len)
+    C.RAND_bytes(s, len)
     return ffi_str(s, len)
 end
 
