@@ -97,8 +97,8 @@ local function regenerate(session, flush)
     local i = session.present and session.id or nil
     session.id = random(session.identifier.length)
     if flush then
-        if i then
-            session.storage.destroy(i);
+        if i and session.storage.destroy then
+            session.storage:destroy(i);
         end
         session.data = {}
     end

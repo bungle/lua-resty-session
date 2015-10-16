@@ -1,3 +1,12 @@
+Changes with lua-resty-session 2.3                               16 Oct 2015
+
+    *) Bugfix: Fixes issue #19 where regenerating session would
+       throw an error when using cookie storage.
+
+       See Also: https://github.com/bungle/lua-resty-session/issues/19
+
+       Thanks @hulu1522
+
 Changes with lua-resty-session 2.2                               17 Sep 2015
 
     *) Change: Removed all session_cipher_* deprecated settings
