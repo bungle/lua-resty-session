@@ -18,7 +18,7 @@ typedef unsigned char u_char;
 int RAND_bytes(u_char *buf, int num);
 ]]
 
-local t = ffi_typeof("uint8_t[?]")
+local t = ffi_typeof "uint8_t[?]"
 
 local function random(len)
     local s = ffi_new(t, len)
