@@ -5,6 +5,12 @@
 ## Hello World with lua-resty-session
 
 ```nginx
+worker_processes  1;
+
+events {
+    worker_connections  1024;
+}
+
 http {
     server {
         listen       8080;
