@@ -195,7 +195,10 @@ Or with Lua code like this:
 
 ```lua
 local session = require "resty.session".new()
-session.storage = "shm"
+-- After new you cannot specify storage as a string, you need to give actual implementation
+session.storage = require "resty.sesstion.storage.shm"
+-- or
+local session = require "resty.session".new({ storage = "shm" })
 ```
 
 #### Cookie Storage Adapter
