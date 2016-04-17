@@ -135,9 +135,9 @@ local defaults = {
         lifetime   = tonumber(var.session_cookie_lifetime) or 3600,
         path       = var.session_cookie_path               or "/",
         domain     = var.session_cookie_domain,
+        samesite   = var.session_cookie_samesite           or "Lax",
         secure     = enabled(var.session_cookie_secure),
         httponly   = enabled(var.session_cookie_httponly   or true),
-        samesite   = var.session_cookie_samesite           or "Lax",
         delimiter  = var.session_cookie_delimiter          or "|"
     }, check = {
         ssi    = enabled(var.session_check_ssi    or persistent == false),
@@ -194,9 +194,9 @@ function session.new(opts)
             lifetime   = a.lifetime   or b.lifetime,
             path       = a.path       or b.path,
             domain     = a.domain     or b.domain,
+            samesite   = a.samesite   or b.samesite,
             secure     = a.secure     or b.secure,
             httponly   = a.httponly   or b.httponly,
-            samesite   = a.samesite   or b.samesite,
             delimiter  = a.delimiter  or b.delimiter
         }, check = {
             ssi        = c.ssi        or d.ssi,
