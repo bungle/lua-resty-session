@@ -581,13 +581,14 @@ session:regenerate()
 session:regenerate(true)
 ```
 
-#### boolean, string session:save()
+#### boolean, string session:save([close = true])
 
 This function saves the session and sends (not immediate though, as actual sending is handled by Nginx/OpenResty)
 a new cookie to client (with a new expiration time and encrypted data). You need to call this function whenever
 you want to save the changes made to `session.data` table. It is advised that you call this function only once
 per request (no need to encrypt and set cookie many times). This function returns a boolean value if everything
-went as planned. If not it will return error string as a second return value.
+went as planned. If not it will return error string as a second return value. Optionally you may pass `false`
+to this method, if you don't want to close the session just yet, but just to save the data.
 
 ```lua
 local session = require "resty.session".start()
