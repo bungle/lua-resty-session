@@ -65,6 +65,7 @@ http {
 * [ ] Add support for session id generator plugins (maybe you don't want to use random data, and want UUID or maybe some kind of database identifier instead).
 * [ ] Add support for `lua-resty-nettle` for more wide variety of encryption algorithms as a plugin.
 * [ ] Implement cookieless server-side session support using `ssl_session_id` as a `session.id` (using a server-side storage).
+* [*] Implement `SameSite` cookie flag [DONE].
 
 ## Installation
 
