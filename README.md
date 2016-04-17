@@ -706,6 +706,14 @@ This can be configured with Nginx `set $session_cookie_path /forums/;`.
 Nginx variable `host`. This can be configured with Nginx `set $session_cookie_domain openresty.org;`.
 For `localhost` this is omitted.
 
+#### string session.cookie.samesite
+
+`session.cookie.samesite` holds the value of the cookie SameSite flag. By default we do use value of `Lax`.
+The possible values are `Lax`, `Strict`, and `off`. Actually, setting this parameter anything else than
+`Lax` or `Strict` will turn this off (but in general, you shouldn't do it). If you want better protection
+against Cross Site Requet Forgery (CSRF), set this to `Strict`. Default value of `Lax` gives you quite a
+good protection against CSRF, but `Strict` goes even further.
+
 #### boolean session.cookie.secure
 
 `session.cookie.secure` holds the value of the cookie `Secure` flag. meaning that when set the client will
@@ -830,6 +838,7 @@ set $session_cookie_renew      600;
 set $session_cookie_lifetime   3600;
 set $session_cookie_path       /;
 set $session_cookie_domain     openresty.org;
+set $session_cookie_samesite   Lax;
 set $session_cookie_secure     on;
 set $session_cookie_httponly   on;
 set $session_cookie_delimiter  |;
@@ -850,7 +859,7 @@ set $session_cipher_rounds     1;
 `lua-resty-session` uses two clause BSD license.
 
 ```
-Copyright (c) 2015, Aapo Talvensaari
+Copyright (c) 2014 – 2016 Aapo Talvensaari
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,

@@ -1,3 +1,15 @@
+Changes with lua-resty-session 2.4                               17 Apr 2016
+
+    *) Feature: Cookie will now have SameSite attribute set as "Lax" by
+       default. You can turn it off or set to "Strict" by configuration.
+
+    *) Change: Calling save will not also set session.id if the save
+       was called without calling start first.
+
+       See Also: https://github.com/bungle/lua-resty-session/issues/27
+
+       Thanks @hcaihao
+
 Changes with lua-resty-session 2.3                               16 Oct 2015
 
     *) Bugfix: Fixes issue #19 where regenerating session would
