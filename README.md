@@ -366,7 +366,7 @@ set $session_cipher aes;
 Additionally you can configure Memcache adapter with these settings:
 
 ```nginx
-set $session_aes_size   256
+set $session_aes_size   256;
 set $session_aes_mode   "cbc";
 set $session_aes_hash   "sha512";
 set $session_aes_rounds 1;
@@ -713,7 +713,7 @@ For `localhost` this is omitted.
 `session.cookie.samesite` holds the value of the cookie SameSite flag. By default we do use value of `Lax`.
 The possible values are `Lax`, `Strict`, and `off`. Actually, setting this parameter anything else than
 `Lax` or `Strict` will turn this off (but in general, you shouldn't do it). If you want better protection
-against Cross Site Requet Forgery (CSRF), set this to `Strict`. Default value of `Lax` gives you quite a
+against Cross Site Request Forgery (CSRF), set this to `Strict`. Default value of `Lax` gives you quite a
 good protection against CSRF, but `Strict` goes even further.
 
 #### boolean session.cookie.secure
