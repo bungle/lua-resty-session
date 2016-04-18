@@ -366,7 +366,7 @@ set $session_cipher aes;
 Additionally you can configure Memcache adapter with these settings:
 
 ```nginx
-set $session_aes_size   256
+set $session_aes_size   256;
 set $session_aes_mode   "cbc";
 set $session_aes_hash   "sha512";
 set $session_aes_rounds 1;
