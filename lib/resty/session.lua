@@ -304,7 +304,7 @@ function session:regenerate(flush)
 end
 
 function session:save(close)
-    close = close == false and false or true
+    if close ~= false then close = true end
     if not self.id then
         self.id = random(self.identifier.length)
     end
