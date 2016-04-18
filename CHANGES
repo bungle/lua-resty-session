@@ -1,3 +1,7 @@
+Changes with lua-resty-session 2.6                               18 Apr 2016
+
+    *) Just cleanups and changed _VERSION to point correct version.
+
 Changes with lua-resty-session 2.5                               18 Apr 2016
 
     *) Bugfix: session.save close argument vast not defaulting to true.
