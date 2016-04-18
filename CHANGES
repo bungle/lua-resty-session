@@ -1,3 +1,7 @@
+Changes with lua-resty-session 2.5                               18 Apr 2016
+
+    *) Bugfix: session.save close argument vast not defaulting to true.
+
 Changes with lua-resty-session 2.4                               17 Apr 2016
 
     *) Feature: Cookie will now have SameSite attribute set as "Lax" by
