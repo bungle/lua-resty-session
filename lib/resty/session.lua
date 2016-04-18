@@ -71,7 +71,6 @@ local function setcookie(session, value, expires)
     end
     if c.httponly then
         k[i] = "; HttpOnly"
-        i=i+1
     end
     k = concat(k)
     local s = header["Set-Cookie"]
@@ -151,7 +150,7 @@ local defaults = {
 defaults.secret = var.session_secret or random(32)
 
 local session = {
-    _VERSION = "2.3-dev"
+    _VERSION = "2.6"
 }
 
 session.__index = session
@@ -304,11 +303,10 @@ function session:regenerate(flush)
 end
 
 function session:save(close)
-    if close ~= false then close = true end
     if not self.id then
         self.id = random(self.identifier.length)
     end
-    return save(self, close)
+    return save(self, close ~= false)
 end
 
 function session:destroy()
