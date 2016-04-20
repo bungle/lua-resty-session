@@ -42,6 +42,7 @@ local function setcookie(session, value, expires)
     local n = session.name .. "="
     local k = { n, value or "" }
     local d = c.domain
+    local x = c.samesite
     if expires then
         k[i] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
         i=i+1
@@ -60,9 +61,9 @@ local function setcookie(session, value, expires)
     k[i]   = "; Path="
     k[i+1] = c.path or "/"
     i=i+2
-    if c.samesite == "Lax" or c.samesite == "Strict" then
+    if x == "Lax" or x == "Strict" then
         k[i] = "; SameSite="
-        k[i+1] = c.samesite
+        k[i+1] = x
         i=i+2
     end
     if c.secure then
