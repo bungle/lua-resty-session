@@ -18,6 +18,7 @@ local defaults = {
     socket       = var.session_redis_socket,
     host         = var.session_redis_host                   or "127.0.0.1",
     port         = tonumber(var.session_redis_port)         or 6379,
+    auth         = var.session_redis_auth,
     uselocking   = enabled(var.session_redis_uselocking     or true),
     spinlockwait = tonumber(var.session_redis_spinlockwait) or 10000,
     maxlockwait  = tonumber(var.session_redis_maxlockwait)  or 30,
@@ -40,6 +41,7 @@ function redis.new(config)
     end
     local self = {
         redis        = red:new(),
+        auth         = r.auth or defaults.auth,
         encode       = config.encoder.encode,
         decode       = config.encoder.decode,
         delimiter    = config.cookie.delimiter,
@@ -64,10 +66,20 @@ end
 
 function redis:connect()
     local socket = self.socket
+    local ok,err
     if socket then
-        return self.redis:connect(socket)
+        ok,err = self.redis:connect(socket)
+    else
+        ok, err = self.redis:connect(self.host, self.port)
     end
-    return self.redis:connect(self.host, self.port)
+    if ok then
+        local c
+        c,err = self.redis:get_reused_times()
+        if 0 == c then
+            ok,err = self.redis:auth(self.auth)
+        end
+    end
+    return ok,err
 end
 
 function redis:set_keepalive()
