@@ -35,7 +35,7 @@ cipher.__index = cipher
 function cipher.new(config)
     local a = config.aes or defaults
     return setmetatable({
-        size   = CIPHER_MODES[a.size or defaults.size]   or 256,
+        size   = CIPHER_SIZES[a.size or defaults.size]   or 256,
         mode   = CIPHER_MODES[a.mode or defaults.mode]   or "cbc",
         hash   = hashes[a.hash       or defaults.hash]   or hashes.sha512,
         rounds = tonumber(a.rounds   or defaults.rounds) or 1
