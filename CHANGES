@@ -1,3 +1,11 @@
+Changes with lua-resty-session 2.8                                5 Jul 2016
+
+    *) Bugfix: AES Cipher used a wrong table for cipher sizes.
+
+       See Also: https://github.com/bungle/lua-resty-session/issues/30
+
+       Thanks @pronan
+
 Changes with lua-resty-session 2.7                               18 May 2016
 
     *) Feature: Redis storage adapter now supports Redis authentication.
