@@ -19,8 +19,7 @@ local ffi_typeof   = ffi.typeof
 local C            = ffi.C
 
 ffi_cdef[[
-typedef unsigned char u_char;
-int RAND_bytes(u_char *buf, int num);
+int RAND_bytes(unsigned char *buf, int num);
 ]]
 
 local t = ffi_typeof "uint8_t[?]"
