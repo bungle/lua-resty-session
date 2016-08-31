@@ -22,7 +22,7 @@ ffi_cdef[[
 int RAND_bytes(unsigned char *buf, int num);
 ]]
 
-local t = ffi_typeof "uint8_t[?]"
+local t = ffi_typeof "unsigned char[?]"
 
 local function random(len)
     local s = ffi_new(t, len)
