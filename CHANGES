@@ -1,3 +1,12 @@
+Changes with lua-resty-session 2.9                                1 Sep 2016
+
+    *) Bugfix: Weird bug where RAND_bytes was not working on Windows
+       platform. Code changed to use resty.random.
+
+       See Also: https://github.com/bungle/lua-resty-session/issues/31
+
+       Thanks @gtuxyco
+
 Changes with lua-resty-session 2.8                                5 Jul 2016
 
     *) Bugfix: AES Cipher used a wrong table for cipher sizes.

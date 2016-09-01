@@ -133,7 +133,7 @@ local defaults = {
 defaults.secret = var.session_secret or random(32, true) or random(32)
 
 local session = {
-    _VERSION = "2.8"
+    _VERSION = "2.9"
 }
 
 session.__index = session
