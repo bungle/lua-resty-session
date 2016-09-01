@@ -11,24 +11,7 @@ local pcall        = pcall
 local tonumber     = tonumber
 local setmetatable = setmetatable
 local getmetatable = getmetatable
-local ffi          = require "ffi"
-local ffi_cdef     = ffi.cdef
-local ffi_new      = ffi.new
-local ffi_str      = ffi.string
-local ffi_typeof   = ffi.typeof
-local C            = ffi.C
-
-ffi_cdef[[
-int RAND_bytes(unsigned char *buf, int num);
-]]
-
-local t = ffi_typeof "unsigned char[?]"
-
-local function random(len)
-    local s = ffi_new(t, len)
-    C.RAND_bytes(s, len)
-    return ffi_str(s, len)
-end
+local random       = require "resty.random".bytes
 
 local function enabled(val)
     if val == nil then return nil end
@@ -112,7 +95,7 @@ end
 
 local function regenerate(session, flush)
     local i = session.present and session.id or nil
-    session.id = random(session.identifier.length)
+    session.id = random(session.identifier.length, true) or random(session.identifier.length)
     if flush then
         if i and session.storage.destroy then
             session.storage:destroy(i);
@@ -147,7 +130,7 @@ local defaults = {
         length  = tonumber(var.session_identifier_length) or 16
     }
 }
-defaults.secret = var.session_secret or random(32)
+defaults.secret = var.session_secret or random(32, true) or random(32)
 
 local session = {
     _VERSION = "2.8"
@@ -304,7 +287,7 @@ end
 
 function session:save(close)
     if not self.id then
-        self.id = random(self.identifier.length)
+        self.id = random(self.identifier.length, true) or random(self.identifier.length)
     end
     return save(self, close ~= false)
 end
