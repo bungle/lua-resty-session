@@ -65,11 +65,16 @@ http {
 * [ ] Add support for session id generator plugins (maybe you don't want to use random data, and want UUID or maybe some kind of database identifier instead).
 * [ ] Add support for `lua-resty-nettle` for more wide variety of encryption algorithms as a plugin.
 * [ ] Implement cookieless server-side session support using `ssl_session_id` as a `session.id` (using a server-side storage).
-* [x] Implement `SameSite` cookie flag [DONE].
 
 ## Installation
 
 Just place [`session.lua`](https://github.com/bungle/lua-resty-session/blob/master/lib/resty/session.lua) and [`session`](https://github.com/bungle/lua-resty-session/tree/master/lib/resty/session) directory somewhere in your `package.path`, preferably under `resty` directory. If you are using OpenResty, the default location would be `/usr/local/openresty/lualib/resty`.
+
+### Using OpenResty Package Manager (opm)
+
+```Shell
+$ opm get bungle/lua-resty-prettycjson
+```
 
 ### Using LuaRocks or MoonRocks
 
@@ -856,6 +861,10 @@ set $session_cipher_size       256;
 set $session_cipher_hash       sha512;
 set $session_cipher_rounds     1;
 ```
+
+## Changes
+
+The changes of every release of this module is recorded in [Changes.md](https://github.com/bungle/lua-resty-session/blob/master/Changes.md) file.
 
 ## License
 
