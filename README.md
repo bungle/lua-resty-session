@@ -78,25 +78,16 @@ Just place [`session.lua`](https://github.com/bungle/lua-resty-session/blob/mast
 ### Using OpenResty Package Manager (opm)
 
 ```Shell
-$ opm get bungle/lua-resty-prettycjson
+$ opm get bungle/lua-resty-session
 ```
 
-### Using LuaRocks or MoonRocks
-
-If you are using LuaRocks >= 2.2:
+### Using LuaRocks
 
 ```Shell
 $ luarocks install lua-resty-session
 ```
 
-If you are using LuaRocks < 2.2:
-
-```Shell
-$ luarocks install --server=http://rocks.moonscript.org moonrocks
-$ moonrocks install lua-resty-session
-```
-
-MoonRocks repository for `lua-resty-session` is located here: https://rocks.moonscript.org/modules/bungle/lua-resty-session.
+LuaRocks repository for `lua-resty-session` is located at https://luarocks.org/modules/bungle/lua-resty-session.
 
 ## About The Defaults
 
