@@ -19,6 +19,7 @@ local function enabled(val)
 end
 
 local function setcookie(session, value, expires)
+    if ngx.headers_sent then return nil, "Attempt to set session cookie after sending out response headers." end
     local c = session.cookie
     local i = 3
     local n = session.name .. "="
@@ -94,8 +95,8 @@ local function save(session, close)
 end
 
 local function regenerate(session, flush)
-    local i = session.present and session.id or nil
-    session.id = random(session.identifier.length, true) or random(session.identifier.length)
+    local i = session.present and session.id
+    session.id = session:identifier()
     if flush then
         if i and session.storage.destroy then
             session.storage:destroy(i);
@@ -104,15 +105,15 @@ local function regenerate(session, flush)
     end
 end
 
-local persistent = enabled(var.session_cookie_persistent or false)
 local defaults = {
     name       = var.session_name       or "session",
+    identifier = var.session_identifier or "random",
     storage    = var.session_storage    or "cookie",
     serializer = var.session_serializer or "json",
     encoder    = var.session_encoder    or "base64",
     cipher     = var.session_cipher     or "aes",
     cookie = {
-        persistent = persistent,
+        persistent = enabled(var.session_cookie_persistent or false),
         renew      = tonumber(var.session_cookie_renew)    or 600,
         lifetime   = tonumber(var.session_cookie_lifetime) or 3600,
         path       = var.session_cookie_path               or "/",
@@ -122,18 +123,17 @@ local defaults = {
         httponly   = enabled(var.session_cookie_httponly   or true),
         delimiter  = var.session_cookie_delimiter          or "|"
     }, check = {
-        ssi    = enabled(var.session_check_ssi    or persistent == false),
+        ssi    = enabled(var.session_check_ssi    or false),
         ua     = enabled(var.session_check_ua     or true),
         scheme = enabled(var.session_check_scheme or true),
         addr   = enabled(var.session_check_addr   or false)
-    }, identifier = {
-        length  = tonumber(var.session_identifier_length) or 16
-    }
+    },
+
 }
 defaults.secret = var.session_secret or random(32, true) or random(32)
 
 local session = {
-    _VERSION = "2.10"
+    _VERSION = "2.12"
 }
 
 session.__index = session
@@ -147,27 +147,31 @@ function session.new(opts)
     local a, b = y.cookie     or z.cookie,     z.cookie
     local c, d = y.check      or z.check,      z.check
     local e, f = y.cipher     or z.cipher,     z.cipher
-    local g, h = y.identifier or z.identifier, z.identifier
-    local o, i = pcall(require, "resty.session.storage." .. (y.storage or z.storage))
+    local o, g = pcall(require, "resty.session.identifiers." .. (y.identifier or z.identifier))
     if not o then
-        i = require "resty.session.storage.cookie"
+        g = require "resty.session.identifiers.random"
     end
-    local o, j = pcall(require, "resty.session.serializers." .. (y.serializer or z.serializer))
+    local o, h = pcall(require, "resty.session.storage." .. (y.storage or z.storage))
     if not o then
-        j = require "resty.session.serializers.json"
+        h = require "resty.session.storage.cookie"
     end
-    local o, k = pcall(require, "resty.session.encoders." .. (y.encoder or z.encoder))
+    local o, i = pcall(require, "resty.session.serializers." .. (y.serializer or z.serializer))
     if not o then
-        k = require "resty.session.encoders.base64"
+        i = require "resty.session.serializers.json"
     end
-    local o, l = pcall(require, "resty.session.ciphers." .. (e or f))
+    local o, j = pcall(require, "resty.session.encoders." .. (y.encoder or z.encoder))
     if not o then
-        l = require "resty.session.ciphers.aes"
+        j = require "resty.session.encoders.base64"
+    end
+    local o, k = pcall(require, "resty.session.ciphers." .. (e or f))
+    if not o then
+        k = require "resty.session.ciphers.aes"
     end
     local self = {
         name       = y.name    or z.name,
-        serializer = j,
-        encoder    = k,
+        identifier = g,
+        serializer = i,
+        encoder    = j,
         data       = y.data    or {},
         secret     = y.secret  or z.secret,
         cookie = {
@@ -185,12 +189,10 @@ function session.new(opts)
             ua         = c.ua         or d.ua,
             scheme     = c.scheme     or d.scheme,
             addr       = c.addr       or d.addr
-        }, identifier = {
-            length     = g.length     or h.length
         }
     }
-    self.storage = i.new(self)
-    self.cipher = l.new(self)
+    self.storage = h.new(self)
+    self.cipher = k.new(self)
     return setmetatable(self, session)
 end
 
@@ -268,13 +270,16 @@ function session.start(opts)
     local self, present = session.open(opts)
     if present then
         if self.storage.start then
-            self.storage:start(self.id)
+            local ok, err = self.storage:start(self.id)
+            if not ok then return nil, err end
         end
         if self.expires - time() < self.cookie.renew then
-            save(self)
+            local ok, err = save(self)
+            if not ok then return nil, err end
         end
     else
-        save(self)
+        local ok, err = save(self)
+        if not ok then return nil, err end
     end
     self.started = true
     return self, present
@@ -287,7 +292,7 @@ end
 
 function session:save(close)
     if not self.id then
-        self.id = random(self.identifier.length, true) or random(self.identifier.length)
+        self.id = self:identifier()
     end
     return save(self, close ~= false)
 end

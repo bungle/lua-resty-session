@@ -2,6 +2,22 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.12] - 2016-11-21
+### Added
+- Implemented pluggable session identifier generators.
+- Implemented random session idenfier generator.
+
+### Changed
+- Now checks if headers were already sent before trying to set the
+  cookie headers.
+- SSL session identifier is not checked by default anymore.
+- Lua session.identifier.length changed to session.random.length.
+- Nginx $session_identifier_length changed to $session_random_length.
+
+## [2.11] - 2016-09-30
+### Changed
+- Just another OPM release to correct the name.
+
 ## [2.10] - 2016-09-29
 ### Added
 - Support for the official OpenResty package manager (opm).
