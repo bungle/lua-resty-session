@@ -4,6 +4,7 @@ local tonumber     = tonumber
 local concat       = table.concat
 local floor        = math.floor
 local sleep        = ngx.sleep
+local null         = ngx.null
 local now          = ngx.now
 local var          = ngx.var
 

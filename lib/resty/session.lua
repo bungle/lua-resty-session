@@ -133,7 +133,7 @@ local defaults = {
 defaults.secret = var.session_secret or random(32, true) or random(32)
 
 local session = {
-    _VERSION = "2.12"
+    _VERSION = "2.13"
 }
 
 session.__index = session
@@ -241,26 +241,25 @@ function session.open(opts)
         addr,
         scheme
     }
+    self.opened = true
     local cookie = var["cookie_" .. self.name]
     if cookie then
         local i, e, d, h = self.storage:open(cookie, self.cookie.lifetime)
         if i and e and e > time() and d and h then
-            self.id = i
-            self.expires = e
-            local k = hmac(self.secret, self.id .. e)
+            local k = hmac(self.secret, i .. e)
             d = self.cipher:decrypt(d, k, i, self.key)
             if d and hmac(k, concat{ i, e, d, self.key }) == h then
-                self.data = self.serializer.deserialize(d)
+                d = self.serializer.deserialize(d)
+                self.id = i
+                self.expires = e
+                self.data = type(d) == "table" and d or {}
                 self.present = true
+                return self, true
             end
         end
     end
-    if not self.present then
-        regenerate(self)
-    end
-    if type(self.data) ~= "table" then self.data = {} end
-    self.opened = true
-    return self, self.present
+    regenerate(self, true)
+    return self, false
 end
 
 function session.start(opts)
@@ -273,7 +272,9 @@ function session.start(opts)
             local ok, err = self.storage:start(self.id)
             if not ok then return nil, err end
         end
-        if self.expires - time() < self.cookie.renew then
+        local now = time()
+        if self.expires - now < self.cookie.renew or
+           self.expires > now + self.cookie.lifetime then
             local ok, err = save(self)
             if not ok then return nil, err end
         end

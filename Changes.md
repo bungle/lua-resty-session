@@ -2,6 +2,14 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.13] - 2016-11-21
+### Changed
+- On start we do send cookie now also if the settings have changed
+  and the cookie expiry time needs to be reduced.
+
+### Fixed
+- Memcache storage adapter had a missing ngx.null.
+
 ## [2.12] - 2016-11-21
 ### Added
 - Implemented pluggable session identifier generators.
