@@ -485,7 +485,7 @@ If you want to write your own session identifier generator, you need to implemen
 
 * `string function(config)`
 
-(the config is actually a session instance =
+(the `config` is actually a `session` instance)
 
 You have to place your generator inside `resty.session.identifiers` for auto-loader to work.
 
