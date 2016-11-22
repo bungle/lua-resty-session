@@ -601,9 +601,10 @@ validates the supplied session cookie. If validation is successful, the user sup
 with `opts` argument, but be aware that many of these will only have effect if the session is a fresh session
 (i.e. not loaded from user supplied cookie). This function does also manage session cookie renewing configured
 with `$session_cookie_renew`. E.g. it will send a new cookie with a new expiration time if the following is
-met `session.expires - now < session.cookie.renew`. The second `boolean` return argument will be `true` if the user
-client send a valid cookie (meaning that session was already started on some earlier request), and `false` if the
-new session was created (either because user client didn't send a cookie or that the cookie was not a valid one).
+met `session.expires - now < session.cookie.renew or session.expires > now + session.cookie.lifetime`. The second
+`boolean` return argument will be `true` if the user client send a valid cookie (meaning that session was already
+started on some earlier request), and `false` if the new session was created (either because user client didn't send
+a cookie or that the cookie was not a valid one). On error this will return nil and error message.
 
 ```lua
 local session = require "resty.session".start()
