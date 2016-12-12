@@ -133,7 +133,7 @@ local defaults = {
 defaults.secret = var.session_secret or random(32, true) or random(32)
 
 local session = {
-    _VERSION = "2.13"
+    _VERSION = "2.14"
 }
 
 session.__index = session
@@ -143,35 +143,44 @@ function session.new(opts)
         return opts
     end
     local z = defaults
-    local y = opts or z
-    local a, b = y.cookie     or z.cookie,     z.cookie
-    local c, d = y.check      or z.check,      z.check
-    local e, f = y.cipher     or z.cipher,     z.cipher
-    local o, g = pcall(require, "resty.session.identifiers." .. (y.identifier or z.identifier))
+    local y = type(opts) == "table" and opts or z
+    local identifier = y.identifier or z.identifier
+    local storage    = y.storage    or z.storage
+    local serializer = y.serializer or z.serializer
+    local encoder    = y.encoder    or z.encoder
+    local cipher     = y.cipher     or z.cipher
+    local a, b = y.cookie or z.cookie, z.cookie
+    local c, d = y.check  or z.check,  z.check
+    local o, e = pcall(require, "resty.session.identifiers." .. identifier)
     if not o then
-        g = require "resty.session.identifiers.random"
+        e = require "resty.session.identifiers.random"
+        identifier = "random"
     end
-    local o, h = pcall(require, "resty.session.storage." .. (y.storage or z.storage))
+    local o, f = pcall(require, "resty.session.storage." .. storage)
     if not o then
-        h = require "resty.session.storage.cookie"
+        f = require "resty.session.storage.cookie"
+        storage = "cookie"
     end
-    local o, i = pcall(require, "resty.session.serializers." .. (y.serializer or z.serializer))
+    local o, g = pcall(require, "resty.session.serializers." .. serializer)
     if not o then
-        i = require "resty.session.serializers.json"
+        g = require "resty.session.serializers.json"
+        serializer = "json"
     end
-    local o, j = pcall(require, "resty.session.encoders." .. (y.encoder or z.encoder))
+    local o, h = pcall(require, "resty.session.encoders." .. encoder)
     if not o then
-        j = require "resty.session.encoders.base64"
+        h = require "resty.session.encoders.base64"
+        encoder = "base64"
     end
-    local o, k = pcall(require, "resty.session.ciphers." .. (e or f))
+    local o, i = pcall(require, "resty.session.ciphers." .. cipher)
     if not o then
-        k = require "resty.session.ciphers.aes"
+        i = require "resty.session.ciphers.aes"
+        cipher = "aes"
     end
     local self = {
         name       = y.name    or z.name,
-        identifier = g,
-        serializer = i,
-        encoder    = j,
+        identifier = e,
+        serializer = g,
+        encoder    = h,
         data       = y.data    or {},
         secret     = y.secret  or z.secret,
         cookie = {
@@ -189,10 +198,16 @@ function session.new(opts)
             ua         = c.ua         or d.ua,
             scheme     = c.scheme     or d.scheme,
             addr       = c.addr       or d.addr
-        }
+        },
+        [identifier] = y[identifier],
+        [storage]    = y[storage],
+        [serializer] = y[serializer],
+        [encoder]    = y[encoder],
+        [cipher]     = y[cipher]
+
     }
-    self.storage = h.new(self)
-    self.cipher = k.new(self)
+    self.storage = f.new(self)
+    self.cipher = i.new(self)
     return setmetatable(self, session)
 end
 
