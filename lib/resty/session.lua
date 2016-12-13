@@ -200,12 +200,14 @@ function session.new(opts)
             addr       = c.addr       or d.addr
         },
         [identifier] = y[identifier],
-        [storage]    = y[storage],
         [serializer] = y[serializer],
         [encoder]    = y[encoder],
         [cipher]     = y[cipher]
 
     }
+    if storage ~= "cookie" then
+        self[storage] = y[storage]
+    end
     self.storage = f.new(self)
     self.cipher = i.new(self)
     return setmetatable(self, session)
