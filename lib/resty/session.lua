@@ -18,6 +18,21 @@ local function enabled(val)
     return val == true or (val == "1" or val == "true" or val == "on")
 end
 
+local function ifnil(value, default)
+    if value == nil then
+        return default
+    end
+    return enabled(value)
+end
+
+local function prequire(prefix, package, default)
+    local o, p = pcall(require, prefix .. package)
+    if not o then
+        return require(prefix .. default), default
+    end
+    return p, package
+end
+
 local function setcookie(session, value, expires)
     if ngx.headers_sent then return nil, "Attempt to set session cookie after sending out response headers." end
     local c = session.cookie
@@ -99,7 +114,7 @@ local function regenerate(session, flush)
     session.id = session:identifier()
     if flush then
         if i and session.storage.destroy then
-            session.storage:destroy(i);
+            session.storage:destroy(i)
         end
         session.data = {}
     end
@@ -127,8 +142,7 @@ local defaults = {
         ua     = enabled(var.session_check_ua     or true),
         scheme = enabled(var.session_check_scheme or true),
         addr   = enabled(var.session_check_addr   or false)
-    },
-
+    }
 }
 defaults.secret = var.session_secret or random(32, true) or random(32)
 
@@ -144,72 +158,44 @@ function session.new(opts)
     end
     local z = defaults
     local y = type(opts) == "table" and opts or z
-    local identifier = y.identifier or z.identifier
-    local storage    = y.storage    or z.storage
-    local serializer = y.serializer or z.serializer
-    local encoder    = y.encoder    or z.encoder
-    local cipher     = y.cipher     or z.cipher
     local a, b = y.cookie or z.cookie, z.cookie
     local c, d = y.check  or z.check,  z.check
-    local o, e = pcall(require, "resty.session.identifiers." .. identifier)
-    if not o then
-        e = require "resty.session.identifiers.random"
-        identifier = "random"
-    end
-    local o, f = pcall(require, "resty.session.storage." .. storage)
-    if not o then
-        f = require "resty.session.storage.cookie"
-        storage = "cookie"
-    end
-    local o, g = pcall(require, "resty.session.serializers." .. serializer)
-    if not o then
-        g = require "resty.session.serializers.json"
-        serializer = "json"
-    end
-    local o, h = pcall(require, "resty.session.encoders." .. encoder)
-    if not o then
-        h = require "resty.session.encoders.base64"
-        encoder = "base64"
-    end
-    local o, i = pcall(require, "resty.session.ciphers." .. cipher)
-    if not o then
-        i = require "resty.session.ciphers.aes"
-        cipher = "aes"
-    end
+    local e, f = prequire("resty.session.identifiers.", y.identifier or z.identifier, "random")
+    local g, h = prequire("resty.session.serializers.", y.serializer or z.serializer, "json")
+    local i, j = prequire("resty.session.encoders.",    y.encoder    or z.encoder,    "base64")
+    local k, l = prequire("resty.session.ciphers.",     y.cipher     or z.cipher,     "aes")
+    local m, n = prequire("resty.session.storage.",     y.storage    or z.storage,    "cookie")
     local self = {
-        name       = y.name    or z.name,
+        name       = y.name   or z.name,
         identifier = e,
         serializer = g,
-        encoder    = h,
-        data       = y.data    or {},
-        secret     = y.secret  or z.secret,
+        encoder    = i,
+        data       = y.data   or {},
+        secret     = y.secret or z.secret,
         cookie = {
-            persistent = a.persistent or b.persistent,
-            renew      = a.renew      or b.renew,
-            lifetime   = a.lifetime   or b.lifetime,
-            path       = a.path       or b.path,
-            domain     = a.domain     or b.domain,
-            samesite   = a.samesite   or b.samesite,
-            secure     = a.secure     or b.secure,
-            httponly   = a.httponly   or b.httponly,
-            delimiter  = a.delimiter  or b.delimiter
+            persistent = ifnil(a.persistent, b.persistent),
+            renew      = a.renew          or b.renew,
+            lifetime   = a.lifetime       or b.lifetime,
+            path       = a.path           or b.path,
+            domain     = a.domain         or b.domain,
+            samesite   = a.samesite       or b.samesite,
+            secure     = ifnil(a.secure,     b.secure),
+            httponly   = ifnil(a.httponly,   b.httponly),
+            delimiter  = a.delimiter      or b.delimiter
         }, check = {
-            ssi        = c.ssi        or d.ssi,
-            ua         = c.ua         or d.ua,
-            scheme     = c.scheme     or d.scheme,
-            addr       = c.addr       or d.addr
-        },
-        [identifier] = y[identifier],
-        [serializer] = y[serializer],
-        [encoder]    = y[encoder],
-        [cipher]     = y[cipher]
-
+            ssi        = ifnil(c.ssi,        d.ssi),
+            ua         = ifnil(c.ua,         d.ua),
+            scheme     = ifnil(c.scheme,     d.scheme),
+            addr       = ifnil(c.addr,       d.addr)
+        }
     }
-    if storage ~= "cookie" then
-        self[storage] = y[storage]
-    end
-    self.storage = f.new(self)
-    self.cipher = i.new(self)
+    if y[f] and not self[f] then self[f] = y[f] end
+    if y[h] and not self[h] then self[h] = y[h] end
+    if y[j] and not self[j] then self[j] = y[j] end
+    if y[l] and not self[l] then self[l] = y[l] end
+    if y[n] and not self[n] then self[n] = y[n] end
+    self.cipher  = k.new(self)
+    self.storage = m.new(self)
     return setmetatable(self, session)
 end
 
