@@ -2,6 +2,17 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.14] - 2016-12-16
+### Fixed
+- Lua code configuration parsing corrections (especially on boolean
+  options).
+
+## Added
+- Added a more natural way to pass config arguments to storage
+  adapters and ciphers in Lua code.
+  See also: https://github.com/bungle/lua-resty-session/issues/34
+  Thanks @hanxi
+
 ## [2.13] - 2016-11-21
 ### Changed
 - On start we do send cookie now also if the settings have changed
