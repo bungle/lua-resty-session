@@ -909,6 +909,13 @@ set $session_cipher_rounds     1;
 
 The changes of every release of this module is recorded in [Changes.md](https://github.com/bungle/lua-resty-session/blob/master/Changes.md) file.
 
+## See Also
+
+* [lua-resty-route](https://github.com/bungle/lua-resty-route) — Routing library
+* [lua-resty-reqargs](https://github.com/bungle/lua-resty-reqargs) — Request arguments parser
+* [lua-resty-template](https://github.com/bungle/lua-resty-template) — Templating engine
+* [lua-resty-validation](https://github.com/bungle/lua-resty-validation) — Validation and filtering library
+
 ## License
 
 `lua-resty-session` uses two clause BSD license.
