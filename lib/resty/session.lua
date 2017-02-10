@@ -6,6 +6,7 @@ local hmac         = ngx.hmac_sha1
 local time         = ngx.time
 local http_time    = ngx.http_time
 local find         = string.find
+local sub          = string.sub
 local type         = type
 local pcall        = pcall
 local tonumber     = tonumber
@@ -96,6 +97,21 @@ local function setcookie(session, value, expires)
     return true
 end
 
+local function getcookie(name, i)
+    local n = { "cookie_", name }
+    if i then
+        n[3] = "."
+        n[4] = i
+    else
+        i = 1
+    end
+    local c = var[concat(n)]
+    if not c then return nil end
+    local l = #c
+    if l < 4001 then return c end
+    return concat{ sub(c, 1, 4000), getcookie(name, i + 1) }
+end
+
 local function save(session, close)
     session.expires = time() + session.cookie.lifetime
     local i, e, s = session.id, session.expires, session.storage
@@ -147,7 +163,7 @@ local defaults = {
 defaults.secret = var.session_secret or random(32, true) or random(32)
 
 local session = {
-    _VERSION = "2.14"
+    _VERSION = "2.15-dev"
 }
 
 session.__index = session
@@ -245,7 +261,7 @@ function session.open(opts)
         scheme
     }
     self.opened = true
-    local cookie = var["cookie_" .. self.name]
+    local cookie = getcookie(self.name)
     if cookie then
         local i, e, d, h = self.storage:open(cookie, self.cookie.lifetime)
         if i and e and e > time() and d and h then
