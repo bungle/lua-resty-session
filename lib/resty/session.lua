@@ -85,10 +85,11 @@ local function setcookie(session, value, expires)
             n[2] = "="
         end
         k[1] = concat(n)
+        local sp = j * 4000 - 3999
         if j < l then
-            k[2] = sub(v, j * 4000 - 3999, 4000) .. "0"
+            k[2] = sub(v, sp, sp + 3999) .. "0"
         else
-            k[2] = sub(v, j * 4000 - 3999)
+            k[2] = sub(v, sp)
         end
         local y = concat(k)
         local t = type(s)
