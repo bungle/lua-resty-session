@@ -90,23 +90,23 @@ local function setcookie(session, value, expires)
         else
             k[2] = sub(v, j * 4000 - 3999)
         end
-        k = concat(k)
+        local y = concat(k)
         local t = type(s)
         if t == "table" then
             local f = false
             local z = #s
             for i=1, z do
                 if find(s[i], n, 1, true) == 1 then
-                    s[i] = k
+                    s[i] = y
                     f = true
                     break
                 end
             end
             if not f then
-                s[z+1] = k
+                s[z+1] = y
             end
         elseif t == "string" and find(s, n, 1, true) ~= 1  then
-            s = { s, k }
+            s = { s, y }
         else
             s = k
         end
