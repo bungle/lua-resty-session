@@ -5,6 +5,7 @@ local concat       = table.concat
 local hmac         = ngx.hmac_sha1
 local time         = ngx.time
 local http_time    = ngx.http_time
+local ceil         = math.ceil
 local find         = string.find
 local sub          = string.sub
 local type         = type
@@ -38,8 +39,7 @@ local function setcookie(session, value, expires)
     if ngx.headers_sent then return nil, "Attempt to set session cookie after sending out response headers." end
     local c = session.cookie
     local i = 3
-    local n = session.name .. "="
-    local k = { n, value or "" }
+    local k = {}
     local d = c.domain
     local x = c.samesite
     if expires then
@@ -72,26 +72,44 @@ local function setcookie(session, value, expires)
     if c.httponly then
         k[i] = "; HttpOnly"
     end
-    k = concat(k)
+    local v = value or ""
+    local l = ceil(#v / 4000)
     local s = header["Set-Cookie"]
-    local t = type(s)
-    if t == "table" then
-        local f = false
-        local z = #s
-        for i=1, z do
-            if find(s[i], n, 1, true) == 1 then
-                s[i] = k
-                f = true
-                break
+    for j=1, l do
+        local n = { session.name }
+        if j > 1 then
+            n[2] = "."
+            n[3] = j
+            n[4] = "="
+        else
+            n[2] = "="
+        end
+        k[1] = concat(n)
+        if j < l then
+            k[2] = sub(v, j * 4000 - 3999, 4000) .. "+"
+        else
+            k[2] = sub(v, j * 4000 - 3999)
+        end
+        k = concat(k)
+        local t = type(s)
+        if t == "table" then
+            local f = false
+            local z = #s
+            for i=1, z do
+                if find(s[i], n, 1, true) == 1 then
+                    s[i] = k
+                    f = true
+                    break
+                end
             end
+            if not f then
+                s[z+1] = k
+            end
+        elseif t == "string" and find(s, n, 1, true) ~= 1  then
+            s = { s, k }
+        else
+            s = k
         end
-        if not f then
-            s[z+1] = k
-        end
-    elseif t == "string" and find(s, n, 1, true) ~= 1  then
-        s = { s, k }
-    else
-        s = k
     end
     header["Set-Cookie"] = s
     return true
