@@ -86,7 +86,7 @@ local function setcookie(session, value, expires)
         end
         k[1] = concat(n)
         if j < l then
-            k[2] = sub(v, j * 4000 - 3999, 4000) .. "+"
+            k[2] = sub(v, j * 4000 - 3999, 4000) .. "0"
         else
             k[2] = sub(v, j * 4000 - 3999)
         end
