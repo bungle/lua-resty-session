@@ -127,7 +127,7 @@ local function getcookie(name, i)
     if not c then return nil end
     local l = #c
     if l < 4001 then return c end
-    return concat{ sub(c, 1, 4000), getcookie(name, i + 1) }
+    return concat{ sub(c, 1, 4000), getcookie(name, i + 1) or "" }
 end
 
 local function save(session, close)
