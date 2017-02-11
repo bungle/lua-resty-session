@@ -84,7 +84,7 @@ local function setcookie(session, value, expires)
     for j=1, l do
         local n = { session.name }
         if j > 1 then
-            n[2] = "."
+            n[2] = "_"
             n[3] = j
             n[4] = "="
         else
@@ -131,7 +131,7 @@ local function getcookie(session, i)
     local name = session.name
     local n = { "cookie_", name }
     if i then
-        n[3] = "."
+        n[3] = "_"
         n[4] = i
     else
         i = 1
