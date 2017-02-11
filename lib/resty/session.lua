@@ -74,7 +74,12 @@ local function setcookie(session, value, expires)
         k[i] = "; HttpOnly"
     end
     local v = value or ""
-    local l = max(ceil(#v / 4000), 1)
+    local l
+    if expires and c.chunks then
+        l = c.chunks
+    else
+        l = max(ceil(#v / 4000), 1)
+    end
     local s = header["Set-Cookie"]
     for j=1, l do
         local n = { session.name }
@@ -87,11 +92,15 @@ local function setcookie(session, value, expires)
         end
         local n = concat(n)
         k[1] = n
-        local sp = j * 4000 - 3999
-        if j < l then
-            k[2] = sub(v, sp, sp + 3999) .. "0"
+        if expires then
+            k[2] = ""
         else
-            k[2] = sub(v, sp)
+            local sp = j * 4000 - 3999
+            if j < l then
+                k[2] = sub(v, sp, sp + 3999) .. "0"
+            else
+                k[2] = sub(v, sp)
+            end
         end
         local y = concat(k)
         local t = type(s)
@@ -118,7 +127,8 @@ local function setcookie(session, value, expires)
     return true
 end
 
-local function getcookie(name, i)
+local function getcookie(session, i)
+    local name = session.name
     local n = { "cookie_", name }
     if i then
         n[3] = "."
@@ -126,11 +136,12 @@ local function getcookie(name, i)
     else
         i = 1
     end
+    session.cookie.chunks = i
     local c = var[concat(n)]
     if not c then return nil end
     local l = #c
     if l < 4001 then return c end
-    return concat{ sub(c, 1, 4000), getcookie(name, i + 1) or "" }
+    return concat{ sub(c, 1, 4000), getcookie(session, i + 1) or "" }
 end
 
 local function save(session, close)
@@ -282,7 +293,7 @@ function session.open(opts)
         scheme
     }
     self.opened = true
-    local cookie = getcookie(self.name)
+    local cookie = getcookie(self)
     if cookie then
         local i, e, d, h = self.storage:open(cookie, self.cookie.lifetime)
         if i and e and e > time() and d and h then
