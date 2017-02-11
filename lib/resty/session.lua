@@ -6,6 +6,7 @@ local hmac         = ngx.hmac_sha1
 local time         = ngx.time
 local http_time    = ngx.http_time
 local ceil         = math.ceil
+local max          = math.max
 local find         = string.find
 local sub          = string.sub
 local type         = type
@@ -73,7 +74,7 @@ local function setcookie(session, value, expires)
         k[i] = "; HttpOnly"
     end
     local v = value or ""
-    local l = ceil(#v / 4000)
+    local l = max(ceil(#v / 4000), 1)
     local s = header["Set-Cookie"]
     for j=1, l do
         local n = { session.name }
@@ -84,7 +85,8 @@ local function setcookie(session, value, expires)
         else
             n[2] = "="
         end
-        k[1] = concat(n)
+        local n = concat(n)
+        k[1] = n
         local sp = j * 4000 - 3999
         if j < l then
             k[2] = sub(v, sp, sp + 3999) .. "0"
@@ -109,7 +111,7 @@ local function setcookie(session, value, expires)
         elseif t == "string" and find(s, n, 1, true) ~= 1  then
             s = { s, y }
         else
-            s = k
+            s = y
         end
     end
     header["Set-Cookie"] = s
