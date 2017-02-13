@@ -2,6 +2,13 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.15] - 2017-02-13
+
+## Added
+- Added a support for chunked cookies.
+  See also: https://github.com/bungle/lua-resty-session/issues/35
+  Thanks @zandbelt
+
 ## [2.14] - 2016-12-16
 ### Fixed
 - Lua code configuration parsing corrections (especially on boolean

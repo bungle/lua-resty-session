@@ -777,6 +777,13 @@ want to turn this off, this can be configured with Nginx `set $session_cookie_ht
 delimited. By default it is a pipe character, `|`. It is up to storage adapter to decide if this configuration
 parameter is used.
 
+#### number session.cookie.chunks
+
+`session.cookie.chunks` should be used as a read only property to determine how many separate cookies was
+used for a session. Usually this is `1`, but if you are using a `cookie` storage backend and store a lot
+of data in session, then the cookie is divided to `n` chunks where each stores data containing 4.000 bytes
+(the last one 4000 or less). This was implemented in version 2.15.
+
 #### boolean session.check.ssi
 
 `session.check.ssi` is additional check to validate that the request was made with the same SSL
