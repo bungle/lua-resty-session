@@ -722,7 +722,7 @@ local uid = session.data.uid
 
 #### boolean session.cookie.persistent
 
-`session.cookie.persistent` is by default `false`. This means that cookies are not persisted between browser sessions (i.e. they are deleted when the browser is deleted). You can enable persistent sessions if you want to by setting this to `true`. This can be configured with Nginx `set $session_cookie_persistent on;`.
+`session.cookie.persistent` is by default `false`. This means that cookies are not persisted between browser sessions (i.e. they are deleted when the browser is closed). You can enable persistent sessions if you want to by setting this to `true`. This can be configured with Nginx `set $session_cookie_persistent on;`.
 
 #### number session.cookie.renew
 
