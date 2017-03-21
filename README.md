@@ -474,7 +474,7 @@ To configure session to use your adapter, you can do so with Nginx configuration
 set $session_encoder base64;
 ```
 
-## Pluggable Session Identifier Ganerators
+## Pluggable Session Identifier Generators
 
 With version 2.12 we started to support pluggable session identifier generators in `lua-resty-session`.
 Right now we support only one type of generator, and that is:
