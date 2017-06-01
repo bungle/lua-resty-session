@@ -168,34 +168,39 @@ local function regenerate(session, flush)
     end
 end
 
-local defaults = {
-    name       = var.session_name       or "session",
-    identifier = var.session_identifier or "random",
-    storage    = var.session_storage    or "cookie",
-    serializer = var.session_serializer or "json",
-    encoder    = var.session_encoder    or "base64",
-    cipher     = var.session_cipher     or "aes",
-    cookie = {
-        persistent = enabled(var.session_cookie_persistent or false),
-        renew      = tonumber(var.session_cookie_renew)    or 600,
-        lifetime   = tonumber(var.session_cookie_lifetime) or 3600,
-        path       = var.session_cookie_path               or "/",
-        domain     = var.session_cookie_domain,
-        samesite   = var.session_cookie_samesite           or "Lax",
-        secure     = enabled(var.session_cookie_secure),
-        httponly   = enabled(var.session_cookie_httponly   or true),
-        delimiter  = var.session_cookie_delimiter          or "|"
-    }, check = {
-        ssi    = enabled(var.session_check_ssi    or false),
-        ua     = enabled(var.session_check_ua     or true),
-        scheme = enabled(var.session_check_scheme or true),
-        addr   = enabled(var.session_check_addr   or false)
+local secret = random(32, true) or random(32)
+local defaults
+
+local function init()
+    defaults = {
+        name       = var.session_name       or "session",
+        identifier = var.session_identifier or "random",
+        storage    = var.session_storage    or "cookie",
+        serializer = var.session_serializer or "json",
+        encoder    = var.session_encoder    or "base64",
+        cipher     = var.session_cipher     or "aes",
+        cookie = {
+            persistent = enabled(var.session_cookie_persistent or false),
+            renew      = tonumber(var.session_cookie_renew)    or 600,
+            lifetime   = tonumber(var.session_cookie_lifetime) or 3600,
+            path       = var.session_cookie_path               or "/",
+            domain     = var.session_cookie_domain,
+            samesite   = var.session_cookie_samesite           or "Lax",
+            secure     = enabled(var.session_cookie_secure),
+            httponly   = enabled(var.session_cookie_httponly   or true),
+            delimiter  = var.session_cookie_delimiter          or "|"
+        }, check = {
+            ssi    = enabled(var.session_check_ssi    or false),
+            ua     = enabled(var.session_check_ua     or true),
+            scheme = enabled(var.session_check_scheme or true),
+            addr   = enabled(var.session_check_addr   or false)
+        }
     }
-}
-defaults.secret = var.session_secret or random(32, true) or random(32)
+    defaults.secret = var.session_secret or secret
+end
 
 local session = {
-    _VERSION = "2.15"
+    _VERSION = "2.16"
 }
 
 session.__index = session
@@ -203,6 +208,9 @@ session.__index = session
 function session.new(opts)
     if getmetatable(opts) == session then
         return opts
+    end
+    if not defaults then
+        init()
     end
     local z = defaults
     local y = type(opts) == "table" and opts or z

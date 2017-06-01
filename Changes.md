@@ -2,6 +2,11 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.16] - 2017-05-31
+### Changed
+- Delays setting the defaults until needed, allowing users to safely
+  require "resty.session" in different contexts.
+
 ## [2.15] - 2017-02-13
 
 ## Added
