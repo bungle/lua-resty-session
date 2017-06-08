@@ -175,7 +175,6 @@ end
 function memcache:start(i)
     local ok, err = self:connect()
     if ok then
-        ok, err = self:lock(self:key(i))
         self:set_keepalive()
     end
     return ok, err
