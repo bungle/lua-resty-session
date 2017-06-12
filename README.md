@@ -656,6 +656,16 @@ local session = require "resty.session".start()
 session:destroy()
 ```
 
+#### session:hide()
+
+Sometimes, when you are using `lua-resty-session` in reverse proxy, you may want to hide the session
+cookies from the upstream server. To do that you can call `session:hide()`.
+
+```lua
+local session = require "resty.session".start()
+session:hide()
+```
+
 ### Fields
 
 #### string session.id

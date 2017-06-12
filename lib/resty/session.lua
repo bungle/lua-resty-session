@@ -5,9 +5,12 @@ local concat       = table.concat
 local hmac         = ngx.hmac_sha1
 local time         = ngx.time
 local http_time    = ngx.http_time
+local set_header   = ngx.req.set_header
+local clear_header = ngx.req.clear_header
 local ceil         = math.ceil
 local max          = math.max
 local find         = string.find
+local gsub         = string.gsub
 local sub          = string.sub
 local type         = type
 local pcall        = pcall
@@ -200,7 +203,7 @@ local function init()
 end
 
 local session = {
-    _VERSION = "2.16"
+    _VERSION = "2.17"
 }
 
 session.__index = session
@@ -367,6 +370,53 @@ function session:destroy()
     self.started   = nil
     self.destroyed = true
     return setcookie(self, "", true)
+end
+
+function session:hide()
+    local cookies = var.http_cookie
+    if not cookies then
+        return
+    end
+    local r = {}
+    local n = self.name
+    local i = 1
+    local j = 0
+    local s = find(cookies, ";", 1, true)
+    while s do
+        local c = sub(cookies, i, s - 1)
+        local b = find(c, "=", 1, true)
+        if b then
+            local key = gsub(sub(c, 1, b - 1), "^%s+", "")
+            if key ~= n and key ~= "" then
+                local z = #n
+                if sub(key, z + 1, z + 1) ~= "_" or not tonumber(sub(key, z + 2)) then
+                    j = j + 1
+                    r[j] = c
+                end
+            end
+        end
+        i = s + 1
+        s = find(cookies, ";", i, true)
+    end
+    local c = sub(cookies, i)
+    if c and c ~= "" then
+        local b = find(c, "=", 1, true)
+        if b then
+            local key = gsub(sub(c, 1, b - 1), "^%s+", "")
+            if key ~= n and key ~= "" then
+                local z = #n
+                if sub(key, z + 1, z + 1) ~= "_" or not tonumber(sub(key, z + 2)) then
+                    j = j + 1
+                    r[j] = c
+                end
+            end
+        end
+    end
+    if j == 0 then
+        clear_header("Cookie")
+    else
+        set_header("Cookie", concat(r, "; ", 1, j))
+    end
 end
 
 return session

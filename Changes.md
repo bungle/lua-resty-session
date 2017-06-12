@@ -2,13 +2,17 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.17] - 2017-06-12
+### Added
+- Added session.hide() function to hide session cookies from upstream
+  on reverse proxy scenarios.
+
 ## [2.16] - 2017-05-31
 ### Changed
 - Delays setting the defaults until needed, allowing users to safely
   require "resty.session" in different contexts.
 
 ## [2.15] - 2017-02-13
-
 ## Added
 - Added a support for chunked cookies.
   See also: https://github.com/bungle/lua-resty-session/issues/35
