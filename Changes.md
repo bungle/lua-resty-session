@@ -2,6 +2,13 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.18] - 2017-07-10
+### Fixed
+- Automatically creates exactly 64 bits salt as required by the latest
+  lua-resty-string.
+  See also: https://github.com/bungle/lua-resty-session/issues/40
+  Thanks @peturorri
+
 ## [2.17] - 2017-06-12
 ### Added
 - Added session.hide() function to hide session cookies from upstream

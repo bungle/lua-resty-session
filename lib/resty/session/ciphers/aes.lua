@@ -3,7 +3,11 @@ local tonumber     = tonumber
 local aes          = require "resty.aes"
 local cip          = aes.cipher
 local hashes       = aes.hash
+local ceil         = math.ceil
 local var          = ngx.var
+local sub          = string.sub
+local rep          = string.rep
+
 
 local CIPHER_MODES = {
     ecb    = "ecb",
@@ -28,6 +32,19 @@ local defaults = {
     rounds = tonumber(var.session_aes_rounds)   or 1
 }
 
+local function salt(s)
+    if s then
+        local z = #s
+        if z < 8 then
+            return sub(rep(s, ceil(8 / z), 1, 8))
+        end
+        if z > 8 then
+            return sub(s, 1, 8)
+        end
+        return s
+    end
+end
+
 local cipher = {}
 
 cipher.__index = cipher
@@ -43,11 +60,11 @@ function cipher.new(config)
 end
 
 function cipher:encrypt(d, k, s)
-    return aes:new(k, s, cip(self.size, self.mode), self.hash, self.rounds):encrypt(d)
+    return aes:new(k, salt(s), cip(self.size, self.mode), self.hash, self.rounds):encrypt(d)
 end
 
 function cipher:decrypt(d, k, s)
-    return aes:new(k, s, cip(self.size, self.mode), self.hash, self.rounds):decrypt(d)
+    return aes:new(k, salt(s), cip(self.size, self.mode), self.hash, self.rounds):decrypt(d)
 end
 
 return cipher
