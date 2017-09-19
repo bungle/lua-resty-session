@@ -36,7 +36,7 @@ local function salt(s)
     if s then
         local z = #s
         if z < 8 then
-            return sub(rep(s, ceil(8 / z), 1, 8))
+            return sub(rep(s, ceil(8 / z)), 1, 8)
         end
         if z > 8 then
             return sub(s, 1, 8)

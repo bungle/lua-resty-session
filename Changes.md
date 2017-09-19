@@ -2,6 +2,13 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.19] - 2017-09-19
+### Fixed
+- Fixes small bug where aes could generate invalid salt on invalid input
+  that further crashes Lua with error: bad argument #2 to 'salt' (number
+  expected, got no value)
+
+
 ## [2.18] - 2017-07-10
 ### Fixed
 - Automatically creates exactly 64 bits salt as required by the latest
