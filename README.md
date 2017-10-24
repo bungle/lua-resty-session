@@ -213,6 +213,14 @@ Cookie adapter can be selected with configuration (if no configuration is presen
 set $session_storage cookie;
 ```
 
+**NOTE:**
+
+If you store large amounts of data in a cookie, this library will automatically split the cookies to 4k chars chunks. With large cookies, you may need to adjust your Nginx configuration to accept large client header buffers. E.g.:
+
+```nginx
+large_client_header_buffers 4 16k;
+```
+
 #### Shared Dictionary Storage Adapter
 
 Shared dictionary uses OpenResty shared dictionary and works with multiple worker processes, but it isn't a good
