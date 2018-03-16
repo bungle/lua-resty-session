@@ -32,8 +32,8 @@ function cookie:cookie(c)
     return r
 end
 
-function cookie:open(cookie)
-    local r = self:cookie(cookie)
+function cookie:open(c)
+    local r = self:cookie(c)
     if r and r[1] and r[2] and r[3] and r[4] then
         return self.decode(r[1]), tonumber(r[2]), self.decode(r[3]), self.decode(r[4])
     end

@@ -2,12 +2,17 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.20] - 2018-03-16
+### Fixed
+- Fixes issue where check addr and check scheme could be faked.
+  See also: https://github.com/bungle/lua-resty-session/issues/47
+  Thanks @nielsole
+
 ## [2.19] - 2017-09-19
 ### Fixed
 - Fixes small bug where aes could generate invalid salt on invalid input
   that further crashes Lua with error: bad argument #2 to 'salt' (number
   expected, got no value)
-
 
 ## [2.18] - 2017-07-10
 ### Fixed

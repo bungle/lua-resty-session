@@ -93,7 +93,7 @@ local function setcookie(session, value, expires)
         else
             n[2] = "="
         end
-        local n = concat(n)
+        n = concat(n)
         k[1] = n
         if expires then
             k[2] = ""
@@ -110,9 +110,9 @@ local function setcookie(session, value, expires)
         if t == "table" then
             local f = false
             local z = #s
-            for i=1, z do
-                if find(s[i], n, 1, true) == 1 then
-                    s[i] = y
+            for a=1, z do
+                if find(s[a], n, 1, true) == 1 then
+                    s[a] = y
                     f = true
                     break
                 end
@@ -267,41 +267,13 @@ function session.open(opts)
     else
         self = session.new(opts)
     end
-    local scheme = header["X-Forwarded-Proto"]
-    if self.cookie.secure == nil then
-        if scheme then
-            self.cookie.secure = scheme == "https"
-        else
-            self.cookie.secure = var.https == "on"
-        end
-    end
-    scheme = self.check.scheme and (scheme or var.scheme or "") or ""
-    local addr = ""
-    if self.check.addr then
-        addr = header["CF-Connecting-IP"] or
-               header["Fastly-Client-IP"] or
-               header["Incap-Client-IP"]  or
-               header["X-Real-IP"]
-        if not addr then
-            addr = header["X-Forwarded-For"]
-            if addr then
-                -- We shouldn't really get the left-most address, because of spoofing,
-                -- but this is better handled with a module, like nginx realip module,
-                -- anyway (see also: http://goo.gl/Z6u2oR).
-                local s = find(addr, ',', 1, true)
-                if s then
-                    addr = addr:sub(1, s - 1)
-                end
-            else
-                addr = var.remote_addr
-            end
-        end
-    end
+
+    self.cookie.secure = var.scheme == "https" or var.https == "on"
     self.key = concat{
-        self.check.ssi and (var.ssl_session_id  or "") or "",
-        self.check.ua  and (var.http_user_agent or "") or "",
-        addr,
-        scheme
+        self.check.ssi    and var.ssl_session_id  or "",
+        self.check.ua     and var.http_user_agent or "",
+        self.check.addr   and var.remote_addr     or "",
+        self.check.scheme and var.scheme          or "",
     }
     self.opened = true
     local cookie = getcookie(self)
