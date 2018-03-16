@@ -11,11 +11,11 @@ function cipher.new()
     return singleton
 end
 
-function cipher:encrypt(d)
+function cipher.encrypt(_, d)
     return d
 end
 
-function cipher:decrypt(d)
+function cipher.decrypt(_, d)
     return d
 end
 

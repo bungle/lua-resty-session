@@ -65,17 +65,17 @@ function redis.new(config)
 end
 
 function redis:connect()
-    local redis = self.redis
+    local r = self.redis
     local ok, err
     if self.socket then
-        ok, err = redis:connect(self.socket)
+        ok, err = r:connect(self.socket)
     else
-        ok, err = redis:connect(self.host, self.port)
+        ok, err = r:connect(self.host, self.port)
     end
     if ok and self.auth then
-        ok, err = redis:get_reused_times()
+        ok, err = r:get_reused_times()
         if ok == 0 then
-            ok, err = redis:auth(self.auth)
+            ok, err = r:auth(self.auth)
         end
     end
     return ok, err
