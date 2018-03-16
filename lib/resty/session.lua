@@ -203,7 +203,7 @@ local function init()
 end
 
 local session = {
-    _VERSION = "2.21"
+    _VERSION = "2.22"
 }
 
 session.__index = session
@@ -268,7 +268,10 @@ function session.open(opts)
         self = session.new(opts)
     end
 
-    self.cookie.secure = var.scheme == "https" or var.https == "on"
+    if self.cookie.secure == nil then
+        self.cookie.secure = var.scheme == "https" or var.https == "on"
+    end
+
     self.key = concat{
         self.check.ssi    and var.ssl_session_id  or "",
         self.check.ua     and var.http_user_agent or "",

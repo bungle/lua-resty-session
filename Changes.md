@@ -2,6 +2,10 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.22] - 2018-03-17
+### Fixed
+- Only sets self.cookie.secure if not defined.
+
 ## [2.21] - 2018-03-16
 ### Screwed
 - Forgot to bump version number.
