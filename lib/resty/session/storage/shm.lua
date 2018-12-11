@@ -129,6 +129,13 @@ function shm:save(i, e, d, h, close)
     return nil, "expired"
 end
 
+function shm:close(_)
+    if self.uselocking then
+        self.lock:unlock()
+    end
+    return true
+end
+
 function shm:destroy(i)
     self.store:delete(self:key(i))
     if self.uselocking then
@@ -136,5 +143,11 @@ function shm:destroy(i)
     end
     return true, nil
 end
+
+function shm:ttl(i, ttl)
+  local k = self:key(i)
+  return self.store:expire(k, ttl)
+end
+
 
 return shm

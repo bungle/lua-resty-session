@@ -159,6 +159,39 @@ local session = require "resty.session".new()
 session.secret = "623q4hR325t36VsCD3g567922IC0073T"
 ```
 
+
+## Pluggable Session Strategies
+
+Strategies can be a bit cumbersome to do with just configuration, and that's why you can
+implement them with the code. Currently `lua-resty-session` comes with two strategies:
+
+* `default` — the default strategy (original implementation)
+* `regenerate` — similar to default strategy, but does not use `expires` with `HMAC`
+  functions, and instead generates a new session identifier on each `save`.
+
+The `default` one has been here from the beginning, but recently I got information about
+use case of Javascript application with parallel asynchronous queries, where the session
+was saved to a database with a custom storage adapter using `header_filter` phase, which resulted
+the need to use the asynchronous `ngx.timer`. And that resulted that the JS XHR requests may
+have sent an old cookie, or perhaps a new cookie that was not yet found in db because of async
+timer. This resulted issues because cryptographic functions in `default` strategy used `expires`,
+and every time you saved a cookie it got a new `expiry`. The `regenerate` adapter does not use
+`expiry` anymore, but it instead generates a new `session id` on each `save` call. This makes
+a new row in a database while the previous `session` will still function. If your storage adapter
+implements `ttl` the `regenerate` strategy will call that with the old id and `10` seconds
+of `ttl`. `default` strategy is still adequate if you use `cookie` storage adapter as that
+is not issue with it, but if using server side storage adapter like `redis` or `memcache`
+you may want to consider using `regenerate` if you have a heavily JS based application with
+a lot of asynchronous queries at the same time. This issue happens usually when session
+is about to be renewed, so it is quite rare even when using `default` strategy.
+
+Strategy can be selected with configuration (if no configuration is present, the `default` strategy is picked up):
+
+```nginx
+set $session_strategy regenerate;
+```
+
+
 ## Pluggable Storage Adapters
 
 With version 2.0 we started to support pluggable session data storage adapters. We do currently have
@@ -331,7 +364,9 @@ You need to implement at least these APIs:
 There are a few additional hooks that you may want to attach:
 
 * `ok, error adapter:start(id)`
+* `ok, error adapter:close(id)`
 * `ok, error adapter:destroy(id)`
+* `ok, error adapter:ttl(id, ttl)`
 
 You have to place your adapter inside `resty.session.storage` for auto-loader to work.
 
@@ -652,6 +687,12 @@ session.data.uid = 1
 session:save()
 ```
 
+#### boolean, string session:close()
+
+This function is mainly usable with storages that implement `locking` as calling this with e.g. `cookie` storage
+does not do anything else than set `session.closed` to `true`.
+
+
 #### boolean session:destroy()
 
 This function will immediately set session data to empty table `{}`. It will also send a new cookie to
@@ -691,7 +732,6 @@ was really a one the was received from a client. If the session is a new one, th
 `session.opened` can be used to check if the `session:open()` was called for the current session
 object.
 
-
 #### boolean session.started
 
 `session.started` can be used to check if the `session:start()` was called for the current session
@@ -701,6 +741,11 @@ object.
 
 `session.destroyed` can be used to check if the `session:destroy()` was called for the current session
 object. It will also set `session.opened`, `session.started`,  and `session.present` to false.
+
+#### boolean session.closed
+
+`session.closed` can be used to check if the `session:close()` was called for the current session
+object.
 
 #### string session.key
 
@@ -741,6 +786,13 @@ local uid = session.data.uid
 #### boolean session.cookie.persistent
 
 `session.cookie.persistent` is by default `false`. This means that cookies are not persisted between browser sessions (i.e. they are deleted when the browser is closed). You can enable persistent sessions if you want to by setting this to `true`. This can be configured with Nginx `set $session_cookie_persistent on;`.
+
+#### number session.cookie.discard
+
+`session.cookie.discard` holds the time in seconds how of long you want to keep old cookies alive when
+using `regenerate` session strategy. This can be configured with Nginx `set $session_cookie_discard 10;`
+(10 seconds is the default value). This works only with server side session storage adapters and when
+using `regenerate` strategy (perhaps your custom strategy could utilize this too).
 
 #### number session.cookie.renew
 
@@ -899,11 +951,13 @@ Here is a list of `lua-resty-session` related Nginx configuration variables that
 ```nginx
 set $session_name              session;
 set $session_secret            623q4hR325t36VsCD3g567922IC0073T;
+set $session_strategy          default;
 set $session_storage           cookie;
 set $session_cipher            aes;
 set $session_encoder           base64;
 set $session_serializer        json;
 set $session_cookie_persistent off;
+set $session_cookie_discard    10;
 set $session_cookie_renew      600;
 set $session_cookie_lifetime   3600;
 set $session_cookie_path       /;

@@ -205,6 +205,15 @@ function memcache:save(i, e, d, h, close)
     return ok, err
 end
 
+function memcache:close(i)
+    local ok, err = self:connect()
+    if ok then
+        local k = self:key(i)
+        self:unlock(k)
+    end
+    return ok, err
+end
+
 function memcache:destroy(i)
     local ok, err = self:connect()
     if ok then
@@ -214,6 +223,11 @@ function memcache:destroy(i)
         self:set_keepalive()
     end
     return ok, err
+end
+
+function memcache:ttl(i, ttl)
+  local k = self:key(i)
+  return self:expire(k, floor(ttl))
 end
 
 return memcache

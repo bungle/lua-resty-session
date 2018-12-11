@@ -218,6 +218,16 @@ function redis:save(i, e, d, h, close)
     return ok, err
 end
 
+function redis:close(i)
+    local ok, err = self:connect()
+    if ok then
+        local k = self:key(i)
+        self:unlock(k)
+        self:set_keepalive()
+    end
+    return ok, err
+end
+
 function redis:destroy(i)
     local ok, err = self:connect()
     if ok then
@@ -228,5 +238,11 @@ function redis:destroy(i)
     end
     return ok, err
 end
+
+function redis:ttl(i, ttl)
+  local k = self:key(i)
+  return self:expire(k, floor(ttl))
+end
+
 
 return redis
