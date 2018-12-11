@@ -2,7 +2,6 @@ local require      = require
 local var          = ngx.var
 local header       = ngx.header
 local concat       = table.concat
-local hmac         = ngx.hmac_sha1
 local time         = ngx.time
 local http_time    = ngx.http_time
 local set_header   = ngx.req.set_header
@@ -149,11 +148,7 @@ end
 
 local function save(session, close)
     session.expires = time() + session.cookie.lifetime
-    local i, e, s = session.id, session.expires, session.storage
-    local k = hmac(session.secret, i .. e)
-    local d = session.serializer.serialize(session.data)
-    local h = hmac(k, concat{ i, e, d, session.key })
-    local cookie, err = s:save(i, e, session.cipher:encrypt(d, k, i, session.key), h, close)
+    local cookie, err = session.strategy.save(session, close)
     if cookie then
         return setcookie(session, cookie)
     end
@@ -178,12 +173,14 @@ local function init()
     defaults = {
         name       = var.session_name       or "session",
         identifier = var.session_identifier or "random",
+        strategy   = var.session_strategy   or "default",
         storage    = var.session_storage    or "cookie",
         serializer = var.session_serializer or "json",
         encoder    = var.session_encoder    or "base64",
         cipher     = var.session_cipher     or "aes",
         cookie = {
             persistent = enabled(var.session_cookie_persistent or false),
+            discard    = tonumber(var.session_cookie_discard)  or 10,
             renew      = tonumber(var.session_cookie_renew)    or 600,
             lifetime   = tonumber(var.session_cookie_lifetime) or 3600,
             path       = var.session_cookie_path               or "/",
@@ -203,7 +200,7 @@ local function init()
 end
 
 local session = {
-    _VERSION = "2.22"
+    _VERSION = "2.23"
 }
 
 session.__index = session
@@ -224,15 +221,18 @@ function session.new(opts)
     local i, j = prequire("resty.session.encoders.",    y.encoder    or z.encoder,    "base64")
     local k, l = prequire("resty.session.ciphers.",     y.cipher     or z.cipher,     "aes")
     local m, n = prequire("resty.session.storage.",     y.storage    or z.storage,    "cookie")
+    local o, p = prequire("resty.session.strategies.",  y.strategy   or z.strategy,   "default")
     local self = {
         name       = y.name   or z.name,
         identifier = e,
         serializer = g,
+        strategy   = o,
         encoder    = i,
         data       = y.data   or {},
         secret     = y.secret or z.secret,
         cookie = {
             persistent = ifnil(a.persistent, b.persistent),
+            discard    = a.discard        or b.discard,
             renew      = a.renew          or b.renew,
             lifetime   = a.lifetime       or b.lifetime,
             path       = a.path           or b.path,
@@ -253,6 +253,7 @@ function session.new(opts)
     if y[j] and not self[j] then self[j] = y[j] end
     if y[l] and not self[l] then self[l] = y[l] end
     if y[n] and not self[n] then self[n] = y[n] end
+    if y[p] and not self[p] then self[p] = y[p] end
     self.cipher  = k.new(self)
     self.storage = m.new(self)
     return setmetatable(self, session)
@@ -281,18 +282,8 @@ function session.open(opts)
     self.opened = true
     local cookie = getcookie(self)
     if cookie then
-        local i, e, d, h = self.storage:open(cookie, self.cookie.lifetime)
-        if i and e and e > time() and d and h then
-            local k = hmac(self.secret, i .. e)
-            d = self.cipher:decrypt(d, k, i, self.key)
-            if d and hmac(k, concat{ i, e, d, self.key }) == h then
-                d = self.serializer.deserialize(d)
-                self.id = i
-                self.expires = e
-                self.data = type(d) == "table" and d or {}
-                self.present = true
-                return self, true
-            end
+        if self.strategy.open(self, cookie) then
+            return self, true
         end
     end
     regenerate(self, true)
@@ -345,6 +336,16 @@ function session:destroy()
     self.started   = nil
     self.destroyed = true
     return setcookie(self, "", true)
+end
+
+function session:close()
+    local i = session.present and session.id
+    if i and self.storage.close then
+        return session.storage:close()
+    end
+
+    self.closed = true
+    return true
 end
 
 function session:hide()
