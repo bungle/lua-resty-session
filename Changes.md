@@ -2,6 +2,15 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.23] - 2018-12-12
+### Added
+- Added pluggable strategies with `default` and a new `regenerate` strategy
+- Added pluggable `hmac`s
+- Added `session.close`
+- Added `ttl` to `storages`
+- Added `session.cookie.discard`, a `ttl` how long to keep old sessions when
+  renewing (used by `regenerate` strategy
+
 ## [2.22] - 2018-03-17
 ### Fixed
 - Only sets self.cookie.secure if not defined.
