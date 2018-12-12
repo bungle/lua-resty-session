@@ -191,6 +191,21 @@ Strategy can be selected with configuration (if no configuration is present, the
 set $session_strategy regenerate;
 ```
 
+To implement a custom strategy, please checkout the existing ones.
+
+## Pluggable HMAC Algorithms
+
+If your strategy happens to be using `HMAC`, like the `default` and `regenerate` ones do,
+you can tell them what `HMAC` algorithm to use. At the moment only `HMAC SHA1` is available
+as that comes with OpenResty and works without additional dependencies. You may implement
+your own custom HMAC algorithms (preferrably binding to some existing crypto library,
+such as OpenSSL), and the strategies will pick up from there.
+
+HMAC can be selected with configuration (if no configuration is present, the `sha1` strategy is picked up):
+
+```nginx
+set $session_hmac sha1;
+```
 
 ## Pluggable Storage Adapters
 
@@ -953,6 +968,7 @@ set $session_name              session;
 set $session_secret            623q4hR325t36VsCD3g567922IC0073T;
 set $session_strategy          default;
 set $session_storage           cookie;
+set $session_hmac              sha1;
 set $session_cipher            aes;
 set $session_encoder           base64;
 set $session_serializer        json;

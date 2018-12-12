@@ -178,6 +178,7 @@ local function init()
         serializer = var.session_serializer or "json",
         encoder    = var.session_encoder    or "base64",
         cipher     = var.session_cipher     or "aes",
+        hmac       = var.session_hmac       or "sha1",
         cookie = {
             persistent = enabled(var.session_cookie_persistent or false),
             discard    = tonumber(var.session_cookie_discard)  or 10,
@@ -222,12 +223,14 @@ function session.new(opts)
     local k, l = prequire("resty.session.ciphers.",     y.cipher     or z.cipher,     "aes")
     local m, n = prequire("resty.session.storage.",     y.storage    or z.storage,    "cookie")
     local o, p = prequire("resty.session.strategies.",  y.strategy   or z.strategy,   "default")
+    local q, r = prequire("resty.session.hmac.",        y.hmac       or z.hmac,       "sha1")
     local self = {
         name       = y.name   or z.name,
         identifier = e,
         serializer = g,
         strategy   = o,
         encoder    = i,
+        hmac       = q,
         data       = y.data   or {},
         secret     = y.secret or z.secret,
         cookie = {
@@ -254,6 +257,7 @@ function session.new(opts)
     if y[l] and not self[l] then self[l] = y[l] end
     if y[n] and not self[n] then self[n] = y[n] end
     if y[p] and not self[p] then self[p] = y[p] end
+    if y[r] and not self[r] then self[r] = y[r] end
     self.cipher  = k.new(self)
     self.storage = m.new(self)
     return setmetatable(self, session)
