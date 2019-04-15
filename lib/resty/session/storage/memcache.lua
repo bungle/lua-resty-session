@@ -53,7 +53,7 @@ function memcache.new(config)
         }
     }
     local s = c.socket or defaults.socket
-    if s then
+    if s and s ~= "" then
         self.socket = s
     else
         self.host = c.host or defaults.host
