@@ -55,7 +55,7 @@ function redis.new(config)
         }
     }
     local s = r.socket or defaults.socket
-    if s and s ~= '' then
+    if s and s ~= "" then
         self.socket = s
     else
         self.host = r.host or defaults.host
