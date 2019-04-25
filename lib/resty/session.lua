@@ -345,7 +345,7 @@ end
 function session:close()
     local i = session.present and session.id
     if i and self.storage.close then
-        return session.storage:close()
+        return session.storage:close(i)
     end
 
     self.closed = true
