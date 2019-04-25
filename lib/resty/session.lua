@@ -343,9 +343,9 @@ function session:destroy()
 end
 
 function session:close()
-    local i = session.present and session.id
+    local i = self.present and self.id
     if i and self.storage.close then
-        return session.storage:close(i)
+        return self.storage:close(i)
     end
 
     self.closed = true
