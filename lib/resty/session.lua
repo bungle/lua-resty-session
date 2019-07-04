@@ -80,7 +80,7 @@ local function setcookie(session, value, expires)
     if expires and c.chunks then
         l = c.chunks
     else
-        l = max(ceil(#v / 4000), 1)
+        l = max(ceil(#v / c.maxsize), 1)
     end
     local s = header["Set-Cookie"]
     for j=1, l do
@@ -97,9 +97,9 @@ local function setcookie(session, value, expires)
         if expires then
             k[2] = ""
         else
-            local sp = j * 4000 - 3999
+            local sp = j * c.maxsize - (c.maxsize - 1)
             if j < l then
-                k[2] = sub(v, sp, sp + 3999) .. "0"
+                k[2] = sub(v, sp, sp + (c.maxsize - 1)) .. "0"
             else
                 k[2] = sub(v, sp)
             end
@@ -142,8 +142,8 @@ local function getcookie(session, i)
     local c = var[concat(n)]
     if not c then return nil end
     local l = #c
-    if l < 4001 then return c end
-    return concat{ sub(c, 1, 4000), getcookie(session, i + 1) or "" }
+    if l <= c.maxsize then return c end
+    return concat{ sub(c, 1, c.maxsize), getcookie(session, i + 1) or "" }
 end
 
 local function save(session, close)
@@ -189,7 +189,8 @@ local function init()
             samesite   = var.session_cookie_samesite           or "Lax",
             secure     = enabled(var.session_cookie_secure),
             httponly   = enabled(var.session_cookie_httponly   or true),
-            delimiter  = var.session_cookie_delimiter          or "|"
+            delimiter  = var.session_cookie_delimiter          or "|",
+            maxsize    = var.session_cookie_maxsize            or 4000
         }, check = {
             ssi    = enabled(var.session_check_ssi    or false),
             ua     = enabled(var.session_check_ua     or true),
@@ -243,7 +244,8 @@ function session.new(opts)
             samesite   = a.samesite       or b.samesite,
             secure     = ifnil(a.secure,     b.secure),
             httponly   = ifnil(a.httponly,   b.httponly),
-            delimiter  = a.delimiter      or b.delimiter
+            delimiter  = a.delimiter      or b.delimiter,
+            maxsize    = a.maxsize        or b.maxsize
         }, check = {
             ssi        = ifnil(c.ssi,        d.ssi),
             ua         = ifnil(c.ua,         d.ua),
