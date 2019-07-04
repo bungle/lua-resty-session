@@ -142,8 +142,8 @@ local function getcookie(session, i)
     local c = var[concat(n)]
     if not c then return nil end
     local l = #c
-    if l <= c.maxsize then return c end
-    return concat{ sub(c, 1, c.maxsize), getcookie(session, i + 1) or "" }
+    if l <= session.cookie.maxsize then return c end
+    return concat{ sub(c, 1, session.cookie.maxsize), getcookie(session, i + 1) or "" }
 end
 
 local function save(session, close)
