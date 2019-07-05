@@ -800,7 +800,9 @@ local uid = session.data.uid
 
 #### boolean session.cookie.persistent
 
-`session.cookie.persistent` is by default `false`. This means that cookies are not persisted between browser sessions (i.e. they are deleted when the browser is closed). You can enable persistent sessions if you want to by setting this to `true`. This can be configured with Nginx `set $session_cookie_persistent on;`.
+`session.cookie.persistent` is by default `false`. This means that cookies are not persisted between browser sessions
+(i.e. they are deleted when the browser is closed). You can enable persistent sessions if you want to by setting this
+to `true`. This can be configured with Nginx `set $session_cookie_persistent on;`.
 
 #### number session.cookie.discard
 
@@ -820,7 +822,8 @@ with Nginx `set $session_cookie_renew 600;` (600 seconds is the default value).
 `session.cookie.lifetime` holds the cookie lifetime in seconds in the future. By default this is set
 to 3,600 seconds. This can be configured with Nginx `set $session_cookie_lifetime 3600;`. This does not
 set cookie's expiration time on session only (by default) cookies, but it is used if the cookies are
-configured persistent with `session.cookie.persistent == true`. See also notes about [ssl_session_timeout](#nginx-configuration-variables).
+configured persistent with `session.cookie.persistent == true`. See also notes about
+[ssl_session_timeout](#nginx-configuration-variables).
 
 #### string session.cookie.path
 
@@ -862,6 +865,14 @@ want to turn this off, this can be configured with Nginx `set $session_cookie_ht
 delimited. By default it is a pipe character, `|`. It is up to storage adapter to decide if this configuration
 parameter is used.
 
+#### string session.cookie.maxsize
+
+`session.cookie.maxsize` is used to configure maximum size of a single cookie. This value is used to split a
+large cookie into chunks. By default it is `4000` bytes of serialized and encoded data which does not count
+the cookie name and cookie flags. If you expect your cookies + flags be more than e.g. `4096` bytes, you
+should reduce the `session.cookie.maxsize` so that a single cookie fits into `4096` bytes because otherwise
+the user-agent may ignore the cookie (being too big).
+
 #### number session.cookie.chunks
 
 `session.cookie.chunks` should be used as a read only property to determine how many separate cookies was
@@ -872,10 +883,10 @@ of data in session, then the cookie is divided to `n` chunks where each stores d
 #### boolean session.check.ssi
 
 `session.check.ssi` is additional check to validate that the request was made with the same SSL
-session as when the original cookie was delivered. This check is enabled by default on releases prior 2.12 on non-persistent
-sessions and disabled by default on persistent sessions and on releases 2.12 and later. Please note that on TLS with TLS Tickets enabled,
-this will be empty) and not used. This is discussed on issue #5 (https://github.com/bungle/lua-resty-session/issues/5).
-You can disable TLS tickets with Nginx configuration:
+session as when the original cookie was delivered. This check is enabled by default on releases prior 2.12
+on non-persistent sessions and disabled by default on persistent sessions and on releases 2.12 and later.
+Please note that on TLS with TLS Tickets enabled, this will be empty) and not used. This is discussed on issue #5
+(https://github.com/bungle/lua-resty-session/issues/5). You can disable TLS tickets with Nginx configuration:
 
 ```nginx
 ssl_session_tickets off;
@@ -935,9 +946,9 @@ and `session.start`).
 Please note that Nginx has also its own SSL/TLS caches and timeouts. Especially note `ssl_session_timeout` if you
 are running services over SSL/TLS as this will end sessions regardless of `session.cookie.lifetime`. Please adjust
 that accordingly or disable `ssl_session_id` check `session.check.ssi = false` (in code) or
-`set $session_check_ssi off;` (in Nginx configuration). As of 2.12 checking SSL session identifier check (`$session_check_ssi` / `session.check.ssi`)
-is disabled by default because it was not reliable (most servers use session tickets now), and it usually needed
-extra configuration.
+`set $session_check_ssi off;` (in Nginx configuration). As of 2.12 checking SSL session identifier check
+(`$session_check_ssi` / `session.check.ssi`) is disabled by default because it was not reliable (most servers use
+session tickets now), and it usually needed extra configuration.
 
 You may want to add something like this to your Nginx SSL/TLS config (quite a huge cache in this example, 1 MB is
 about 4.000 SSL sessions):
@@ -982,6 +993,7 @@ set $session_cookie_samesite   Lax;
 set $session_cookie_secure     on;
 set $session_cookie_httponly   on;
 set $session_cookie_delimiter  |;
+set $session_cookie_maxsize    4000;
 set $session_check_ssi         off;
 set $session_check_ua          on;
 set $session_check_scheme      on;

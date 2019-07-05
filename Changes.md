@@ -2,6 +2,14 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.24] - Upcoming
+### Fixed
+- Avoid use unix socket and redis password with empty string
+- Provide session id when closing, otherwise the lock is not deleted
+
+### Added
+- Added a configuration for session cookie max size (`session.cookie.maxsize`)
+
 ## [2.23] - 2018-12-12
 ### Added
 - Added pluggable strategies with `default` and a new `regenerate` strategy
