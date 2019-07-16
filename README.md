@@ -227,7 +227,7 @@ Here are some comparisons about the backends:
 | Session Data Stored on Client | ✓      |      |          |       |       |
 | Zero Configuration            | ✓      |      |          |       |       |
 | Extra Dependencies            |        |      | ✓        | ✓     | ✓     |
-| Extra Security ²              |        | ✓    | ✓        | ✓     |       |
+| Extra Security ²              |        | ✓    | ✓        | ✓     | ✓     |
 
 ¹ Can be configured lockless.
 
