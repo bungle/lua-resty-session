@@ -219,15 +219,15 @@ support for these backends:
 
 Here are some comparisons about the backends:
 
-|                               | cookie | shm  | memcache | redis |
-| :---------------------------- | :----: | :--: | :------: | :---: |
-| Stateless                     | ✓      |      |          |       |
-| Lockless                      | ✓      | ¹    | ¹        | ¹     |
-| Works with Web Farms          | ✓      |      | ✓        | ✓     |
-| Session Data Stored on Client | ✓      |      |          |       |
-| Zero Configuration            | ✓      |      |          |       |
-| Extra Dependencies            |        |      | ✓        | ✓     |
-| Extra Security ²              |        | ✓    | ✓        | ✓     | 
+|                               | cookie | shm  | memcache | redis | dshm |
+| :---------------------------- | :----: | :--: | :------: | :---: | :---: |
+| Stateless                     | ✓      |      |          |       |       |
+| Lockless                      | ✓      | ¹    | ¹        | ¹     | ✓     |
+| Works with Web Farms          | ✓      |      | ✓        | ✓     | ✓     |
+| Session Data Stored on Client | ✓      |      |          |       |       |
+| Zero Configuration            | ✓      |      |          |       |       |
+| Extra Dependencies            |        |      | ✓        | ✓     | ✓     |
+| Extra Security ²              |        | ✓    | ✓        | ✓     |       |
 
 ¹ Can be configured lockless.
 
@@ -365,6 +365,36 @@ set $session_redis_pool_size     10;
 The keys stored in Redis are in form:
 
 `{prefix}:{session id}` and `{prefix}:{session id}.lock`.
+
+#### DSHM Storage Adapter
+
+DSHM storage adapter stores the session data inside Distributed Shared Memory server based on Vertx and Hazelcast.
+It is scalable and works with web farms. 
+
+The DSHM lua library and the DSHM servers should be installed conforming with the documentation [here](https://github.com/grrolland/ngx-distributed-shm/blob/master/README.md).  
+  
+
+DSHM adapter can be selected with configuration:
+
+```nginx
+set $session_storage dshm;
+```
+
+Additionally you can configure DSHM adapter with these settings:
+
+```nginx
+set $session_dshm_store              sessions;
+set $session_dshm_host               127.0.0.1;
+set $session_dshm_port               4321;
+set $session_dshm_pool_idle_timeout  1000;
+set $session_dshm_pool_size          100;
+```
+
+The keys stored in DSHM are in form:
+
+`{store}::{session id}`
+
+The store represents the cache region in DSHM
 
 #### Implementing a Storage Adapter
 
