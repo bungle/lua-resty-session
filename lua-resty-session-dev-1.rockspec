@@ -19,6 +19,7 @@ build = {
         ["resty.session"]                       = "lib/resty/session.lua",
         ["resty.session.identifiers.random"]    = "lib/resty/session/identifiers/random.lua",
         ["resty.session.storage.shm"]           = "lib/resty/session/storage/shm.lua",
+        ["resty.session.storage.dshm"]          = "lib/resty/session/storage/dshm.lua",
         ["resty.session.storage.redis"]         = "lib/resty/session/storage/redis.lua",
         ["resty.session.storage.cookie"]        = "lib/resty/session/storage/cookie.lua",
         ["resty.session.storage.memcache"]      = "lib/resty/session/storage/memcache.lua",
