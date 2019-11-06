@@ -2,7 +2,12 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
-## [2.24] - Upcoming
+## [2.25] - 2019-11-06
+### Added
+- Add SSL support for the Redis storage option (#75) (thanks @tieske)
+- DSHM storage adapter (a distributed SHM storage based on Hazelcast for Nginx) (thanks @grrolland)
+
+## [2.24] - 2019-07-09
 ### Fixed
 - Avoid use unix socket and redis password with empty string
 - Provide session id when closing, otherwise the lock is not deleted

@@ -2,6 +2,7 @@ local require      = require
 local var          = ngx.var
 local header       = ngx.header
 local concat       = table.concat
+local ngx          = ngx
 local time         = ngx.time
 local http_time    = ngx.http_time
 local set_header   = ngx.req.set_header
@@ -202,7 +203,7 @@ local function init()
 end
 
 local session = {
-    _VERSION = "2.24"
+    _VERSION = "2.25"
 }
 
 session.__index = session

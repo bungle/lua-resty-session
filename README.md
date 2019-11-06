@@ -1058,7 +1058,7 @@ The changes of every release of this module is recorded in [Changes.md](https://
 `lua-resty-session` uses two clause BSD license.
 
 ```
-Copyright (c) 2014 – 2017 Aapo Talvensaari
+Copyright (c) 2014 – 2019 Aapo Talvensaari
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
