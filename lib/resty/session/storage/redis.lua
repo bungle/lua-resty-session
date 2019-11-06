@@ -25,7 +25,10 @@ local defaults = {
     pool = {
         timeout  = tonumber(var.session_redis_pool_timeout),
         size     = tonumber(var.session_redis_pool_size)
-    }
+    },
+    ssl          = enabled(var.session_redis_ssl)           or false,
+    ssl_verify   = enabled(var.session_redis_ssl_verify)    or false,
+    server_name  = var.session_redis_server_name,
 }
 
 local redis = {}
@@ -52,7 +55,12 @@ function redis.new(config)
         pool = {
             timeout  = tonumber(p.timeout) or defaults.pool.timeout,
             size     = tonumber(p.size)    or defaults.pool.size
-        }
+        },
+        connect_opts = {
+          ssl         = r.ssl or defaults.ssl,
+          ssl_verify  = r.ssl_verify or defaults.ssl_verify,
+          server_name = r.server_name or defaults.server_name,
+        },
     }
     local s = r.socket or defaults.socket
     if s and s ~= "" then
@@ -70,7 +78,7 @@ function redis:connect()
     if self.socket then
         ok, err = r:connect(self.socket)
     else
-        ok, err = r:connect(self.host, self.port)
+        ok, err = r:connect(self.host, self.port, self.connect_opts)
     end
     if ok and self.auth and self.auth ~= "" then
         ok, err = r:get_reused_times()
