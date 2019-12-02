@@ -130,28 +130,36 @@ function memcache:delete(k)
     self.memcache:delete(k)
 end
 
-function memcache:cookie(c)
-    local r, d = {}, self.delimiter
-    local i, p, s, e = 1, 1, c:find(d, 1, true)
-    while s do
-        if i > 2 then return end
-        r[i] = c:sub(p, e - 1)
-        i, p = i + 1, e + 1
-        s, e = c:find(d, p, true)
+-- Extracts the elements from the cookie-string (string-split essentially).
+-- @param value (string) the string to split in the elements
+-- @return array with the elements in order, or `nil` if the number of elements do not match expectations.
+function memcache:cookie(value)
+    local size = 4
+    local result, delim = {}, self.delimiter
+    local count, pos = 1, 1
+    local match_start, match_end = value:find(delim, 1, true)
+    while match_start do
+        if count == size then
+            return nil  -- too many elements
+        end
+        result[count] = value:sub(pos, match_end - 1)
+        count = count + 1
+        pos = match_end + 1
+        match_start, match_end = value:find(delim, pos, true)
     end
-    if i ~= 3 then
-        return nil
+    if count ~= size then
+        return nil  -- too little elements
     end
-    r[3] = c:sub(p)
-    return r
+    result[size] = value:sub(pos)
+    return result
 end
 
 function memcache:open(cookie, lifetime)
     local c = self:cookie(cookie)
-    if c and c[1] and c[2] and c[3] then
+    if c and c[1] and c[2] and c[3] and c[4] then
         local ok, err = self:connect()
         if ok then
-            local i, e, h = self.decode(c[1]), tonumber(c[2]), self.decode(c[3])
+            local i, u, e, h = self.decode(c[1]), tonumber(c[2]), tonumber(c[3]), self.decode(c[4])
             local k = self:key(i)
             ok, err = self:lock(k)
             if ok then
@@ -161,7 +169,7 @@ function memcache:open(cookie, lifetime)
                 end
                 self:unlock(k)
                 self:set_keepalive()
-                return i, e, d, h
+                return i, u, e, d, h
             end
             self:set_keepalive()
             return nil, err
@@ -181,7 +189,25 @@ function memcache:start(i)
     return ok, err
 end
 
-function memcache:save(i, e, d, h, close)
+-- Generates the cookie value.
+-- Similar to 'save', but without writing to the storage.
+-- @param id (string)
+-- @param usebefore (number)
+-- @param expires(number) lifetime (ttl) is calculated from this
+-- @param data (string)
+-- @param hash (string)
+-- @return encoded cookie-string value, or nil+err
+function memcache:touch(id, usebefore, expires, data, hash, close)
+    local lifetime = floor(expires - now())
+
+    if lifetime <= 0 then
+        return nil, "expired"
+    end
+
+    return concat({ self.encode(id), usebefore, expires, self.encode(hash) }, self.delimiter)
+end
+
+function memcache:save(i, u, e, d, h, close)
     local ok, err = self:connect()
     if ok then
         local l, k = floor(e - now()), self:key(i)
@@ -192,7 +218,7 @@ function memcache:save(i, e, d, h, close)
             end
             self:set_keepalive()
             if ok then
-                return concat({ self.encode(i), e, self.encode(h) }, self.delimiter)
+                return concat({ self.encode(i), u, e, self.encode(h) }, self.delimiter)
             end
             return ok, err
         end

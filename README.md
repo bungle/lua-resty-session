@@ -216,6 +216,7 @@ support for these backends:
 * `shm` aka Lua Shared Dictionary
 * `memcache` aka Memcached Storage Backend (thanks [@zandbelt](https://github.com/zandbelt))
 * `redis` aka Redis Backend
+* `dshm`
 
 Here are some comparisons about the backends:
 
@@ -824,6 +825,15 @@ local uid = session.data.uid
 `session.expires` holds the expiration time of the session (expiration time will be generated when
 `session:save` method is called).
 
+#### number session.usebefore
+
+`session.usebefore` holds the expiration time based on session usgae (expiration time will be generated
+when the session is saved or started). This expiry time is only stored client-side in the cookie.
+Note that just opening a session will not update the cookie! To mark the session as used you must call
+`session:start`. (You can also use `session:save` but that will also write session data to the
+storage, whereas just calling `start` reads the session data and updates the `usebefore` value in the
+client-side cookie without writing to the storage, it will just be setting a new cookie)
+
 #### string session.secret
 
 `session.secret` holds the secret that is used in keyed HMAC generation.
@@ -854,6 +864,12 @@ to 3,600 seconds. This can be configured with Nginx `set $session_cookie_lifetim
 set cookie's expiration time on session only (by default) cookies, but it is used if the cookies are
 configured persistent with `session.cookie.persistent == true`. See also notes about
 [ssl_session_timeout](#nginx-configuration-variables).
+
+#### number session.cookie.idletime
+
+`session.cookie.idletime` holds the cookie idletime in seconds in the future. If a cookie is not used
+(idle) for this time, the session becomes invalid. By default this is set to 0 seconds, meaning it is
+disabled. This can be configured with Nginx `set $session_cookie_idletime 300;`.
 
 #### string session.cookie.path
 
@@ -1017,6 +1033,7 @@ set $session_cookie_persistent off;
 set $session_cookie_discard    10;
 set $session_cookie_renew      600;
 set $session_cookie_lifetime   3600;
+set $session_cookie_idletime   0;
 set $session_cookie_path       /;
 set $session_cookie_domain     openresty.org;
 set $session_cookie_samesite   Lax;

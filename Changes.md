@@ -2,6 +2,11 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [3.0] - unreleased
+### Added
+- added idletime setting (#78). This changes the cookie format, and hence is a
+  breaking change.
+
 ## [2.25] - 2019-11-06
 ### Added
 - Add SSL support for the Redis storage option (#75) (thanks @tieske)

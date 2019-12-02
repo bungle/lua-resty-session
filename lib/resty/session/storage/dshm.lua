@@ -104,28 +104,34 @@ function shm:key(i)
     return self.encode(i)
 end
 
-function shm:cookie(c)
-    local r, d = {}, self.delimiter
-    local i, p, s, e = 1, 1, c:find(d, 1, true)
-    while s do
-        if i > 2 then
-            return nil
+-- Extracts the elements from the cookie-string (string-split essentially).
+-- @param value (string) the string to split in the elements
+-- @return array with the elements in order, or `nil` if the number of elements do not match expectations.
+function shm:cookie(value)
+    local size = 4
+    local result, delim = {}, self.delimiter
+    local count, pos = 1, 1
+    local match_start, match_end = value:find(delim, 1, true)
+    while match_start do
+        if count == size then
+            return nil  -- too many elements
         end
-        r[i] = c:sub(p, e - 1)
-        i, p = i + 1, e + 1
-        s, e = c:find(d, p, true)
+        result[count] = value:sub(pos, match_end - 1)
+        count = count + 1
+        pos = match_end + 1
+        match_start, match_end = value:find(delim, pos, true)
     end
-    if i ~= 3 then
-        return nil
+    if count ~= size then
+        return nil  -- too little elements
     end
-    r[3] = c:sub(p)
-    return r
+    result[size] = value:sub(pos)
+    return result
 end
 
 function shm:open(cookie, lifetime)
     local r = self:cookie(cookie)
-    if r and r[1] and r[2] and r[3] then
-        local i, e, h = self.decode(r[1]), tonumber(r[2]), self.decode(r[3])
+    if r and r[1] and r[2] and r[3] and r[4] then
+        local i, u, e, h = self.decode(r[1]), tonumber(r[2]), tonumber(r[3]), self.decode(r[4])
         local k = self:key(i)
         local d = self:get(concat({self.name , k}, ":"))
         if d then
@@ -133,7 +139,7 @@ function shm:open(cookie, lifetime)
             d = ngx.decode_base64(d)
         end
 
-        return i, e, d, h
+        return i, u, e, d, h
     end
     return nil, "invalid"
 end
@@ -142,13 +148,31 @@ function shm:start(_) -- luacheck: ignore
     return true, nil
 end
 
-function shm:save(i, e, d, h, _)
+-- Generates the cookie value.
+-- Similar to 'save', but without writing to the storage.
+-- @param id (string)
+-- @param usebefore (number)
+-- @param expires(number) lifetime (ttl) is calculated from this
+-- @param data (string)
+-- @param hash (string)
+-- @return encoded cookie-string value, or nil+err
+function shm:touch(id, usebefore, expires, data, hash, close)
+    local lifetime = math.floor(expires - now())
+
+    if lifetime <= 0 then
+        return nil, "expired"
+    end
+
+    return concat({ self:key(id), usebefore, expires, self.encode(hash) }, self.delimiter)
+end
+
+function shm:save(i, u, e, d, h, _)
     local l = e - now()
     if l > 0 then
         local k = self:key(i)
         local ok, err = self:set(concat({self.name , k}, ":"), ngx.encode_base64(d), l)
         if ok then
-            return concat({ k, e, self.encode(h) }, self.delimiter)
+            return concat({ k, u, e, self.encode(h) }, self.delimiter)
         end
         return nil, err
     end

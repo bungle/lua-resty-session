@@ -63,21 +63,23 @@ end
 -- @param value (string) the string to split in the elements
 -- @return array with the elements in order, or `nil` if the number of elements do not match expectations.
 function shm:cookie(value)
+    local size = 4
     local result, delim = {}, self.delimiter
     local count, pos = 1, 1
     local match_start, match_end = value:find(delim, 1, true)
     while match_start do
-        if count > 2 then
+        if count == size then
             return nil  -- too many elements
         end
         result[count] = value:sub(pos, match_end - 1)
-        count, pos = count + 1, match_end + 1
+        count = count + 1
+        pos = match_end + 1
         match_start, match_end = value:find(delim, pos, true)
     end
-    if count ~= 3 then
-        return nil  -- too little elements (3 expected)
+    if count ~= size then
+        return nil  -- too little elements
     end
-    result[3] = value:sub(pos)
+    result[size] = value:sub(pos)
     return result
 end
 
@@ -87,8 +89,8 @@ end
 -- @return id (string), expires(number), data (string), hash (string).
 function shm:open(value, lifetime)
     local r = self:cookie(value)
-    if r and r[1] and r[2] and r[3] then
-        local id, expires, hash = self.decode(r[1]), tonumber(r[2]), self.decode(r[3])
+    if r and r[1] and r[2] and r[3] and r[4] then
+        local id, usebefore, expires, hash = self.decode(r[1]), tonumber(r[2]), tonumber(r[3]), self.decode(r[4])
         local key = self:key(id)
         if self.uselocking then
             local l = self.lock
@@ -98,14 +100,14 @@ function shm:open(value, lifetime)
                 local data = cshm:get(key)
                 cshm:set(key, data, lifetime)
                 l:unlock()
-                return id, expires, data, hash
+                return id, usebefore, expires, data, hash
             end
             return nil, err
         else
             local cshm = self.store
             local data = cshm:get(key)
             cshm:set(key, data, lifetime)
-            return id, expires, data, hash
+            return id, usebefore, expires, data, hash
         end
     end
     return nil, "invalid"
@@ -119,6 +121,24 @@ function shm:start(id)
     return true, nil
 end
 
+-- Generates the cookie value.
+-- Similar to 'save', but without writing to the storage.
+-- @param id (string)
+-- @param usebefore (number)
+-- @param expires(number) lifetime (ttl) is calculated from this
+-- @param data (string)
+-- @param hash (string)
+-- @return encoded cookie-string value, or nil+err
+function shm:touch(id, usebefore, expires, data, hash, close)
+    local lifetime = math.floor(expires - now())
+
+    if lifetime <= 0 then
+        return nil, "expired"
+    end
+
+    return concat({ self:key(id), usebefore, expires, self.encode(hash) }, self.delimiter)
+end
+
 -- Saves the session data to the SHM.
 -- server-side in this case.
 -- @param id (string)
@@ -126,7 +146,7 @@ end
 -- @param data (string)
 -- @param hash (string)
 -- @return encoded cookie-string value
-function shm:save(id, expires, data, hash, close)
+function shm:save(id, usebefore, expires, data, hash, close)
     local lifetime = expires - now()
     if lifetime > 0 then
         local key = self:key(id)
@@ -135,7 +155,7 @@ function shm:save(id, expires, data, hash, close)
             self.lock:unlock()
         end
         if ok then
-            return concat({ key, expires, self.encode(hash) }, self.delimiter)
+            return concat({ key, usebefore, expires, self.encode(hash) }, self.delimiter)
         end
         return nil, err
     end
