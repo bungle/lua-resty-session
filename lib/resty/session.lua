@@ -182,19 +182,56 @@ local function getcookie(session_obj, i)
     return concat{ sub(chunk_data, 1, session_obj.cookie.maxsize), getcookie(session_obj, i + 1) or "" }
 end
 
+-- sets the usebefore property.
+-- @param session (table) the session object
+-- @return true if the value was updated, false otherwise
+local function set_usebefore(session)
+    local it = session.cookie.idletime
+    local old_value = session.usebefore or 0
+    if it == 0 then
+        session.usebefore = session.expires
+    else
+        local new_value = time() + it
+        if new_value - old_value > 0.1 then -- less than 0.1 sec is not a new one
+            session.usebefore = new_value
+        end
+    end
+    return session.usebefore ~= old_value
+end
+
 
 -- save the session.
 -- This will write to storage, and set the cookie (if returned by storage).
+-- NOTE: will always RESET lifetime!
 -- @param session (table) the session object
 -- @param close (boolean) wether or not to close the "storage state" (unlocking locks etc)
 -- @return true on success
 local function save(session, close)
     session.expires = time() + session.cookie.lifetime
+    set_usebefore(session)
     local cookie, err = session.strategy.save(session, close)
     if cookie then
         return setcookie(session, cookie)
     end
     return nil, err
+end
+
+-- touches the session. This will NOT write to storage, and set the cookie (if
+-- returned by storage).
+-- Updates the "usebefore" / "idletime" without changing expiry.
+-- @param session (table) the session object
+-- @param close (boolean) wether or not to close the "storage state" (unlocking locks etc)
+-- @return true on success
+local function touch(session, close)
+    if set_usebefore(session) then
+        -- usebefore was updated, so set cookie
+        local cookie, err = session.strategy.touch(session, close)
+        if cookie then
+            return setcookie(session, cookie)
+        end
+        return nil, err
+    end
+    return true
 end
 
 -- regenerates the session. Generates a new session ID.
@@ -230,6 +267,7 @@ local function init()
             discard    = tonumber(var.session_cookie_discard)  or 10,
             renew      = tonumber(var.session_cookie_renew)    or 600,
             lifetime   = tonumber(var.session_cookie_lifetime) or 3600,
+            idletime   = tonumber(var.session_cookie_idletime) or 0,
             path       = var.session_cookie_path               or "/",
             domain     = var.session_cookie_domain,
             samesite   = var.session_cookie_samesite           or "Lax",
@@ -287,6 +325,7 @@ function session.new(opts)
             discard    = cookie_opts.discard        or cookie_defaults.discard,
             renew      = cookie_opts.renew          or cookie_defaults.renew,
             lifetime   = cookie_opts.lifetime       or cookie_defaults.lifetime,
+            idletime   = cookie_opts.idletime       or cookie_defaults.idletime,
             path       = cookie_opts.path           or cookie_defaults.path,
             domain     = cookie_opts.domain         or cookie_defaults.domain,
             samesite   = cookie_opts.samesite       or cookie_defaults.samesite,
@@ -301,6 +340,10 @@ function session.new(opts)
             addr       = ifnil(check_opts.addr,       check_defaults.addr)
         }
     }
+    if self.cookie.idletime > 0 and self.cookie.discard > self.cookie.idletime then
+        -- if using idletime, then the discard period must be less or equal
+        self.cookie.discard = self.cookie.idletime
+    end
     if opts[ident_name]  and not self[ident_name]  then self[ident_name]  = opts[ident_name] end
     if opts[serial_name] and not self[serial_name] then self[serial_name] = opts[serial_name] end
     if opts[enc_name]    and not self[enc_name]    then self[enc_name]    = opts[enc_name] end
@@ -354,6 +397,7 @@ function session.start(opts)
         return opts, opts.present
     end
     local self, present = session.open(opts)
+    touch(self)
     if present then
         if self.storage.start then
             local ok, err = self.storage:start(self.id)
