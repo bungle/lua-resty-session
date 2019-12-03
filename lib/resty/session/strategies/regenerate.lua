@@ -8,7 +8,11 @@ local regenerate = {}
 -- @param session_obj (table) the session object to store
 -- @return result from `storage.save`.
 function regenerate.save(session_obj, close)
-  local id, usebefore, expires, storage = session_obj.id, session_obj.usebefore, session_obj.expires, session_obj.storage
+  local id = session_obj.id
+  local usebefore = session_obj.usebefore
+  local expires = session_obj.expires
+  local storage = session_obj.storage
+
   if storage.ttl then
     -- if there is a ttl, then we set the lifetime to the 'discard' value as a
     -- grace period
@@ -31,7 +35,11 @@ end
 -- @param session_obj (table) the session object to store
 -- @return result from `storage.save`.
 function regenerate.touch(session_obj, close)
-  local id, usebefore, expires, storage = session_obj.id, session_obj.usebefore, session_obj.expires, session_obj.storage
+  local id = session_obj.id
+  local usebefore = session_obj.usebefore
+  local expires = session_obj.expires
+  local storage = session_obj.storage
+
   local key = session_obj.hmac(session_obj.secret, id)
   local data = session_obj.serializer.serialize(session_obj.data)
   local hash = session_obj.hmac(key, concat{ id, usebefore, data, session_obj.key })
@@ -44,7 +52,8 @@ end
 -- Validates the expiry-time and hash.
 -- @param session_obj (table) the session object to store the data in
 -- @param cookie (string) the cookie string to open
--- @return `true` if ok, and will have set session properties; id, usebefore, expires, data and present. Returns `nil` otherwise.
+-- @return `true` if ok, and will have set session properties; id, usebefore,
+-- expires, data and present. Returns `nil` otherwise.
 function regenerate.open(session_obj, cookie)
   local id, usebefore, expires, data, hash = session_obj.storage:open(cookie, session_obj.cookie.lifetime)
   local now = time()

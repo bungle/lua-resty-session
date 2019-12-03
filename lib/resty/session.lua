@@ -164,7 +164,8 @@ end
 -- read the cookie for the session object.
 -- @param session_obj (table) the session object for which to read the cookie
 -- @param i (number) do not use! internal recursion variable
--- @return string with cookie data (and the property `session.cookie.chunks` will be set to the actual number of chunks read)
+-- @return string with cookie data (and the property `session.cookie.chunks`
+-- will be set to the actual number of chunks read)
 local function getcookie(session_obj, i)
     local name = session_obj.name
     local n = { "cookie_", name }
@@ -304,13 +305,20 @@ function session.new(opts)
     opts = type(opts) == "table" and opts or defaults
     local cookie_opts, cookie_defaults = opts.cookie or defaults.cookie, defaults.cookie
     local check_opts,  check_defaults = opts.check  or defaults.check,  defaults.check
-    local ident_mod,  ident_name  = prequire("resty.session.identifiers.", opts.identifier or defaults.identifier, "random")
-    local serial_mod, serial_name = prequire("resty.session.serializers.", opts.serializer or defaults.serializer, "json")
-    local enc_mod,    enc_name    = prequire("resty.session.encoders.",    opts.encoder    or defaults.encoder,    "base64")
-    local ciph_mod,   ciph_name   = prequire("resty.session.ciphers.",     opts.cipher     or defaults.cipher,     "aes")
-    local stor_mod,   stor_name   = prequire("resty.session.storage.",     opts.storage    or defaults.storage,    "cookie")
-    local strat_mod,  strat_name  = prequire("resty.session.strategies.",  opts.strategy   or defaults.strategy,   "default")
-    local hmac_mod,   hmac_name   = prequire("resty.session.hmac.",        opts.hmac       or defaults.hmac,       "sha1")
+    local ident_mod,  ident_name  = prequire("resty.session.identifiers.",
+                                    opts.identifier or defaults.identifier, "random")
+    local serial_mod, serial_name = prequire("resty.session.serializers.",
+                                    opts.serializer or defaults.serializer, "json")
+    local enc_mod,    enc_name    = prequire("resty.session.encoders.",
+                                    opts.encoder    or defaults.encoder,    "base64")
+    local ciph_mod,   ciph_name   = prequire("resty.session.ciphers.",
+                                    opts.cipher     or defaults.cipher,     "aes")
+    local stor_mod,   stor_name   = prequire("resty.session.storage.",
+                                    opts.storage    or defaults.storage,    "cookie")
+    local strat_mod,  strat_name  = prequire("resty.session.strategies.",
+                                    opts.strategy   or defaults.strategy,   "default")
+    local hmac_mod,   hmac_name   = prequire("resty.session.hmac.",
+                                    opts.hmac       or defaults.hmac,       "sha1")
     local self = {
         name       = opts.name   or defaults.name,
         identifier = ident_mod,
