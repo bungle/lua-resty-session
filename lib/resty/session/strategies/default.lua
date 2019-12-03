@@ -6,10 +6,14 @@ local default = {}
 
 
 local function update(handler, session_obj, close)
-  local id, usebefore, expires, storage = session_obj.id, session_obj.usebefore, session_obj.expires, session_obj.storage
+  local id = session_obj.id
+  local usebefore = session_obj.usebefore
+  local expires = session_obj.expires
+  local storage = session_obj.storage
   local key = session_obj.hmac(session_obj.secret, id .. expires)
   local data = session_obj.serializer.serialize(session_obj.data)
-  local hash = session_obj.hmac(key, concat{ id, usebefore, expires, data, session_obj.key })
+  local hash = session_obj.hmac(key,
+               concat{ id, usebefore, expires, data, session_obj.key })
 
   data = session_obj.cipher:encrypt(data, key, id, session_obj.key)
   return handler(storage, id, usebefore, expires, data, hash, close)
@@ -35,7 +39,8 @@ end
 -- Validates the expiry-time and hash.
 -- @param session_obj (table) the session object to store the data in
 -- @param cookie (string) the cookie string to open
--- @return `true` if ok, and will have set session properties; id, expires, data and present. Returns `nil` otherwise.
+-- @return `true` if ok, and will have set session properties; id, expires, data
+-- and present. Returns `nil` otherwise.
 function default.open(session_obj, cookie)
   local id, usebefore, expires, data, hash = session_obj.storage:open(cookie, session_obj.cookie.lifetime)
   local now = time()

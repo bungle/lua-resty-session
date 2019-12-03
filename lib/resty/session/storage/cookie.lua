@@ -58,7 +58,13 @@ end
 -- @param hash (string)
 -- @return encoded cookie-string value
 function cookie:save(id, usebefore, expires, data, hash)
-    return concat({ self.encode(id), tostring(usebefore), tostring(expires), self.encode(data), self.encode(hash) }, self.delimiter)
+    return concat({
+        self.encode(id),
+        tostring(usebefore),
+        tostring(expires),
+        self.encode(data),
+        self.encode(hash)
+    }, self.delimiter)
 end
 
 cookie.touch = cookie.save  -- identical in the 'cookie' case
