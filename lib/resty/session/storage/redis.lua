@@ -173,7 +173,7 @@ function redis:cookie(value)
     return result
 end
 
-function redis:open(cookie, lifetime)
+function redis:open(cookie)
     local c = self:cookie(cookie)
     if c and c[1] and c[2] and c[3] and c[4] then
         local ok, err = self:connect()
@@ -183,9 +183,6 @@ function redis:open(cookie, lifetime)
             ok, err = self:lock(k)
             if ok then
                 local d = self:get(k)
-                if d then
-                    self:expire(k, floor(lifetime))
-                end
                 self:unlock(k)
                 self:set_keepalive()
                 return i, u, e, d, h

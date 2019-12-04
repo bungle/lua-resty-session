@@ -55,7 +55,7 @@ end
 -- @return `true` if ok, and will have set session properties; id, usebefore,
 -- expires, data and present. Returns `nil` otherwise.
 function regenerate.open(session_obj, cookie)
-  local id, usebefore, expires, data, hash = session_obj.storage:open(cookie, session_obj.cookie.lifetime)
+  local id, usebefore, expires, data, hash = session_obj.storage:open(cookie)
   local now = time()
   if id and
      expires and expires > now and

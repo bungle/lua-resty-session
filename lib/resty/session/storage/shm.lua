@@ -85,9 +85,8 @@ end
 
 -- Opens session and writes it to the store. Returns 4 decoded data elements from the cookie-string.
 -- @param value (string) the cookie string containing the encoded data.
--- @param lifetime (number) lifetime in seconds of the data in the store (ttl)
 -- @return id (string), expires(number), data (string), hash (string).
-function shm:open(value, lifetime)
+function shm:open(value)
     local r = self:cookie(value)
     if r and r[1] and r[2] and r[3] and r[4] then
         local id, usebefore, expires, hash = self.decode(r[1]), tonumber(r[2]), tonumber(r[3]), self.decode(r[4])
@@ -98,7 +97,6 @@ function shm:open(value, lifetime)
             if ok then
                 local cshm = self.store
                 local data = cshm:get(key)
-                cshm:set(key, data, lifetime)
                 l:unlock()
                 return id, usebefore, expires, data, hash
             end
@@ -106,7 +104,6 @@ function shm:open(value, lifetime)
         else
             local cshm = self.store
             local data = cshm:get(key)
-            cshm:set(key, data, lifetime)
             return id, usebefore, expires, data, hash
         end
     end

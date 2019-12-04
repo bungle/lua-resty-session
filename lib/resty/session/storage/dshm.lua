@@ -128,14 +128,13 @@ function shm:cookie(value)
     return result
 end
 
-function shm:open(cookie, lifetime)
+function shm:open(cookie)
     local r = self:cookie(cookie)
     if r and r[1] and r[2] and r[3] and r[4] then
         local i, u, e, h = self.decode(r[1]), tonumber(r[2]), tonumber(r[3]), self.decode(r[4])
         local k = self:key(i)
         local d = self:get(concat({self.name , k}, ":"))
         if d then
-            self:touch(concat({self.name , k}, ":"), lifetime)
             d = ngx.decode_base64(d)
         end
 
