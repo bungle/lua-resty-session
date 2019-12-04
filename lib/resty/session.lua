@@ -405,7 +405,6 @@ function session.start(opts)
         return opts, opts.present
     end
     local self, present = session.open(opts)
-    touch(self)
     if present then
         if self.storage.start then
             local ok, err = self.storage:start(self.id)
@@ -416,6 +415,9 @@ function session.start(opts)
            self.expires > now + self.cookie.lifetime then
             local ok, err = save(self)
             if not ok then return nil, err end
+        else
+            -- we're not saving, so we must touch to update idletime/usebefore
+            touch(self)
         end
     else
         local ok, err = save(self)

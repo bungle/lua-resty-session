@@ -828,7 +828,7 @@ local uid = session.data.uid
 #### number session.usebefore
 
 `session.usebefore` holds the expiration time based on session usgae (expiration time will be generated
-when the session is saved or started). This iexpiry time is only stored client-side in the cookie.
+when the session is saved or started). This expiry time is only stored client-side in the cookie.
 Note that just opening a session will not update the cookie! To mark the session as used you must call
 `session:start`. (You can also use `session:save` but that will also write session data to the
 storage, whereas just calling `start` reads the session data and updates the `usebefore` value in the
