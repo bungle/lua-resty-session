@@ -2,6 +2,12 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [2.26] - 2020-02-11
+### Added
+- Add support for `SameSite=None` (#83) (thanks @bodewig)
+- Style changes (#77) (thanks @Tieske)
+
+
 ## [2.25] - 2019-11-06
 ### Added
 - Add SSL support for the Redis storage option (#75) (thanks @tieske)
