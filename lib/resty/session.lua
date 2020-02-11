@@ -83,7 +83,7 @@ local function setcookie(session_obj, value, expires)
     k[i]   = "; Path="
     k[i+1] = cookie_obj.path or "/"
     i=i+2
-    if cookie_samesite == "Lax" or cookie_samesite == "Strict" then
+    if cookie_samesite == "Lax" or cookie_samesite == "Strict" or cookie_samesite == "None" then
         k[i] = "; SameSite="
         k[i+1] = cookie_samesite
         i=i+2
