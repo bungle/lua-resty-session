@@ -249,7 +249,13 @@ end
 
 function redis:ttl(i, ttl)
   local k = self:key(i)
-  return self:expire(k, floor(ttl))
+  local ok, err = self:connect()
+  if ok then
+    local res, err = self:expire(k, floor(ttl))
+    self:set_keepalive()
+    return res, err
+  end
+  retunr nil, err
 end
 
 
