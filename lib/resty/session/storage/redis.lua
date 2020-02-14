@@ -117,7 +117,7 @@ function redis:lock(k)
     local l = concat({ k, "lock" }, "." )
     for _ = 1, i do
         local ok = r:setnx(l, "1")
-        if ok then
+        if ok == 1 then
             return r:expire(l, m + 1)
         end
         sleep(w)
