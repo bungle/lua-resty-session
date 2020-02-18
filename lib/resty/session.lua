@@ -393,7 +393,7 @@ end
 -- save the session.
 -- This will write to storage, and set the cookie (if returned by storage).
 -- @param session (table) the session object
--- @param close (boolean, defaults to true) wether or not to close the "storage state" (unlocking locks etc)
+-- @param close (boolean, defaults to true) whether or not to close the "storage state" (unlocking locks etc)
 -- @return true on success
 function session:save(close)
     if not self.id then
