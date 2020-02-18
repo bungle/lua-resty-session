@@ -255,7 +255,7 @@ function redis:ttl(i, ttl)
     self:set_keepalive()
     return res, err
   end
-  retunr nil, err
+  return nil, err
 end
 
 
