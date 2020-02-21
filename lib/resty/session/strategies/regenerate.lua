@@ -14,6 +14,10 @@ function regenerate.save(session_obj, close)
     -- grace period
     storage:ttl(id, session_obj.cookie.discard)
   end
+  if storage.close then
+      -- unlock old session id
+      storage:close(id)
+  end
 
   -- recreate a new ID, since the old one has a temporary discard-ttl
   id = session_obj:identifier()

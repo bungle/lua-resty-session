@@ -203,13 +203,18 @@ end
 -- @param flush (boolean) if thruthy the old session will be destroyed, and data deleted
 -- @return nothing
 local function regenerate(session, flush)
-    local old_id = session.present and session.id
+    local old_id, destroyed = session.present and session.id, false
     session.id = session:identifier()
     if flush then
         if old_id and session.storage.destroy then
             session.storage:destroy(old_id)
+            destroyed = true
         end
         session.data = {}
+    end
+    if not destroyed and session.storage.close then
+        -- unlock old session id
+        session.storage:close(old_id)
     end
 end
 
