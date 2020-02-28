@@ -2,10 +2,8 @@ local memcached    = require "resty.memcached"
 local setmetatable = setmetatable
 local tonumber     = tonumber
 local concat       = table.concat
-local floor        = math.floor
 local sleep        = ngx.sleep
 local null         = ngx.null
-local now          = ngx.now
 local var          = ngx.var
 
 local function enabled(val)
@@ -14,55 +12,54 @@ local function enabled(val)
 end
 
 local defaults = {
-    prefix       = var.session_memcache_prefix                 or "sessions",
+    prefix       = var.session_memcache_prefix                     or "sessions",
     socket       = var.session_memcache_socket,
-    host         = var.session_memcache_host                   or "127.0.0.1",
-    port         = tonumber(var.session_memcache_port)         or 11211,
-    uselocking   = enabled(var.session_memcache_uselocking     or true),
-    spinlockwait = tonumber(var.session_memcache_spinlockwait) or 10000,
-    maxlockwait  = tonumber(var.session_memcache_maxlockwait)  or 30,
+    host         = var.session_memcache_host                       or "127.0.0.1",
+    port         = tonumber(var.session_memcache_port,         10) or 11211,
+    uselocking   = enabled(var.session_memcache_uselocking         or true),
+    spinlockwait = tonumber(var.session_memcache_spinlockwait, 10) or 150,
+    maxlockwait  = tonumber(var.session_memcache_maxlockwait,  10) or 30,
     pool = {
-        timeout  = tonumber(var.session_memcache_pool_timeout),
-        size     = tonumber(var.session_memcache_pool_size)
-    }
+        timeout  = tonumber(var.session_memcache_pool_timeout, 10),
+        size     = tonumber(var.session_memcache_pool_size,    10),
+    },
 }
 
-local memcache = {}
+local storage = {}
 
-memcache.__index = memcache
+storage.__index = storage
 
-function memcache.new(config)
-    local c = config.memcache or defaults
-    local p = c.pool          or defaults.pool
-    local l = enabled(c.uselocking)
-    if l == nil then
-        l = defaults.uselocking
+function storage.new(session)
+    local config  = session.memcache or defaults
+    local pool    = config.pool      or defaults.pool
+    local locking = enabled(config.uselocking)
+    if locking == nil then
+        locking = defaults.uselocking
     end
+
     local self = {
         memcache     = memcached:new(),
-        encode       = config.encoder.encode,
-        decode       = config.encoder.decode,
-        delimiter    = config.cookie.delimiter,
-        prefix       = c.prefix or defaults.prefix,
-        uselocking   = l,
-        spinlockwait = tonumber(c.spinlockwait) or defaults.spinlockwait,
-        maxlockwait  = tonumber(c.maxlockwait)  or defaults.maxlockwait,
+        prefix       = config.prefix                     or defaults.prefix,
+        uselocking   = locking,
+        spinlockwait = tonumber(config.spinlockwait, 10) or defaults.spinlockwait,
+        maxlockwait  = tonumber(config.maxlockwait,  10) or defaults.maxlockwait,
         pool = {
-            timeout = tonumber(p.timeout) or defaults.pool.timeout,
-            size    = tonumber(p.size)    or defaults.pool.size
-        }
+            timeout = tonumber(pool.timeout,         10) or defaults.pool.timeout,
+            size    = tonumber(pool.size,            10) or defaults.pool.size,
+        },
     }
-    local s = c.socket or defaults.socket
-    if s and s ~= "" then
-        self.socket = s
+    local socket = config.socket or defaults.socket
+    if socket and socket ~= "" then
+        self.socket = socket
     else
-        self.host = c.host or defaults.host
-        self.port = c.port or defaults.port
+        self.host = config.host or defaults.host
+        self.port = config.port or defaults.port
     end
-    return setmetatable(self, memcache)
+
+    return setmetatable(self, storage)
 end
 
-function memcache:connect()
+function storage:connect()
     local socket = self.socket
     if socket then
         return self.memcache:connect(socket)
@@ -70,164 +67,200 @@ function memcache:connect()
     return self.memcache:connect(self.host, self.port)
 end
 
-function memcache:set_keepalive()
-    local pool = self.pool
-    local timeout, size = pool.timeout, pool.size
+function storage:set_keepalive()
+    local pool    = self.pool
+    local timeout = pool.timeout
+    local size    = pool.size
+
     if timeout and size then
         return self.memcache:set_keepalive(timeout, size)
     end
+
     if timeout then
         return self.memcache:set_keepalive(timeout)
     end
+
     return self.memcache:set_keepalive()
 end
 
-function memcache:key(i)
-    return concat({ self.prefix, self.encode(i) }, ":" )
+function storage:key(id)
+    return concat({ self.prefix, id }, ":" )
 end
 
-function memcache:lock(k)
-    if not self.uselocking then
-        return true, nil
+function storage:lock(key)
+    if not self.uselocking or self.locked then
+        return true
     end
-    local s = self.spinlockwait
-    local m = self.maxlockwait
-    local w = s / 1000000
-    local c = self.memcache
-    local i = 1000000 / s * m
-    local l = concat({ k, "lock" }, "." )
-    for _ = 1, i do
-        local ok = c:add(l, "1", m + 1)
+
+    if not self.token then
+        self.token = var.request_id
+    end
+
+    local lock_key = concat({ key, "lock" }, "." )
+    local lock_ttl = self.maxlockwait + 1
+    local attempts = (1000 / self.spinlockwait) * self.maxlockwait
+    local waittime = self.spinlockwait / 1000
+
+    for _ = 1, attempts do
+        local ok = self.memcache:add(lock_key, self.token, lock_ttl)
         if ok then
-            return true, nil
+            self.locked = true
+            return true
         end
-        sleep(w)
+
+        sleep(waittime)
     end
-    return false, "no lock"
+
+    return false, "unable to acquire a session lock"
 end
 
-function memcache:unlock(k)
-    if self.uselocking then
-        return self.memcache:delete(concat({ k, "lock" }, "." ))
+function storage:unlock(key)
+    if not self.uselocking or not self.locked then
+        return true
     end
-    return true, nil
-end
 
-function memcache:get(k)
-    local d = self.memcache:get(k)
-    return d ~= null and d or nil
-end
+    local lock_key = concat({ key, "lock" }, "." )
+    local token = self:get(lock_key)
 
-function memcache:set(k, d, l)
-    return self.memcache:set(k, d, l)
-end
-
-function memcache:expire(k, l)
-    self.memcache:touch(k, l)
-end
-
-function memcache:delete(k)
-    self.memcache:delete(k)
-end
-
-function memcache:cookie(c)
-    local r, d = {}, self.delimiter
-    local i, p, s, e = 1, 1, c:find(d, 1, true)
-    while s do
-        if i > 2 then return end
-        r[i] = c:sub(p, e - 1)
-        i, p = i + 1, e + 1
-        s, e = c:find(d, p, true)
+    if token == self.token then
+        self.memcache:delete(lock_key)
+        self.locked = nil
     end
-    if i ~= 3 then
+end
+
+function storage:get(key)
+    local data, err = self.memcache:get(key)
+    if not data then
+        return nil, err
+    end
+
+    if data == null then
         return nil
     end
-    r[3] = c:sub(p)
-    return r
+
+    return data
 end
 
-function memcache:open(cookie, lifetime)
-    local c = self:cookie(cookie)
-    if c and c[1] and c[2] and c[3] then
-        local ok, err = self:connect()
-        if ok then
-            local i, e, h = self.decode(c[1]), tonumber(c[2]), self.decode(c[3])
-            local k = self:key(i)
-            ok, err = self:lock(k)
-            if ok then
-                local d = self:get(k)
-                if d then
-                    self:expire(k, floor(lifetime))
-                end
-                self:unlock(k)
-                self:set_keepalive()
-                return i, e, d, h
-            end
-            self:set_keepalive()
-            return nil, err
-        else
-            return nil, err
-        end
-    end
-    return nil, "invalid"
+function storage:set(key, data, ttl)
+    return self.memcache:set(key, data, ttl)
 end
 
-function memcache:start(i)
+function storage:expire(key, ttl)
+    return self.memcache:touch(key, ttl)
+end
+
+function storage:delete(key)
+    return self.memcache:delete(key)
+end
+
+function storage:open(id)
     local ok, err = self:connect()
-    if ok then
-        ok, err = self:lock(self:key(i))
+    if not ok then
+        return nil, err
+    end
+
+    local key = self:key(id)
+
+    ok, err = self:lock(key)
+    if not ok then
         self:set_keepalive()
+        return nil, err
     end
-    return ok, err
+
+    local data
+    data, err = self:get(key)
+
+    self:unlock(key)
+    self:set_keepalive()
+
+    return data, err
 end
 
-function memcache:save(i, e, d, h, close)
+function storage:start(id)
     local ok, err = self:connect()
-    if ok then
-        local l, k = floor(e - now()), self:key(i)
-        if l > 0 then
-            ok, err = self:set(k, d, l)
-            if close then
-                self:unlock(k)
-            end
-            self:set_keepalive()
-            if ok then
-                return concat({ self.encode(i), e, self.encode(h) }, self.delimiter)
-            end
-            return ok, err
-        end
-        if close then
-            self:unlock(k)
-            self:set_keepalive()
-        end
-        return nil, "expired"
+    if not ok then
+        return nil, err
     end
+
+    local key = self:key(id)
+
+    ok, err = self:lock(key)
+
+    self:set_keepalive()
+
     return ok, err
 end
 
-function memcache:close(i)
+function storage:save(id, ttl, data, close)
     local ok, err = self:connect()
-    if ok then
-        local k = self:key(i)
-        self:unlock(k)
+    if not ok then
+        return nil, err
     end
-    return ok, err
+
+    local key = self:key(id)
+
+    ok, err = self:set(key, data, ttl)
+
+    if close then
+        self:unlock(key)
+    end
+
+    self:set_keepalive()
+
+    if not ok then
+        return nil, err
+    end
+
+    return true
 end
 
-function memcache:destroy(i)
+function storage:close(id)
     local ok, err = self:connect()
-    if ok then
-        local k = self:key(i)
-        self:delete(k)
-        self:unlock(k)
-        self:set_keepalive()
+    if not ok then
+        return nil, err
     end
+
+    local key = self:key(id)
+
+    self:unlock(key)
+    self:set_keepalive()
+
+    return true
+end
+
+function storage:destroy(id)
+    local ok, err = self:connect()
+    if not ok then
+        return nil, err
+    end
+
+    local key = self:key(id)
+
+    local ok, err = self:delete(key)
+
+    self:unlock(key)
+    self:set_keepalive()
+
     return ok, err
 end
 
-function memcache:ttl(i, ttl)
-  local k = self:key(i)
-  return self:expire(k, floor(ttl))
+function storage:ttl(id, ttl, close)
+    local ok, err = self:connect()
+    if not ok then
+        return nil, err
+    end
+
+    local key = self:key(id)
+
+    ok, err = self:expire(key, ttl)
+
+    if close then
+        self:unlock(key)
+    end
+
+    self:set_keepalive()
+
+    return ok, err
 end
 
-return memcache
+return storage

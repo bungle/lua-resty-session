@@ -2,6 +2,24 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [3.0] - 2020-03-27
+### Fixed
+- Lock releasing is a lot more robust now
+
+### Added
+- Add idletime setting (thanks @Tieske), see `session.cookie.idletime`
+- Add support for Cookie prefixes `__Host-` and `__Secure-` on Cookie
+  name (see: https://tools.ietf.org/html/draft-ietf-httpbis-rfc6265bis-05#section-4.1.3)
+
+### Changed
+- The whole codebase was refactored and simplified, especially implementing
+  new storage adapters is now a lot easier 
+- Redis and Memcached `spinlockwait` was changed from microseconds to milliseconds and default
+  is set to `150` milliseconds,
+- Redis and Memcache will only release locks that current session instance holds
+- DSHM `session_dshm_store` was renamed to `session_dshm_region`
+- BASE64 encoding now strips the padding 
+
 ## [2.26] - 2020-02-11
 ### Added
 - Add support for `SameSite=None` (#83) (thanks @bodewig)

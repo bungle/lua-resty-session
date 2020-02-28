@@ -1,13 +1,12 @@
+local aes          = require "resty.aes"
+
 local setmetatable = setmetatable
 local tonumber     = tonumber
-local aes          = require "resty.aes"
-local cip          = aes.cipher
 local hashes       = aes.hash
 local ceil         = math.ceil
 local var          = ngx.var
 local sub          = string.sub
 local rep          = string.rep
-
 
 local CIPHER_MODES = {
     ecb    = "ecb",
@@ -16,55 +15,77 @@ local CIPHER_MODES = {
     cfb8   = "cfb8",
     cfb128 = "cfb128",
     ofb    = "ofb",
-    ctr    = "ctr"
+    ctr    = "ctr",
 }
 
 local CIPHER_SIZES = {
     ["128"] = 128,
     ["192"] = 192,
-    ["256"] = 256
+    ["256"] = 256,
 }
 
 local defaults = {
-    size   = CIPHER_SIZES[var.session_aes_size] or 256,
-    mode   = CIPHER_MODES[var.session_aes_mode] or "cbc",
-    hash   = hashes[var.session_aes_hash]       or "sha512",
-    rounds = tonumber(var.session_aes_rounds)   or 1
+    size   = CIPHER_SIZES[var.session_aes_size]   or 256,
+    mode   = CIPHER_MODES[var.session_aes_mode]   or "cbc",
+    hash   = hashes[var.session_aes_hash]         or "sha512",
+    rounds = tonumber(var.session_aes_rounds, 10) or 1,
 }
 
-local function salt(s)
-    if s then
-        local z = #s
-        if z < 8 then
-            return sub(rep(s, ceil(8 / z)), 1, 8)
-        end
-        if z > 8 then
-            return sub(s, 1, 8)
-        end
-        return s
+local function adjust_salt(salt)
+    if not salt then
+        return nil
     end
+
+    local z = #salt
+    if z < 8 then
+        return sub(rep(salt, ceil(8 / z)), 1, 8)
+    end
+    if z > 8 then
+        return sub(salt, 1, 8)
+    end
+
+    return salt
+end
+
+local function get_cipher(config, key, salt)
+    local mode = aes.cipher(config.size, config.mode)
+    if not mode then
+        return nil, "invalid cipher mode " .. config.mode ..  "(" .. config.size .. ")"
+    end
+
+    return aes:new(key, adjust_salt(salt), mode, config.hash, config.rounds)
 end
 
 local cipher = {}
 
 cipher.__index = cipher
 
-function cipher.new(config)
-    local a = config.aes or defaults
+function cipher.new(session)
+    local config = session.aes or defaults
     return setmetatable({
-        size   = CIPHER_SIZES[a.size or defaults.size]   or 256,
-        mode   = CIPHER_MODES[a.mode or defaults.mode]   or "cbc",
-        hash   = hashes[a.hash       or defaults.hash]   or hashes.sha512,
-        rounds = tonumber(a.rounds   or defaults.rounds) or 1
+        size   = CIPHER_SIZES[config.size or defaults.size]       or 256,
+        mode   = CIPHER_MODES[config.mode or defaults.mode]       or "cbc",
+        hash   = hashes[config.hash       or defaults.hash]       or hashes.sha512,
+        rounds = tonumber(config.rounds   or defaults.rounds, 10) or 1,
     }, cipher)
 end
 
-function cipher:encrypt(d, k, s)
-    return aes:new(k, salt(s), cip(self.size, self.mode), self.hash, self.rounds):encrypt(d)
+function cipher:encrypt(data, key, salt)
+    local cip, err = get_cipher(self, key, salt)
+    if not cip then
+        return nil, err or "unable to aes encrypt data"
+    end
+
+    return cip:encrypt(data)
 end
 
-function cipher:decrypt(d, k, s)
-    return aes:new(k, salt(s), cip(self.size, self.mode), self.hash, self.rounds):decrypt(d)
+function cipher:decrypt(data, key, salt)
+    local cip, err = get_cipher(self, key, salt)
+    if not cip then
+        return nil, err or "unable to aes decrypt data"
+    end
+
+    return cip:decrypt(data)
 end
 
 return cipher

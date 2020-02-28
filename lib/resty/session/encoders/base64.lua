@@ -1,27 +1,39 @@
-local ngx       = ngx
-local base64enc = ngx.encode_base64
-local base64dec = ngx.decode_base64
+local encode_base64 = ngx.encode_base64
+local decode_base64 = ngx.decode_base64
+
+local gsub = string.gsub
 
 local ENCODE_CHARS = {
     ["+"] = "-",
     ["/"] = "_",
-    ["="] = "."
 }
 
 local DECODE_CHARS = {
     ["-"] = "+",
     ["_"] = "/",
-    ["."] = "="
 }
 
-local base64 = {}
+local encoder = {}
 
-function base64.encode(value)
-    return (base64enc(value):gsub("[+/=]", ENCODE_CHARS))
+function encoder.encode(value)
+    if not value then
+        return nil, "unable to base64 encode value"
+    end
+
+    local encoded = encode_base64(value, true)
+    if not encoded then
+        return nil, "unable to base64 encode value"
+    end
+
+    return gsub(encoded, "[+/]", ENCODE_CHARS)
 end
 
-function base64.decode(value)
-    return base64dec((value:gsub("[-_.]", DECODE_CHARS)))
+function encoder.decode(value)
+    if not value then
+        return nil, "unable to base64 decode value"
+    end
+
+    return decode_base64((gsub(value, "[-_]", DECODE_CHARS)))
 end
 
-return base64
+return encoder
