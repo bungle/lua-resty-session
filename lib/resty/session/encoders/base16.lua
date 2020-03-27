@@ -1,25 +1,29 @@
+local to_hex   = require "resty.string".to_hex
+
 local tonumber = tonumber
-local format   = string.format
 local gsub     = string.gsub
 local char     = string.char
-local byte     = string.byte
-
-local function byt(c)
-    return format('%02x', byte(c or ""))
-end
 
 local function chr(c)
     return char(tonumber(c, 16) or 0)
 end
 
-local base16 = {}
+local encoder = {}
 
-function base16.encode(v)
-    return (gsub(v, ".", byt))
+function encoder.encode(value)
+    if not value then
+        return nil, "unable to base16 encode value"
+    end
+
+    return to_hex(value)
 end
 
-function base16.decode(v)
-    return (gsub(v, "..", chr))
+function encoder.decode(value)
+    if not value then
+        return nil, "unable to base16 decode value"
+    end
+
+    return (gsub(value, "..", chr))
 end
 
-return base16
+return encoder
