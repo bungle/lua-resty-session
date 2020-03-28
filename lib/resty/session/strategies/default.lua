@@ -103,7 +103,6 @@ function strategy.modify(session, action, close, key)
   end
   local hash = session.hmac(hkey, concat{ key, data, session.key })
 
-  local err
   data, err = session.cipher:encrypt(data, hkey, id, session.key)
   if not data then
     if close and storage.close then

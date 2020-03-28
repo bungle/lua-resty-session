@@ -322,7 +322,7 @@ local function init()
 end
 
 local session = {
-    _VERSION = "3.0"
+    _VERSION = "3.1"
 }
 
 session.__index = session
@@ -432,7 +432,7 @@ function session.new(opts)
 
     local cookie = opts.cookie or defaults.cookie
     local name   = opts.name   or defaults.name
-    local secret = opts.secret or defaults.secret
+    local sec    = opts.secret or defaults.secret
 
     local secure
     local path
@@ -464,7 +464,7 @@ function session.new(opts)
     local self = {
         now        = time(),
         name       = name,
-        secret     = secret,
+        secret     = sec,
         identifier = ide,
         serializer = ser,
         strategy   = str,
