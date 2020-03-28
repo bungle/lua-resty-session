@@ -2,6 +2,11 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [3.1] - 2020-03-28
+### Added
+- A more flexible way to specify custom implementations:
+  `require "resty.session".new { storage = require "my.storage" }`
+
 ## [3.0] - 2020-03-27
 ### Fixed
 - Lock releasing is a lot more robust now

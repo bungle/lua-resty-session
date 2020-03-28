@@ -58,6 +58,10 @@ local function ifnil(value, default)
 end
 
 local function prequire(prefix, package, default)
+    if type(package) == "table" then
+        return package, package.name
+    end
+
     local ok, module = pcall(require, prefix .. package)
     if not ok then
         return require(prefix .. default), default
@@ -492,13 +496,13 @@ function session.new(opts)
         self.cookie.discard = self.cookie.idletime
     end
 
-    if not self[iden] then self[iden] = opts[iden] end
-    if not self[sern] then self[sern] = opts[sern] end
-    if not self[encn] then self[encn] = opts[encn] end
-    if not self[cipn] then self[cipn] = opts[cipn] end
-    if not self[ston] then self[ston] = opts[ston] end
-    if not self[strn] then self[strn] = opts[strn] end
-    if not self[hman] then self[hman] = opts[hman] end
+    if iden and not self[iden] then self[iden] = opts[iden] end
+    if sern and not self[sern] then self[sern] = opts[sern] end
+    if encn and not self[encn] then self[encn] = opts[encn] end
+    if cipn and not self[cipn] then self[cipn] = opts[cipn] end
+    if ston and not self[ston] then self[ston] = opts[ston] end
+    if strn and not self[strn] then self[strn] = opts[strn] end
+    if hman and not self[hman] then self[hman] = opts[hman] end
 
     self.cipher  = cip.new(self)
     self.storage = sto.new(self)
