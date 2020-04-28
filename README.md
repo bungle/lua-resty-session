@@ -385,16 +385,38 @@ set $session_storage redis;
 Additionally you can configure Redis adapter with these settings:
 
 ```nginx
-set $session_redis_prefix        sessions;
-set $session_redis_socket        unix:///var/run/redis/redis.sock;
-set $session_redis_host          127.0.0.1;
-set $session_redis_port          6379;
-set $session_redis_auth          password;
-set $session_redis_uselocking    on;
-set $session_redis_spinlockwait  150;  # (in milliseconds)
-set $session_redis_maxlockwait   30;   # (in seconds)
-set $session_redis_pool_timeout  1000; # (in milliseconds)
-set $session_redis_pool_size     10;
+set $session_redis_prefix                  sessions;
+set $session_redis_database                0;
+set $session_redis_connect_timeout         1000; # (in milliseconds)
+set $session_redis_send_timeout            1000; # (in milliseconds)
+set $session_redis_read_timeout            1000; # (in milliseconds)
+set $session_redis_socket                  unix:///var/run/redis/redis.sock;
+set $session_redis_host                    127.0.0.1;
+set $session_redis_port                    6379;
+set $session_redis_ssl                     off;
+set $session_redis_ssl_verify              off;
+set $session_redis_server_name             example.com; # for TLS SNI 
+set $session_redis_auth                    password;
+set $session_redis_uselocking              on;
+set $session_redis_spinlockwait            150;  # (in milliseconds)
+set $session_redis_maxlockwait             30;   # (in seconds)
+set $session_redis_pool_name               sessions;
+set $session_redis_pool_timeout            1000; # (in milliseconds)
+set $session_redis_pool_size               10;                 
+set $session_redis_pool_backlog            10;
+set $session_redis_cluster_name            redis-cluster;
+set $session_redis_cluster_dict            sessions;
+set $session_redis_cluster_maxredirctions  5;
+set $session_redis_cluster_nodes           '127.0.0.1:30001 127.0.0.1:30002 127.0.0.1:30003 127.0.0.1:30004 127.0.0.1:30005 127.0.0.1:30006';
+```
+
+To use `cluster` you need also to install:
+```shell
+luarocks install kong-redis-cluster
+# OR
+luarocks install lua-resty-redis-cluster
+
+# OR install this manually https://github.com/steve0511/resty-redis-cluster
 ```
 
 The keys stored in Redis are in form:
