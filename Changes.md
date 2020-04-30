@@ -2,10 +2,26 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+
+## [3.2] - 2020-04-30
+### Added
+- Support for Redis clusters
+- Add `$session_redis_connect_timeout` configuration option
+- Add `$session_redis_read_timeout` configuration option
+- Add `$session_redis_send_timeout` configuration option
+- Add `$session_redis_pool_name` configuration option
+- Add `$session_redis_pool_backlog` configuration option
+- Add `$session_redis_cluster_name` configuration option
+- Add `$session_redis_cluster_dict` configuration option
+- Add `$session_redis_cluster_maxredirections` configuration option
+- Add `$session_redis_cluster_nodes` configuration option
+
+
 ## [3.1] - 2020-03-28
 ### Added
 - A more flexible way to specify custom implementations:
   `require "resty.session".new { storage = require "my.storage" }`
+
 
 ## [3.0] - 2020-03-27
 ### Fixed
@@ -25,6 +41,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
 - DSHM `session_dshm_store` was renamed to `session_dshm_region`
 - BASE64 encoding now strips the padding 
 
+
 ## [2.26] - 2020-02-11
 ### Added
 - Add support for `SameSite=None` (#83) (thanks @bodewig)
@@ -34,7 +51,9 @@ All notable changes to `lua-resty-session` will be documented in this file.
 ## [2.25] - 2019-11-06
 ### Added
 - Add SSL support for the Redis storage option (#75) (thanks @tieske)
-- DSHM storage adapter (a distributed SHM storage based on Hazelcast for Nginx) (thanks @grrolland)
+- DSHM storage adapter (a distributed SHM storage based on Hazelcast for Nginx)
+  (thanks @grrolland)
+
 
 ## [2.24] - 2019-07-09
 ### Fixed
@@ -43,6 +62,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
 
 ### Added
 - Added a configuration for session cookie max size (`session.cookie.maxsize`)
+
 
 ## [2.23] - 2018-12-12
 ### Added
@@ -53,13 +73,16 @@ All notable changes to `lua-resty-session` will be documented in this file.
 - Added `session.cookie.discard`, a `ttl` how long to keep old sessions when
   renewing (used by `regenerate` strategy
 
+
 ## [2.22] - 2018-03-17
 ### Fixed
 - Only sets self.cookie.secure if not defined.
 
+
 ## [2.21] - 2018-03-16
 ### Screwed
 - Forgot to bump version number.
+
 
 ## [2.20] - 2018-03-16
 ### Fixed
@@ -67,11 +90,13 @@ All notable changes to `lua-resty-session` will be documented in this file.
   See also: https://github.com/bungle/lua-resty-session/issues/47
   Thanks @nielsole
 
+
 ## [2.19] - 2017-09-19
 ### Fixed
 - Fixes small bug where aes could generate invalid salt on invalid input
   that further crashes Lua with error: bad argument #2 to 'salt' (number
   expected, got no value)
+
 
 ## [2.18] - 2017-07-10
 ### Fixed
@@ -80,21 +105,25 @@ All notable changes to `lua-resty-session` will be documented in this file.
   See also: https://github.com/bungle/lua-resty-session/issues/40
   Thanks @peturorri
 
+
 ## [2.17] - 2017-06-12
 ### Added
 - Added session.hide() function to hide session cookies from upstream
   on reverse proxy scenarios.
+
 
 ## [2.16] - 2017-05-31
 ### Changed
 - Delays setting the defaults until needed, allowing users to safely
   require "resty.session" in different contexts.
 
+
 ## [2.15] - 2017-02-13
 ## Added
 - Added a support for chunked cookies.
   See also: https://github.com/bungle/lua-resty-session/issues/35
   Thanks @zandbelt
+
 
 ## [2.14] - 2016-12-16
 ### Fixed
@@ -107,6 +136,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
   See also: https://github.com/bungle/lua-resty-session/issues/34
   Thanks @hanxi
 
+
 ## [2.13] - 2016-11-21
 ### Changed
 - On start we do send cookie now also if the settings have changed
@@ -114,6 +144,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
 
 ### Fixed
 - Memcache storage adapter had a missing ngx.null.
+
 
 ## [2.12] - 2016-11-21
 ### Added
@@ -127,9 +158,11 @@ All notable changes to `lua-resty-session` will be documented in this file.
 - Lua session.identifier.length changed to session.random.length.
 - Nginx $session_identifier_length changed to $session_random_length.
 
+
 ## [2.11] - 2016-09-30
 ### Changed
 - Just another OPM release to correct the name.
+
 
 ## [2.10] - 2016-09-29
 ### Added
@@ -138,6 +171,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
 ### Changed
 - Changed the change log format to keep-a-changelog.
 
+
 ## [2.9] - 2016-09-01
 ### Fixed
 - Bugfix: Weird bug where RAND_bytes was not working on Windows platform.
@@ -145,11 +179,13 @@ All notable changes to `lua-resty-session` will be documented in this file.
   https://github.com/bungle/lua-resty-session/issues/31
   Thanks @gtuxyco
 
+
 ## [2.8] - 2016-07-05
 ### Fixed
 - Bugfix: AES Cipher used a wrong table for cipher sizes.
   See Also: https://github.com/bungle/lua-resty-session/issues/30
   Thanks @pronan
+
 
 ## [2.7] - 2016-05-18
 ### Added
@@ -157,13 +193,16 @@ All notable changes to `lua-resty-session` will be documented in this file.
   See Also: https://github.com/bungle/lua-resty-session/pull/28
   Thanks @cheng5533062
 
+
 ## [2.6] - 2016-04-18
 ### Changed
 - Just cleanups and changed _VERSION to point correct version.
 
+
 ## [2.5] - 2016-04-18
 ### Fixed
 - session.save close argument was not defaulting to true.
+
 
 ## [2.4] - 2016-04-17
 ### Added
@@ -176,12 +215,14 @@ All notable changes to `lua-resty-session` will be documented in this file.
   See Also: https://github.com/bungle/lua-resty-session/issues/27
   Thanks @hcaihao
 
+
 ## [2.3] - 2015-10-16
 ### Fixed
 - Fixes issue #19 where regenerating session would throw an error
   when using cookie storage.
   See Also: https://github.com/bungle/lua-resty-session/issues/19
   Thanks @hulu1522
+
 
 ## [2.2] - 2015-09-17
 ### Changed
@@ -195,6 +236,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
 - Added documentation about removed features and corrected about
   session secret size accordingly.
 
+
 ## [2.1] - 2015-09-07
 ### Added
 - Added architecture for Cipher adapter plugins.
@@ -206,6 +248,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
 
 ### Changed
 - Changed JSON serializer to use cjson.safe instead
+
 
 ## [2.0] - 2015-08-31
 ### Added
@@ -228,6 +271,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
   See also: https://github.com/bungle/lua-resty-session/issues/15
   Thanks @BizShuk
 
+
 ## [1.7] - 2015-08-03
 ### Added
 - Added session.open() function that only opens a session but doesn't send
@@ -243,11 +287,13 @@ All notable changes to `lua-resty-session` will be documented in this file.
   https://github.com/bungle/lua-resty-session/pull/11
   Thanks @junhanamaki
 
+
 ## [1.6] - 2015-05-05
 ### Fixed
 - Fixed truncated cookie value bug:
   https://github.com/bungle/lua-resty-session/pull/8
   Thanks @kipras
+
 
 ## [1.5] - 2014-11-27
 ### Fixed
@@ -278,6 +324,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
   used to check if the session is s new session (false) or a previously
   started one (true).
 
+
 ## [1.3] - 2014-11-14
 ### Added
 - Added support for persistent sessions. See issue #2.
@@ -285,10 +332,12 @@ All notable changes to `lua-resty-session` will be documented in this file.
   configuration variables.
 - Added Max-Age=0 to expiration code.
 
+
 ## [1.2] - 2014-10-12
 ### Fixed
 - Changed encode and decode functions to operate with correct number of
   arguments. See issue #1.
+
 
 ## [1.1] - 2014-10-03
 ### Security
@@ -302,6 +351,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
 - Simplied a code a lot (e.g. internal setcookie and getcookie functions are
   now cleaner). Removed a lot of unneccessary lines from session.start by
   adding configs directly to session prototype.
+
 
 ## [1.0] - 2014-09-24
 ### Added
