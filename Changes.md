@@ -2,6 +2,20 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [3.3] - 2020-05-06
+- Fix `set_timeouts` is only called if all parameters are available,
+  should fix #96, thank you @notdodo.
+- Add `$session_memcache_connect_timeout` configuration option
+- Add `$session_memcache_read_timeout` configuration option
+- Add `$session_memcache_send_timeout` configuration option
+- Add `$session_memcache_pool_name` configuration option
+- Add `$session_memcache_pool_backlog` configuration option
+- Add `$session_dshm_connect_timeout` configuration option
+- Add `$session_dshm_read_timeout` configuration option
+- Add `$session_dshm_send_timeout` configuration option
+- Add `$session_dshm_pool_name` configuration option
+- Add `$session_dshm_pool_backlog` configuration option
+
 
 ## [3.2] - 2020-04-30
 ### Added

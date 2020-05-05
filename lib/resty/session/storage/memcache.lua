@@ -12,16 +12,21 @@ local function enabled(val)
 end
 
 local defaults = {
-    prefix       = var.session_memcache_prefix                     or "sessions",
-    socket       = var.session_memcache_socket,
-    host         = var.session_memcache_host                       or "127.0.0.1",
-    port         = tonumber(var.session_memcache_port,         10) or 11211,
-    uselocking   = enabled(var.session_memcache_uselocking         or true),
-    spinlockwait = tonumber(var.session_memcache_spinlockwait, 10) or 150,
-    maxlockwait  = tonumber(var.session_memcache_maxlockwait,  10) or 30,
+    prefix          = var.session_memcache_prefix                         or "sessions",
+    connect_timeout = tonumber(var.session_memcache_connect_timeout, 10),
+    read_timeout    = tonumber(var.session_memcache_read_timeout,    10),
+    send_timeout    = tonumber(var.session_memcache_send_timeout,    10),
+    socket          = var.session_memcache_socket,
+    host            = var.session_memcache_host                           or "127.0.0.1",
+    port            = tonumber(var.session_memcache_port,            10)  or 11211,
+    uselocking      = enabled(var.session_memcache_uselocking             or true),
+    spinlockwait    = tonumber(var.session_memcache_spinlockwait,    10)  or 150,
+    maxlockwait     = tonumber(var.session_memcache_maxlockwait,     10)  or 30,
     pool = {
-        timeout  = tonumber(var.session_memcache_pool_timeout, 10),
-        size     = tonumber(var.session_memcache_pool_size,    10),
+        name        = var.session_memcache_pool_name,
+        timeout     = tonumber(var.session_memcache_pool_timeout,    10),
+        size        = tonumber(var.session_memcache_pool_size,       10),
+        backlog     = tonumber(var.session_memcache_pool_backlog,    10),
     },
 }
 
@@ -37,17 +42,39 @@ function storage.new(session)
         locking = defaults.uselocking
     end
 
+    local connect_timeout = tonumber(config.connect_timeout, 10) or defaults.connect_timeout
+
+    local memcache = memcached:new()
+    if memcache.set_timeouts then
+        local send_timeout = tonumber(config.send_timeout, 10) or defaults.send_timeout
+        local read_timeout = tonumber(config.read_timeout, 10) or defaults.read_timeout
+
+        if connect_timeout then
+            if send_timeout and read_timeout then
+                memcache:set_timeouts(connect_timeout, send_timeout, read_timeout)
+            else
+                memcache:set_timeout(connect_timeout)
+            end
+        end
+
+    elseif memcache.set_timeout and connect_timeout then
+        memcache:set_timeout(connect_timeout)
+    end
+
     local self = {
-        memcache     = memcached:new(),
+        memcache     = memcache,
         prefix       = config.prefix                     or defaults.prefix,
         uselocking   = locking,
         spinlockwait = tonumber(config.spinlockwait, 10) or defaults.spinlockwait,
         maxlockwait  = tonumber(config.maxlockwait,  10) or defaults.maxlockwait,
-        pool = {
-            timeout = tonumber(pool.timeout,         10) or defaults.pool.timeout,
-            size    = tonumber(pool.size,            10) or defaults.pool.size,
+        pool_timeout = tonumber(pool.timeout,        10) or defaults.pool.timeout,
+        connect_opts = {
+            pool             = pool.name                 or defaults.pool.name,
+            pool_size        = pool.size                 or defaults.pool.size,
+            backlog          = pool.backlog              or defaults.pool.backlog,
         },
     }
+
     local socket = config.socket or defaults.socket
     if socket and socket ~= "" then
         self.socket = socket
@@ -62,25 +89,13 @@ end
 function storage:connect()
     local socket = self.socket
     if socket then
-        return self.memcache:connect(socket)
+        return self.memcache:connect(socket, self.connect_opts)
     end
-    return self.memcache:connect(self.host, self.port)
+    return self.memcache:connect(self.host, self.port, self.connect_opts)
 end
 
 function storage:set_keepalive()
-    local pool    = self.pool
-    local timeout = pool.timeout
-    local size    = pool.size
-
-    if timeout and size then
-        return self.memcache:set_keepalive(timeout, size)
-    end
-
-    if timeout then
-        return self.memcache:set_keepalive(timeout)
-    end
-
-    return self.memcache:set_keepalive()
+    return self.memcache:set_keepalive(self.pool_timeout)
 end
 
 function storage:key(id)

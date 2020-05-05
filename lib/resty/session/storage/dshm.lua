@@ -6,12 +6,17 @@ local concat       = table.concat
 local var          = ngx.var
 
 local defaults = {
-    region            = var.session_dshm_region                     or "sessions",
-    host              = var.session_dshm_host                       or "127.0.0.1",
-    port              = tonumber(var.session_dshm_port,         10) or 4321,
+    region            = var.session_dshm_region                         or "sessions",
+    connect_timeout   = tonumber(var.session_dshm_connect_timeout, 10),
+    read_timeout      = tonumber(var.session_dshm_read_timeout,    10),
+    send_timeout      = tonumber(var.session_dshm_send_timeout,    10),
+    host              = var.session_dshm_host                           or "127.0.0.1",
+    port              = tonumber(var.session_dshm_port,            10)  or 4321,
     pool              = {
-        size          = tonumber(var.session_dshm_pool_size,    10) or 100,
-        timeout       = tonumber(var.session_dshm_pool_timeout, 10) or 1000,
+        name          = var.session_dshm_pool_name,
+        size          = tonumber(var.session_dshm_pool_size,       10)  or 100,
+        timeout       = tonumber(var.session_dshm_pool_timeout,    10)  or 1000,
+        backlog       = tonumber(var.session_dshm_pool_backlog,    10),
     },
 }
 
@@ -23,15 +28,37 @@ function storage.new(session)
     local config = session.dshm or defaults
     local pool   = config.pool  or defaults.pool
 
+    local connect_timeout = tonumber(config.connect_timeout, 10) or defaults.connect_timeout
+
+    local store = dshm:new()
+    if store.set_timeouts then
+        local send_timeout = tonumber(config.send_timeout, 10) or defaults.send_timeout
+        local read_timeout = tonumber(config.read_timeout, 10) or defaults.read_timeout
+
+        if connect_timeout then
+            if send_timeout and read_timeout then
+                store:set_timeouts(connect_timeout, send_timeout, read_timeout)
+            else
+                store:set_timeout(connect_timeout)
+            end
+        end
+
+    elseif store.set_timeout and connect_timeout then
+        store:set_timeout(connect_timeout)
+    end
+
+
     local self = {
-        store       = dshm:new(),
-        encoder     = session.encoder,
-        region      = config.region              or defaults.region,
-        host        = config.host                or defaults.host,
-        port        = tonumber(config.port,  10) or defaults.port,
-        pool        = {
-            timeout = tonumber(pool.timeout, 10) or defaults.pool.timeout,
-            size    = tonumber(pool.size,    10) or defaults.pool.size,
+        store        = store,
+        encoder      = session.encoder,
+        region       = config.region              or defaults.region,
+        host         = config.host                or defaults.host,
+        port         = tonumber(config.port,  10) or defaults.port,
+        pool_timeout = tonumber(pool.timeout, 10) or defaults.pool.timeout,
+        connect_opts = {
+            pool             = pool.name          or defaults.pool.name,
+            pool_size        = pool.size          or defaults.pool.size,
+            backlog          = pool.backlog       or defaults.pool.backlog,
         },
     }
 
@@ -39,11 +66,11 @@ function storage.new(session)
 end
 
 function storage:connect()
-    return self.store:connect(self.host, self.port)
+    return self.store:connect(self.host, self.port, self.connect_opts)
 end
 
 function storage:set_keepalive()
-    return self.store:set_keepalive(self.pool_idle_timeout, self.pool_size)
+    return self.store:set_keepalive(self.pool_timeout)
 end
 
 function storage:key(id)
