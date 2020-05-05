@@ -160,6 +160,10 @@ function storage.new(session)
     }
 
     local auth            = config.auth                          or defaults.auth
+    if auth == "" then
+        auth = nil
+    end
+
     local connect_timeout = tonumber(config.connect_timeout, 10) or defaults.connect_timeout
 
     local cluster_nodes
@@ -187,9 +191,16 @@ function storage.new(session)
         if redis.set_timeouts then
             local send_timeout = tonumber(config.send_timeout, 10) or defaults.send_timeout
             local read_timeout = tonumber(config.read_timeout, 10) or defaults.read_timeout
-            redis:set_timeouts(connect_timeout,  send_timeout, read_timeout)
 
-        else
+            if connect_timeout then
+                if send_timeout and read_timeout then
+                    redis:set_timeouts(connect_timeout, send_timeout, read_timeout)
+                else
+                    redis:set_timeout(connect_timeout)
+                end
+            end
+
+        elseif redis.set_timeout and connect_timeout then
             redis:set_timeout(connect_timeout)
         end
 
@@ -234,15 +245,19 @@ function storage:connect()
         return nil, err
     end
 
-    if self.auth and self.auth ~= "" and self.redis:get_reused_times() == 0 then
+    if self.auth and self.redis:get_reused_times() == 0 then
         ok, err = self.redis:auth(self.auth)
         if not ok then
+            self.redis:close()
             return nil, err
         end
     end
 
     if self.database ~= 0 then
         ok, err = self.redis:select(self.database)
+        if not ok then
+            self.redis:close()
+        end
     end
 
     return ok, err
@@ -253,18 +268,7 @@ function storage:set_keepalive()
         return true -- cluster handles this on its own
     end
 
-    local timeout = self.pool_timeout
-    local size    = self.connect_opts.pool_size
-
-    if timeout and size then
-        return self.redis:set_keepalive(timeout, size)
-    end
-
-    if timeout then
-        return self.redis:set_keepalive(timeout)
-    end
-
-    return self.redis:set_keepalive()
+    return self.redis:set_keepalive(self.pool_timeout)
 end
 
 function storage:key(id)

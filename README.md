@@ -356,15 +356,20 @@ set $session_storage memcache;
 Additionally you can configure Memcache adapter with these settings:
 
 ```nginx
-set $session_memcache_prefix        sessions;
-set $session_memcache_socket        unix:///var/run/memcached/memcached.sock;
-set $session_memcache_host          127.0.0.1;
-set $session_memcache_port          11211;
-set $session_memcache_uselocking    on;
-set $session_memcache_spinlockwait  150;  # (in milliseconds)
-set $session_memcache_maxlockwait   30;   # (in seconds)
-set $session_memcache_pool_timeout  1000; # (in milliseconds)
-set $session_memcache_pool_size     10;
+set $session_memcache_prefix           sessions;
+set $session_memcache_connect_timeout  1000; # (in milliseconds)
+set $session_memcache_send_timeout     1000; # (in milliseconds)
+set $session_memcache_read_timeout     1000; # (in milliseconds)
+set $session_memcache_socket           unix:///var/run/memcached/memcached.sock;
+set $session_memcache_host             127.0.0.1;
+set $session_memcache_port             11211;
+set $session_memcache_uselocking       on;
+set $session_memcache_spinlockwait     150;  # (in milliseconds)
+set $session_memcache_maxlockwait      30;   # (in seconds)
+set $session_memcache_pool_name        sessions;
+set $session_memcache_pool_timeout     1000; # (in milliseconds)
+set $session_memcache_pool_size        10;                 
+set $session_memcache_pool_backlog     10;
 ```
 
 The keys stored in Memcached are in form:
@@ -441,11 +446,16 @@ set $session_storage dshm;
 Additionally you can configure DSHM adapter with these settings:
 
 ```nginx
-set $session_dshm_region        sessions;
-set $session_dshm_host          127.0.0.1;
-set $session_dshm_port          4321;
-set $session_dshm_pool_timeout  1000; # (in milliseconds)
-set $session_dshm_pool_size     100;
+set $session_dshm_region           sessions;
+set $session_dshm_connect_timeout  1000; # (in milliseconds)
+set $session_dshm_send_timeout     1000; # (in milliseconds)
+set $session_dshm_read_timeout     1000; # (in milliseconds)
+set $session_dshm_host             127.0.0.1;
+set $session_dshm_port             4321;
+set $session_dshm_pool_name        sessions;
+set $session_dshm_pool_timeout     1000; # (in milliseconds)
+set $session_dshm_pool_size        10;                 
+set $session_dshm_pool_backlog     10;
 ```
 
 The keys stored in DSHM are in form:
