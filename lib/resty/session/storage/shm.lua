@@ -11,6 +11,14 @@ local function enabled(value)
     return value == true or (value == "1" or value == "true" or value == "on")
 end
 
+local function ifnil(value, default)
+    if value == nil then
+        return default
+    end
+
+    return enabled(value)
+end
+
 local defaults   = {
     store        = var.session_shm_store                       or "sessions",
     uselocking   = enabled(var.session_shm_uselocking          or true),
@@ -28,13 +36,9 @@ local storage = {}
 storage.__index = storage
 
 function storage.new(session)
-    local config = session.shm or defaults
-    local store  = config.store or defaults.store
-
-    local locking = enabled(config.uselocking)
-    if locking == nil then
-        locking = defaults.uselocking
-    end
+    local config = session.shm            or defaults
+    local store  = config.store           or defaults.store
+    local locking = ifnil(config.uselocking, defaults.uselocking)
 
     local self = {
         store      = shared[store],
