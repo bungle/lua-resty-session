@@ -2,9 +2,21 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+
+## [3.4] - 2020-05-08
+### Fixed
+- Fix session_cookie_maxsize - error attempt to compare string with number,
+  fixes #98, thank you @vavra5
+  
+### Changed
+- More robust and uniform configuration parsing
+
+
 ## [3.3] - 2020-05-06
+### Fixed
 - Fix `set_timeouts` is only called if all parameters are available,
   should fix #96, thank you @notdodo.
+### Added
 - Add `$session_memcache_connect_timeout` configuration option
 - Add `$session_memcache_read_timeout` configuration option
 - Add `$session_memcache_send_timeout` configuration option

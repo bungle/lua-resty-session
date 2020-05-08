@@ -104,17 +104,28 @@ local function enabled(value)
     return value == true or (value == "1" or value == "true" or value == "on")
 end
 
+local function ifnil(value, default)
+    if value == nil then
+        return default
+    end
+
+    return enabled(value)
+end
+
 local defaults = {
     prefix          = var.session_redis_prefix                         or "sessions",
+    socket          = var.session_redis_socket,
+    host            = var.session_redis_host                           or "127.0.0.1",
+    auth            = var.session_redis_auth,
+    server_name     = var.session_redis_server_name,
+    ssl             = enabled(var.session_redis_ssl)                   or false,
+    ssl_verify      = enabled(var.session_redis_ssl_verify)            or false,
+    uselocking      = enabled(var.session_redis_uselocking             or true),
+    port            = tonumber(var.session_redis_port,            10)  or 6379,
     database        = tonumber(var.session_redis_database,        10)  or 0,
     connect_timeout = tonumber(var.session_redis_connect_timeout, 10),
     read_timeout    = tonumber(var.session_redis_read_timeout,    10),
     send_timeout    = tonumber(var.session_redis_send_timeout,    10),
-    socket          = var.session_redis_socket,
-    host            = var.session_redis_host                           or "127.0.0.1",
-    port            = tonumber(var.session_redis_port,            10)  or 6379,
-    auth            = var.session_redis_auth,
-    uselocking      = enabled(var.session_redis_uselocking             or true),
     spinlockwait    = tonumber(var.session_redis_spinlockwait,    10)  or 150,
     maxlockwait     = tonumber(var.session_redis_maxlockwait,     10)  or 30,
     pool = {
@@ -123,9 +134,6 @@ local defaults = {
         size        = tonumber(var.session_redis_pool_size,       10),
         backlog     = tonumber(var.session_redis_pool_backlog,    10),
     },
-    ssl             = enabled(var.session_redis_ssl)                   or false,
-    ssl_verify      = enabled(var.session_redis_ssl_verify)            or false,
-    server_name     = var.session_redis_server_name,
 }
 
 
@@ -143,14 +151,10 @@ local storage = {}
 storage.__index = storage
 
 function storage.new(session)
-    local config  = session.redis  or defaults
-    local pool    = config.pool    or defaults.pool
-    local cluster = config.cluster or defaults.cluster
-
-    local locking = enabled(config.uselocking)
-    if locking == nil then
-        locking = defaults.uselocking
-    end
+    local config  = session.redis         or defaults
+    local pool    = config.pool           or defaults.pool
+    local cluster = config.cluster        or defaults.cluster
+    local locking = ifnil(config.uselocking, defaults.uselocking)
 
     local self = {
         prefix          = config.prefix                     or defaults.prefix,
@@ -159,7 +163,7 @@ function storage.new(session)
         maxlockwait     = tonumber(config.maxlockwait,  10) or defaults.maxlockwait,
     }
 
-    local auth            = config.auth                          or defaults.auth
+    local auth = config.auth or defaults.auth
     if auth == "" then
         auth = nil
     end
@@ -176,10 +180,10 @@ function storage.new(session)
             name               = cluster.name                          or defaults.cluster.name,
             dict_name          = cluster.dict                          or defaults.cluster.dict,
             auth               = auth,
-            keepalive_timeout  = pool.timeout                          or defaults.pool.timeout,
-            keepalive_cons     = pool.size                             or defaults.pool.size,
             connection_timout  = connect_timeout, -- typo in library
             connection_timeout = connect_timeout,
+            keepalive_timeout  = tonumber(pool.timeout,            10) or defaults.pool.timeout,
+            keepalive_cons     = tonumber(pool.size,               10) or defaults.pool.size,
             max_redirection    = tonumber(cluster.maxredirections, 10) or defaults.cluster.maxredirections,
             serv_list          = cluster_nodes,
         })
@@ -210,11 +214,11 @@ function storage.new(session)
         self.pool_timeout    = tonumber(pool.timeout,        10) or defaults.pool.timeout
         self.connect_opts    = {
             pool             = pool.name                         or defaults.pool.name,
-            pool_size        = pool.size                         or defaults.pool.size,
-            backlog          = pool.backlog                      or defaults.pool.backlog,
-            ssl              = config.ssl                        or defaults.ssl,
-            ssl_verify       = config.ssl_verify                 or defaults.ssl_verify,
+            pool_size        = tonumber(pool.size,           10) or defaults.pool.size,
+            backlog          = tonumber(pool.backlog,        10) or defaults.pool.backlog,
             server_name      = config.server_name                or defaults.server_name,
+            ssl              = ifnil(config.ssl,                    defaults.ssl),
+            ssl_verify       = ifnil(config.ssl_verify,             defaults.ssl_verify),
         }
 
         local socket = config.socket or defaults.socket

@@ -300,17 +300,18 @@ local function init()
         cipher         = var.session_cipher                        or "aes",
         hmac           = var.session_hmac                          or "sha1",
         cookie         = {
-            persistent = enabled(var.session_cookie_persistent     or false),
-            discard    = tonumber(var.session_cookie_discard,  10) or 10,
-            renew      = tonumber(var.session_cookie_renew,    10) or 600,
-            lifetime   = tonumber(var.session_cookie_lifetime, 10) or 3600,
-            idletime   = tonumber(var.session_cookie_idletime, 10) or 0,
             path       = var.session_cookie_path                   or "/",
             domain     = var.session_cookie_domain,
             samesite   = var.session_cookie_samesite               or "Lax",
             secure     = enabled(var.session_cookie_secure),
             httponly   = enabled(var.session_cookie_httponly       or true),
-            maxsize    = var.session_cookie_maxsize                or 4000
+            persistent = enabled(var.session_cookie_persistent     or false),
+            discard    = tonumber(var.session_cookie_discard,  10) or 10,
+            renew      = tonumber(var.session_cookie_renew,    10) or 600,
+            lifetime   = tonumber(var.session_cookie_lifetime, 10) or 3600,
+            idletime   = tonumber(var.session_cookie_idletime, 10) or 0,
+            maxsize    = tonumber(var.session_cookie_maxsize,  10) or 4000,
+
         }, check       = {
             ssi        = enabled(var.session_check_ssi             or false),
             ua         = enabled(var.session_check_ua              or true),
@@ -322,7 +323,7 @@ local function init()
 end
 
 local session = {
-    _VERSION = "3.3"
+    _VERSION = "3.4"
 }
 
 session.__index = session
@@ -476,19 +477,19 @@ function session.new(opts)
             path       = path,
             domain     = domain,
             secure     = secure,
-            discard    = cookie.discard        or defaults.cookie.discard,
-            renew      = cookie.renew          or defaults.cookie.renew,
-            lifetime   = cookie.lifetime       or defaults.cookie.lifetime,
-            idletime   = cookie.idletime       or defaults.cookie.idletime,
-            samesite   = cookie.samesite       or defaults.cookie.samesite,
-            maxsize    = cookie.maxsize        or defaults.cookie.maxsize,
-            httponly   = ifnil(cookie.httponly,   defaults.cookie.httponly),
-            persistent = ifnil(cookie.persistent, defaults.cookie.persistent),
+            samesite   = cookie.samesite                  or defaults.cookie.samesite,
+            httponly   = ifnil(cookie.httponly,              defaults.cookie.httponly),
+            persistent = ifnil(cookie.persistent,            defaults.cookie.persistent),
+            discard    = tonumber(cookie.discard,  10)    or defaults.cookie.discard,
+            renew      = tonumber(cookie.renew,    10)    or defaults.cookie.renew,
+            lifetime   = tonumber(cookie.lifetime, 10)    or defaults.cookie.lifetime,
+            idletime   = tonumber(cookie.idletime, 10)    or defaults.cookie.idletime,
+            maxsize    = tonumber(cookie.maxsize,  10)    or defaults.cookie.maxsize,
         }, check = {
-            ssi        = ifnil(check.ssi,         defaults.check.ssi),
-            ua         = ifnil(check.ua,          defaults.check.ua),
-            scheme     = ifnil(check.scheme,      defaults.check.scheme),
-            addr       = ifnil(check.addr,        defaults.check.addr),
+            ssi        = ifnil(check.ssi,                    defaults.check.ssi),
+            ua         = ifnil(check.ua,                     defaults.check.ua),
+            scheme     = ifnil(check.scheme,                 defaults.check.scheme),
+            addr       = ifnil(check.addr,                   defaults.check.addr),
         }
     }
     if self.cookie.idletime > 0 and self.cookie.discard > self.cookie.idletime then

@@ -6,20 +6,34 @@ local sleep        = ngx.sleep
 local null         = ngx.null
 local var          = ngx.var
 
-local function enabled(val)
-    if val == nil then return nil end
-    return val == true or (val == "1" or val == "true" or val == "on")
+local function enabled(value)
+    if value == nil then
+        return nil
+    end
+
+    return value == true
+        or value == "1"
+        or value == "true"
+        or value == "on"
+end
+
+local function ifnil(value, default)
+    if value == nil then
+        return default
+    end
+
+    return enabled(value)
 end
 
 local defaults = {
     prefix          = var.session_memcache_prefix                         or "sessions",
+    socket          = var.session_memcache_socket,
+    host            = var.session_memcache_host                           or "127.0.0.1",
+    uselocking      = enabled(var.session_memcache_uselocking             or true),
     connect_timeout = tonumber(var.session_memcache_connect_timeout, 10),
     read_timeout    = tonumber(var.session_memcache_read_timeout,    10),
     send_timeout    = tonumber(var.session_memcache_send_timeout,    10),
-    socket          = var.session_memcache_socket,
-    host            = var.session_memcache_host                           or "127.0.0.1",
     port            = tonumber(var.session_memcache_port,            10)  or 11211,
-    uselocking      = enabled(var.session_memcache_uselocking             or true),
     spinlockwait    = tonumber(var.session_memcache_spinlockwait,    10)  or 150,
     maxlockwait     = tonumber(var.session_memcache_maxlockwait,     10)  or 30,
     pool = {
@@ -35,12 +49,9 @@ local storage = {}
 storage.__index = storage
 
 function storage.new(session)
-    local config  = session.memcache or defaults
-    local pool    = config.pool      or defaults.pool
-    local locking = enabled(config.uselocking)
-    if locking == nil then
-        locking = defaults.uselocking
-    end
+    local config  = session.memcache      or defaults
+    local pool    = config.pool           or defaults.pool
+    local locking = ifnil(config.uselocking, defaults.uselocking)
 
     local connect_timeout = tonumber(config.connect_timeout, 10) or defaults.connect_timeout
 
@@ -69,9 +80,9 @@ function storage.new(session)
         maxlockwait  = tonumber(config.maxlockwait,  10) or defaults.maxlockwait,
         pool_timeout = tonumber(pool.timeout,        10) or defaults.pool.timeout,
         connect_opts = {
-            pool             = pool.name                 or defaults.pool.name,
-            pool_size        = pool.size                 or defaults.pool.size,
-            backlog          = pool.backlog              or defaults.pool.backlog,
+            pool      = pool.name                        or defaults.pool.name,
+            pool_size = tonumber(pool.size,   10)        or defaults.pool.size,
+            backlog   = tonumber(pool.backlog, 10)       or defaults.pool.backlog,
         },
     }
 

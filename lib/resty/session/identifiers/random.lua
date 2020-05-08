@@ -8,6 +8,6 @@ local defaults = {
 
 return function(session)
     local config = session.random or defaults
-    local length = config.length  or defaults.length
-    return random(length, true)   or random(length)
+    local length = tonumber(config.length, 10) or defaults.length
+    return random(length, true) or random(length)
 end

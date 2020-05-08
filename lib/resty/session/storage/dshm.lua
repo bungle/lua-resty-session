@@ -51,14 +51,14 @@ function storage.new(session)
     local self = {
         store        = store,
         encoder      = session.encoder,
-        region       = config.region              or defaults.region,
-        host         = config.host                or defaults.host,
-        port         = tonumber(config.port,  10) or defaults.port,
-        pool_timeout = tonumber(pool.timeout, 10) or defaults.pool.timeout,
+        region       = config.region                      or defaults.region,
+        host         = config.host                        or defaults.host,
+        port         = tonumber(config.port,          10) or defaults.port,
+        pool_timeout = tonumber(pool.timeout,         10) or defaults.pool.timeout,
         connect_opts = {
-            pool             = pool.name          or defaults.pool.name,
-            pool_size        = pool.size          or defaults.pool.size,
-            backlog          = pool.backlog       or defaults.pool.backlog,
+            pool             = pool.name                  or defaults.pool.name,
+            pool_size        = tonumber(pool.size,    10) or defaults.pool.size,
+            backlog          = tonumber(pool.backlog, 10) or defaults.pool.backlog,
         },
     }
 
