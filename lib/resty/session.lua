@@ -15,6 +15,7 @@ local max          = math.max
 local find         = string.find
 local gsub         = string.gsub
 local sub          = string.sub
+local match        = string.match
 local type         = type
 local pcall        = pcall
 local tonumber     = tonumber
@@ -648,6 +649,10 @@ function session:close()
     return true
 end
 
+local function ltrim(s)
+    return match(s,'^%s*(.*%S)')
+end
+
 function session:hide()
     local cookies = var.http_cookie
     if not cookies then
@@ -671,7 +676,7 @@ function session:hide()
                 or tonumber(sub(cookie_name, name_len + 2), 10) == nil
                 then
                     j = j + 1
-                    results[j] = cookie
+                    results[j] = ltrim(cookie)
                 end
             end
         end
@@ -690,7 +695,7 @@ function session:hide()
                 or tonumber(sub(cookie_name, name_len + 2), 10) == nil
                 then
                     j = j + 1
-                    results[j] = cookie
+                    results[j] = ltrim(cookie)
                 end
             end
         end
