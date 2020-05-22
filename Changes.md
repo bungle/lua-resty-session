@@ -3,6 +3,13 @@
 All notable changes to `lua-resty-session` will be documented in this file.
 
 
+## [3.5] - 2020-05-22
+### Fixed
+- Fix `session:hide()` to not clear non-session request cookies that it
+  seemed to do in some cases as reported by @altexy who also provided
+  initial fix with #100. Thank you!
+   
+
 ## [3.4] - 2020-05-08
 ### Fixed
 - Fix session_cookie_maxsize - error attempt to compare string with number,
