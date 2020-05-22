@@ -14,14 +14,16 @@ local ceil         = math.ceil
 local max          = math.max
 local find         = string.find
 local gsub         = string.gsub
+local byte         = string.byte
 local sub          = string.sub
-local match        = string.match
 local type         = type
 local pcall        = pcall
 local tonumber     = tonumber
 local setmetatable = setmetatable
 local getmetatable = getmetatable
 local bytes        = random.bytes
+
+local UNDERSCORE = byte("_")
 
 local COOKIE_PARTS = {
     DEFAULT = {
@@ -69,6 +71,53 @@ local function prequire(prefix, package, default)
     end
 
     return module, package
+end
+
+local function is_session_cookie(cookie, name, name_len)
+    if not cookie or cookie == "" then
+        return false, nil
+    end
+
+    cookie = gsub(cookie, "^%s+", "")
+    if cookie == "" then
+        return false, nil
+    end
+
+    cookie = gsub(cookie, "%s+$", "")
+    if cookie == "" then
+        return false, nil
+    end
+
+    local eq_pos = find(cookie, "=", 1, true)
+    if not eq_pos then
+        return false, cookie
+    end
+
+    local cookie_name = sub(cookie, 1, eq_pos - 1)
+    if cookie_name == "" then
+        return false, cookie
+    end
+
+    cookie_name = gsub(cookie_name, "%s+$", "")
+    if cookie_name == "" then
+        return false, cookie
+    end
+
+    if cookie_name ~= name then
+        if find(cookie_name, name, 1, true) ~= 1 then
+            return false, cookie
+        end
+
+        if byte(cookie_name, name_len + 1) ~= UNDERSCORE then
+            return false, cookie
+        end
+
+        if not tonumber(sub(cookie_name, name_len + 2), 10) then
+            return false, cookie
+        end
+    end
+
+    return true, cookie
 end
 
 local function set_cookie(session, value, expires)
@@ -649,62 +698,52 @@ function session:close()
     return true
 end
 
-local function ltrim(s)
-    return match(s,'^%s*(.*%S)')
-end
-
 function session:hide()
     local cookies = var.http_cookie
-    if not cookies then
+    if not cookies or cookies == "" then
         return
     end
 
     local results = {}
     local name = self.name
     local name_len = #name
+    local found
     local i = 1
     local j = 0
-    local sc_pos = find(cookies, ";", 1, true)
+    local sc_pos = find(cookies, ";", i, true)
     while sc_pos do
-        local cookie = sub(cookies, i, sc_pos - 1)
-        local eq_pos = find(cookie, "=", 1, true)
-        if eq_pos then
-            local cookie_name = gsub(sub(cookie, 1, eq_pos - 1), "^%s+", "")
-            if cookie_name ~= name and cookie_name ~= "" then
-                if sub(cookie_name, 1, name_len)                ~= name
-                or sub(cookie_name, name_len + 1, name_len + 1) ~= "_"
-                or tonumber(sub(cookie_name, name_len + 2), 10) == nil
-                then
-                    j = j + 1
-                    results[j] = ltrim(cookie)
-                end
-            end
+        local isc, cookie = is_session_cookie(sub(cookies, i, sc_pos - 1), name, name_len)
+        if isc then
+            found = true
+        elseif cookie then
+            j = j + 1
+            results[j] = cookie
         end
+
         i = sc_pos + 1
         sc_pos = find(cookies, ";", i, true)
     end
 
-    local cookie = sub(cookies, i)
-    if cookie and cookie ~= "" then
-        local eq_pos = find(cookie, "=", 1, true)
-        if eq_pos then
-            local cookie_name = gsub(sub(cookie, 1, eq_pos - 1), "^%s+", "")
-            if cookie_name ~= name and cookie_name ~= "" then
-                if sub(cookie_name, 1, name_len)                ~= name
-                or sub(cookie_name, name_len + 1, name_len + 1) ~= "_"
-                or tonumber(sub(cookie_name, name_len + 2), 10) == nil
-                then
-                    j = j + 1
-                    results[j] = ltrim(cookie)
-                end
-            end
+    local isc, cookie
+    if i == 1 then
+        isc, cookie = is_session_cookie(cookies, name, name_len)
+    else
+        isc, cookie = is_session_cookie(sub(cookies, i), name, name_len)
+    end
+
+    if not isc and cookie then
+        if not found then
+            return
         end
+
+        j = j + 1
+        results[j] = cookie
     end
 
     if j == 0 then
         clear_header("Cookie")
     else
-        set_header("Cookie", concat(results, "; ", 1, j))
+        set_header("Cookie", results)
     end
 end
 
