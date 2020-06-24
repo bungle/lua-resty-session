@@ -2,6 +2,11 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [3.6] - 2020-06-24
+### Fixed
+- Fix `session:hide()` to only send a single `Cookie` header at most as
+  reported by @jharriman who also provided a fix with #103. Thank you!
+
 
 ## [3.5] - 2020-05-22
 ### Fixed
