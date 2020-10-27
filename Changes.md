@@ -2,6 +2,14 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [3.7 (Upcoming)] - 2020-10-27
+### Fixed
+- Fix #107 where `session.start` could release a lock for a short period.
+  
+### Added
+- Add `keep_lock` argument to `session.open`.   
+
+
 ## [3.6] - 2020-06-24
 ### Fixed
 - Fix `session:hide()` to only send a single `Cookie` header at most as

@@ -16,8 +16,8 @@ local function key(source)
   return source.id
 end
 
-function strategy.open(session, cookie)
-  return default.load(session, cookie, key(cookie))
+function strategy.open(session, cookie, keep_lock)
+  return default.load(session, cookie, key(cookie), keep_lock)
 end
 
 function strategy.touch(session, close)

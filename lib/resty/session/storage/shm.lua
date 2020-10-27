@@ -60,7 +60,7 @@ function storage.new(session)
     return setmetatable(self, storage)
 end
 
-function storage:open(id)
+function storage:open(id, keep_lock)
     if self.uselocking then
         local ok, err = self.lock:lock(concat{ id, ".lock" })
         if not ok then
@@ -70,7 +70,7 @@ function storage:open(id)
 
     local data, err = self.store:get(id)
 
-    if self.uselocking then
+    if self.uselocking and (err or not data or not keep_lock) then
         self.lock:unlock()
     end
 

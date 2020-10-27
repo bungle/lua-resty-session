@@ -179,7 +179,7 @@ function storage:delete(key)
     return self.memcache:delete(key)
 end
 
-function storage:open(id)
+function storage:open(id, keep_lock)
     local ok, err = self:connect()
     if not ok then
         return nil, err
@@ -196,7 +196,10 @@ function storage:open(id)
     local data
     data, err = self:get(key)
 
-    self:unlock(key)
+    if err or not data or not keep_lock then
+        self:unlock(key)
+    end
+
     self:set_keepalive()
 
     return data, err
