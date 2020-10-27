@@ -4,10 +4,11 @@ All notable changes to `lua-resty-session` will be documented in this file.
 
 ## [3.7 (Upcoming)] - 2020-10-27
 ### Fixed
-- Fix #107 where `session.start` could release a lock for a short period.
+- Fix #107 where `session.start` could release a lock for a short period
   
 ### Added
-- Add `keep_lock` argument to `session.open`.   
+- Add `keep_lock` argument to `session.open`
+- Add pluggable compressors, and implement `none` and `zlib` compressor   
 
 
 ## [3.6] - 2020-06-24
