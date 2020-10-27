@@ -2,7 +2,7 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
-## [3.7 (Upcoming)] - 2020-10-27
+## [3.7] - 2020-10-27
 ### Fixed
 - Fix #107 where `session.start` could release a lock for a short period
   
