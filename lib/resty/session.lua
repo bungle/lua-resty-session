@@ -561,7 +561,7 @@ function session.new(opts)
     return setmetatable(self, session)
 end
 
-function session.open(opts)
+function session.open(opts, keep_lock)
     local self = opts
     if getmetatable(self) == session then
         if self.opened then
@@ -591,7 +591,7 @@ function session.open(opts)
         cookie, err = self:parse_cookie(cookie)
         if cookie then
             local ok
-            ok, err = self.strategy.open(self, cookie)
+            ok, err = self.strategy.open(self, cookie, keep_lock)
             if ok then
                 return self, true
             end
@@ -608,7 +608,7 @@ function session.start(opts)
         return opts, opts.present
     end
 
-    local self, present, reason = session.open(opts)
+    local self, present, reason = session.open(opts, true)
 
     self.started = true
 

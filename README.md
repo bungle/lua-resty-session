@@ -713,7 +713,7 @@ session.data.uid = 1
 session:save()
 ```
 
-#### session, present, reason = session.open(opts)
+#### session, present, reason = session.open(opts, keep_lock)
 
 With this function you can open a new session. It will create a new session Lua `table` on each call (unless called with
 colon `:` as in examples above with `session.new`). Calling this function repeatedly will be a no-op when using colon `:`.
@@ -721,13 +721,14 @@ This function will return a (new) session `table` as a result. If the session co
 client then this function validates the supplied session cookie. If validation is successful, the user supplied session
 data will be used (if not, a new session is generated with empty data). You may supply optional session configuration
 variables with `opts` argument, but be aware that many of these will only have effect if the session is a fresh session
-(i.e. not loaded from user supplied cookie). The second `boolean` return argument `present` will be `true` if the user
-client send a valid cookie (meaning that session was already started on some earlier request), and `false` if the
-new session was created (either because user client didn't send a cookie or that the cookie was not a valid one).
-If the cookie was not `present` the last `string` argument `reason` will return the reason why it failed to open a
-session cookie. This function will not set a client cookie or write data to database (e.g. update the expiry). You need
-to call `session:start()` to really start the session. This open function is mainly used if you only want to read data
-and avoid automatically sending a cookie (see also issue [#12](https://github.com/bungle/lua-resty-session/issues/12)).
+(i.e. not loaded from user supplied cookie). If you set the `keep_lock` argument to `true` the possible lock implemented
+by a storage adapter will not be released after opening the session. The second `boolean` return argument `present` will
+be `true` if the user client send a valid cookie (meaning that session was already started on some earlier request),
+and `false` if the new session was created (either because user client didn't send a cookie or that the cookie was not
+a valid one). If the cookie was not `present` the last `string` argument `reason` will return the reason why it failed
+to open a session cookie. This function will not set a client cookie or write data to database (e.g. update the expiry).
+You need to call `session:start()` to really start the session. This open function is mainly used if you only want to
+read data and avoid automatically sending a cookie (see also issue [#12](https://github.com/bungle/lua-resty-session/issues/12)).
 But be aware that this doesn't update cookie expiration time stored in a cookie or in the database.
 
 ```lua
@@ -929,8 +930,8 @@ to `true`. This can be configured with Nginx `set $session_cookie_persistent on;
 `session.usebefore` holds the expiration time based on session usgae (expiration time will be generated
 when the session is saved or started). This expiry time is only stored client-side in the cookie.
 Note that just opening a session will not update the cookie! To mark the session as used you must call
-`session:start`. (You can also use `session:save` but that will also write session data to the
-storage, whereas just calling `start` reads the session data and updates the `usebefore` value in the
+`session:touch`. (You can also use `session:save` but that will also write session data to the
+storage, whereas just calling `touch` reads the session data and updates the `usebefore` value in the
 client-side cookie without writing to the storage, it will just be setting a new cookie)
 
 #### number session.cookie.idletime
