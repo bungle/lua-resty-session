@@ -346,6 +346,7 @@ local function init()
         strategy       = var.session_strategy                      or "default",
         storage        = var.session_storage                       or "cookie",
         serializer     = var.session_serializer                    or "json",
+        compressor     = var.session_compressor                    or "none",
         encoder        = var.session_encoder                       or "base64",
         cipher         = var.session_cipher                        or "aes",
         hmac           = var.session_hmac                          or "sha1",
@@ -506,6 +507,7 @@ function session.new(opts)
 
     local ide, iden = prequire("resty.session.identifiers.", opts.identifier or defaults.identifier, "random")
     local ser, sern = prequire("resty.session.serializers.", opts.serializer or defaults.serializer, "json")
+    local com, comn = prequire("resty.session.compressors.", opts.compressor or defaults.compressor, "none")
     local enc, encn = prequire("resty.session.encoders.",    opts.encoder    or defaults.encoder,    "base64")
     local cip, cipn = prequire("resty.session.ciphers.",     opts.cipher     or defaults.cipher,     "aes")
     local sto, ston = prequire("resty.session.storage.",     opts.storage    or defaults.storage,    "cookie")
@@ -549,14 +551,16 @@ function session.new(opts)
 
     if iden and not self[iden] then self[iden] = opts[iden] end
     if sern and not self[sern] then self[sern] = opts[sern] end
+    if comn and not self[comn] then self[comn] = opts[comn] end
     if encn and not self[encn] then self[encn] = opts[encn] end
     if cipn and not self[cipn] then self[cipn] = opts[cipn] end
     if ston and not self[ston] then self[ston] = opts[ston] end
     if strn and not self[strn] then self[strn] = opts[strn] end
     if hman and not self[hman] then self[hman] = opts[hman] end
 
-    self.cipher  = cip.new(self)
-    self.storage = sto.new(self)
+    self.cipher     = cip.new(self)
+    self.storage    = sto.new(self)
+    self.compressor = com.new(self)
 
     return setmetatable(self, session)
 end

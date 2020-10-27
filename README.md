@@ -607,6 +607,40 @@ To configure session to use your adapter, you can do so with Nginx configuration
 set $session_serializer json;
 ```
 
+## Pluggable Compressors
+
+The session data may grew quite a big if you decide to store for example JWT tokens in a session.
+By compressing the data we can make the data part of the cookie smaller before sending it to client
+or before storing it to a backend store (using pluggable storage adapters).
+
+The supported compressors are:
+
+* `none` (the default)
+* `zlib` (this has extra requirement to `penlight` and `ffi-zlib`)
+
+To use `zlib` you need also to install:
+```shell
+luarocks install lua-ffi-zlib
+luarocks install penlight
+
+# OR install these manually:
+# - https://github.com/hamishforbes/lua-ffi-zlib
+# - https://github.com/lunarmodules/Penlight
+```
+
+
+If you want to write your own compressor you need to implement these three methods:
+
+* `cipher new(session)`
+* `string compressor:compress(data)`
+* `string compressor:decompress(data)`
+
+To configure session to use your compressor, you can do so with Nginx configuration (or in Lua code):
+
+```nginx
+set $session_compressor none;
+```
+
 ## Pluggable Encoders
 
 Cookie data needs to be encoded in cookie form before it is send to client. We support
@@ -1086,6 +1120,7 @@ set $session_hmac              sha1;
 set $session_cipher            aes;
 set $session_encoder           base64;
 set $session_serializer        json;
+set $session_compressor        none;
 set $session_cookie_persistent off;
 set $session_cookie_discard    10;
 set $session_cookie_idletime   0;
