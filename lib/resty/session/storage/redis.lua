@@ -175,6 +175,15 @@ function storage.new(session)
         cluster_nodes = parse_cluster_nodes(cluster.nodes or defaults.cluster.nodes)
     end
 
+    local connect_opts = {
+        pool             = pool.name                         or defaults.pool.name,
+        pool_size        = tonumber(pool.size,           10) or defaults.pool.size,
+        backlog          = tonumber(pool.backlog,        10) or defaults.pool.backlog,
+        server_name      = config.server_name                or defaults.server_name,
+        ssl              = ifnil(config.ssl,                    defaults.ssl),
+        ssl_verify       = ifnil(config.ssl_verify,             defaults.ssl_verify),
+    }
+
     if cluster_nodes then
         self.redis = redis_cluster:new({
             name               = cluster.name                          or defaults.cluster.name,
@@ -186,6 +195,7 @@ function storage.new(session)
             keepalive_cons     = tonumber(pool.size,               10) or defaults.pool.size,
             max_redirection    = tonumber(cluster.maxredirections, 10) or defaults.cluster.maxredirections,
             serv_list          = cluster_nodes,
+            connect_opts       = connect_opts,
         })
         self.cluster = true
 
@@ -212,14 +222,7 @@ function storage.new(session)
         self.auth            = auth
         self.database        = tonumber(config.database,     10) or defaults.database
         self.pool_timeout    = tonumber(pool.timeout,        10) or defaults.pool.timeout
-        self.connect_opts    = {
-            pool             = pool.name                         or defaults.pool.name,
-            pool_size        = tonumber(pool.size,           10) or defaults.pool.size,
-            backlog          = tonumber(pool.backlog,        10) or defaults.pool.backlog,
-            server_name      = config.server_name                or defaults.server_name,
-            ssl              = ifnil(config.ssl,                    defaults.ssl),
-            ssl_verify       = ifnil(config.ssl_verify,             defaults.ssl_verify),
-        }
+        self.connect_opts    = connect_opts
 
         local socket = config.socket or defaults.socket
         if socket and socket ~= "" then
