@@ -2,6 +2,11 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [3.8] - 2021-01-04
+### Added
+- Connection options are now passed to `redis cluster client` as well.
+
+
 ## [3.7] - 2020-10-27
 ### Fixed
 - Fix #107 where `session.start` could release a lock for a short period
