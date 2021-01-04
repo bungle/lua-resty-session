@@ -374,7 +374,7 @@ local function init()
 end
 
 local session = {
-    _VERSION = "3.7"
+    _VERSION = "3.8"
 }
 
 session.__index = session
