@@ -2,6 +2,13 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+
+## [3.9] - Upcoming
+### Changed
+- Optimize Redis and Memcache storage adapters to not connect to database
+  when not needed.
+
+
 ## [3.8] - 2021-01-04
 ### Added
 - Connection options are now passed to `redis cluster client` as well.
