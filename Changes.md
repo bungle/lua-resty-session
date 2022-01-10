@@ -2,6 +2,13 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## Unreleased
+### Added
+- Redis ACL authentication is now available.
+  - Add `session_redis_username`
+  - Add `session_redis_password`
+  - Deprecate `session_redis_auth`; use `session_redis_password`
+
 ## [3.8] - 2021-01-04
 ### Added
 - Connection options are now passed to `redis cluster client` as well.
@@ -10,10 +17,10 @@ All notable changes to `lua-resty-session` will be documented in this file.
 ## [3.7] - 2020-10-27
 ### Fixed
 - Fix #107 where `session.start` could release a lock for a short period
-  
+
 ### Added
 - Add `keep_lock` argument to `session.open`
-- Add pluggable compressors, and implement `none` and `zlib` compressor   
+- Add pluggable compressors, and implement `none` and `zlib` compressor
 
 
 ## [3.6] - 2020-06-24
@@ -27,13 +34,13 @@ All notable changes to `lua-resty-session` will be documented in this file.
 - Fix `session:hide()` to not clear non-session request cookies that it
   seemed to do in some cases as reported by @altexy who also provided
   initial fix with #100. Thank you!
-   
+
 
 ## [3.4] - 2020-05-08
 ### Fixed
 - Fix session_cookie_maxsize - error attempt to compare string with number,
   fixes #98, thank you @vavra5
-  
+
 ### Changed
 - More robust and uniform configuration parsing
 
@@ -86,12 +93,12 @@ All notable changes to `lua-resty-session` will be documented in this file.
 
 ### Changed
 - The whole codebase was refactored and simplified, especially implementing
-  new storage adapters is now a lot easier 
+  new storage adapters is now a lot easier
 - Redis and Memcached `spinlockwait` was changed from microseconds to milliseconds and default
   is set to `150` milliseconds,
 - Redis and Memcache will only release locks that current session instance holds
 - DSHM `session_dshm_store` was renamed to `session_dshm_region`
-- BASE64 encoding now strips the padding 
+- BASE64 encoding now strips the padding
 
 
 ## [2.26] - 2020-02-11
@@ -330,7 +337,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
   the cookie (until start is called).
   See also: https://github.com/bungle/lua-resty-session/issues/12
   Thanks @junhanamaki
-  
+
 ### Fixed
 - Fixed cookie expiration time format on Firefox bug:
   https://github.com/bungle/lua-resty-session/pull/10
