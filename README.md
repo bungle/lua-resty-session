@@ -16,7 +16,7 @@ http {
         listen       8080;
         server_name  localhost;
         default_type text/html;
-        
+
         location / {
             content_by_lua '
                 ngx.say("<html><body><a href=/start>Start the test</a>!</body></html>")
@@ -109,7 +109,7 @@ unencrypted data, `http_user_agent` and `scheme`. You may also configure it to u
 setting `set $session_check_addr on;` (but this may be problematic with clients behind proxies or NATs that
 change the remote address between requests). If you are using SSL Session IDs you may also add
 `set $session_check_ssi on;`, but please check that it works accordingly (you may need to adjust both SSL
-and session library settings). 
+and session library settings).
 
 The data part is encrypted with AES-algorithm (by default it uses OpenSSL `EVP_aes_256_cbc` and
 `EVP_sha512` functions that are provided with `lua-resty-string`. They come pre-installed with
@@ -132,7 +132,7 @@ JSON encoding is done by the bundled OpenResty cJSON library (Lua cJSON). We do 
 serializers as well, though only serializer currently supplied is JSON. Cookie's path scope is by
 default `/` (meaning that it will be send to all paths in the server). The domain scope is not set
 by default, and it means that the cookie will only be sent back to same domain/host where it originated.
-If you set  session name (e.g. `set $session_name <value>`) and it contains prefix `__Secure-` the 
+If you set  session name (e.g. `set $session_name <value>`) and it contains prefix `__Secure-` the
 `Secure` flag will be forced, and if it contains `__Host-` the `path` is forced to `/` and the
 `domain` is removed, and the `Secure` flag will be forced too.
 
@@ -345,7 +345,7 @@ The keys stored in shared dictionary are in form:
 #### Memcache Storage Adapter
 
 Memcache storage adapter stores the session data inside Memcached server.
-It is scalable and works with web farms. 
+It is scalable and works with web farms.
 
 Memcache adapter can be selected with configuration:
 
@@ -368,7 +368,7 @@ set $session_memcache_spinlockwait     150;  # (in milliseconds)
 set $session_memcache_maxlockwait      30;   # (in seconds)
 set $session_memcache_pool_name        sessions;
 set $session_memcache_pool_timeout     1000; # (in milliseconds)
-set $session_memcache_pool_size        10;                 
+set $session_memcache_pool_size        10;
 set $session_memcache_pool_backlog     10;
 ```
 
@@ -379,7 +379,7 @@ The keys stored in Memcached are in form:
 #### Redis Storage Adapter
 
 Redis storage adapter stores the session data inside Redis server.
-It is scalable and works with web farms. 
+It is scalable and works with web farms.
 
 Redis adapter can be selected with configuration:
 
@@ -400,20 +400,23 @@ set $session_redis_host                     127.0.0.1;
 set $session_redis_port                     6379;
 set $session_redis_ssl                      off;
 set $session_redis_ssl_verify               off;
-set $session_redis_server_name              example.com; # for TLS SNI 
-set $session_redis_auth                     password;
+set $session_redis_server_name              example.com; # for TLS SNI
+set $session_redis_username                 username;
+set $session_redis_password                 password;
 set $session_redis_uselocking               on;
 set $session_redis_spinlockwait             150;  # (in milliseconds)
 set $session_redis_maxlockwait              30;   # (in seconds)
 set $session_redis_pool_name                sessions;
 set $session_redis_pool_timeout             1000; # (in milliseconds)
-set $session_redis_pool_size                10;                 
+set $session_redis_pool_size                10;
 set $session_redis_pool_backlog             10;
 set $session_redis_cluster_name             redis-cluster;
 set $session_redis_cluster_dict             sessions;
 set $session_redis_cluster_maxredirections  5;
 set $session_redis_cluster_nodes            '127.0.0.1:30001 127.0.0.1:30002 127.0.0.1:30003 127.0.0.1:30004 127.0.0.1:30005 127.0.0.1:30006';
 ```
+
+**Note**: `session_redis_auth` has been deprecated; use `session_redis_password`.
 
 To use `cluster` you need also to install:
 ```shell
@@ -431,11 +434,11 @@ The keys stored in Redis are in form:
 #### DSHM Storage Adapter
 
 DSHM storage adapter stores the session data inside Distributed Shared Memory server based
-on Vertx and Hazelcast. It is scalable and works with web farms. 
+on Vertx and Hazelcast. It is scalable and works with web farms.
 
 The DSHM lua library and the DSHM servers should be installed conforming with the documentation
-[here](https://github.com/grrolland/ngx-distributed-shm/blob/master/README.md).  
-  
+[here](https://github.com/grrolland/ngx-distributed-shm/blob/master/README.md).
+
 
 DSHM adapter can be selected with configuration:
 
@@ -454,7 +457,7 @@ set $session_dshm_host             127.0.0.1;
 set $session_dshm_port             4321;
 set $session_dshm_pool_name        sessions;
 set $session_dshm_pool_timeout     1000; # (in milliseconds)
-set $session_dshm_pool_size        10;                 
+set $session_dshm_pool_size        10;
 set $session_dshm_pool_backlog     10;
 ```
 
@@ -775,7 +778,7 @@ if session.present then
 end
 -- Now let's really start the session
 -- (session.started will be always false in this example):
-if not session.started then 
+if not session.started then
     session:start() -- with some storage adapters this will held a lock.
 end
 
@@ -1068,7 +1071,7 @@ as where the original cookie was delivered. This check is disabled by default.
 
 #### boolean session.check.scheme
 
-`session.check.scheme` is additional check to validate that the request was made using the same protocol 
+`session.check.scheme` is additional check to validate that the request was made using the same protocol
 as the one used when the original cookie was delivered. This check is enabled by default.
 
 ## Nginx Configuration Variables
