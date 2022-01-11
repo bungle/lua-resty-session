@@ -3,7 +3,7 @@
 All notable changes to `lua-resty-session` will be documented in this file.
 
 
-## [3.9] - Upcoming
+## [3.9] - 2022-01-12
 ### Changed
 - Optimize Redis and Memcache storage adapters to not connect to database
   when not needed.
