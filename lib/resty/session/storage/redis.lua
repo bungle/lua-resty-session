@@ -116,7 +116,8 @@ local defaults = {
     prefix          = var.session_redis_prefix                         or "sessions",
     socket          = var.session_redis_socket,
     host            = var.session_redis_host                           or "127.0.0.1",
-    auth            = var.session_redis_auth,
+    username        = var.session_redis_username,
+    password        = var.session_redis_password                       or var.session_redis_auth,
     server_name     = var.session_redis_server_name,
     ssl             = enabled(var.session_redis_ssl)                   or false,
     ssl_verify      = enabled(var.session_redis_ssl_verify)            or false,
@@ -163,9 +164,13 @@ function storage.new(session)
         maxlockwait     = tonumber(config.maxlockwait,  10) or defaults.maxlockwait,
     }
 
-    local auth = config.auth or defaults.auth
-    if auth == "" then
-        auth = nil
+    local username = config.username or defaults.username
+    if username == "" then
+      username = nil
+    end
+    local password = config.password or config.auth or defaults.password
+    if password == "" then
+        password = nil
     end
 
     local connect_timeout = tonumber(config.connect_timeout, 10) or defaults.connect_timeout
@@ -188,7 +193,8 @@ function storage.new(session)
         self.redis = redis_cluster:new({
             name               = cluster.name                          or defaults.cluster.name,
             dict_name          = cluster.dict                          or defaults.cluster.dict,
-            auth               = auth,
+            username           = var.session_redis_username,
+            password           = var.session_redis_password            or defaults.password,
             connection_timout  = connect_timeout, -- typo in library
             connection_timeout = connect_timeout,
             keepalive_timeout  = tonumber(pool.timeout,            10) or defaults.pool.timeout,
@@ -219,7 +225,8 @@ function storage.new(session)
         end
 
         self.redis           = redis
-        self.auth            = auth
+        self.username        = username
+        self.password        = password
         self.database        = tonumber(config.database,     10) or defaults.database
         self.pool_timeout    = tonumber(pool.timeout,        10) or defaults.pool.timeout
         self.connect_opts    = connect_opts
@@ -252,8 +259,13 @@ function storage:connect()
         return nil, err
     end
 
-    if self.auth and self.redis:get_reused_times() == 0 then
-        ok, err = self.redis:auth(self.auth)
+    if self.password and self.redis:get_reused_times() == 0 then
+        -- usernames are supported only on Redis 6+, so use new AUTH form only when absolutely necessary
+        if self.username then
+            ok, err = self.redis:auth(self.username, self.password)
+        else
+            ok, err = self.redis:auth(self.password)
+        end
         if not ok then
             self.redis:close()
             return nil, err
