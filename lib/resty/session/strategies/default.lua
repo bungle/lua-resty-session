@@ -4,12 +4,13 @@ local concat = table.concat
 local strategy = {}
 
 function strategy.load(session, cookie, key, keep_lock)
-  local storage = session.storage
-  local id      = cookie.id
+  local storage    = session.storage
+  local id         = cookie.id
+  local id_encoded = session.encoder.encode(id)
 
   local data, err
   if storage.open then
-    data, err = session.storage:open(session.encoder.encode(id), keep_lock)
+    data, err = session.storage:open(id_encoded, keep_lock)
     if not data then
       return nil, err or "cookie data was not found"
     end
@@ -30,21 +31,25 @@ function strategy.load(session, cookie, key, keep_lock)
 
   data, err = session.cipher:decrypt(data, hkey, id, session.key)
   if not data then
+    session.storage:close(id_encoded)
     return nil, err or "unable to decrypt data"
   end
 
   local input = concat{ key, data, session.key }
   if session.hmac(hkey, input) ~= hash then
+    session.storage:close(id_encoded)
     return nil, "cookie has invalid signature"
   end
 
   data, err = session.compressor:decompress(data)
   if not data then
+    session.storage:close(id_encoded)
     return nil, err or "unable to decompress data"
   end
 
   data, err = session.serializer.deserialize(data)
   if not data then
+    session.storage:close(id_encoded)
     return nil, err or "unable to deserialize data"
   end
 
