@@ -6,6 +6,8 @@ All notable changes to `lua-resty-session` will be documented in this file.
 ### Fixed
 - Fix #138 issue of chunked cookies are not expired when session shrinks,
   thanks @alexdowad.
+- Fix #134 where regenerate strategy destroyed previous session when calling
+  `session:regenerate`, it should just `ttl` the old session.
 
 ### Added
 - AES GCM mode support was added to AES cipher.
