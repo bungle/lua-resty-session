@@ -4,6 +4,9 @@ All notable changes to `lua-resty-session` will be documented in this file.
 
 ## Unreleased
 ### Added
+- AES GCM mode support was added to AES cipher.
+  This is recommended, but for backward compatibility it was not set as default.
+  It will be changed in 4.0 release.
 - Redis ACL authentication is now available.
   - Add `session_redis_username`
   - Add `session_redis_password`

@@ -17,6 +17,7 @@ local CIPHER_MODES = {
     cfb128 = "cfb128",
     ofb    = "ofb",
     ctr    = "ctr",
+    gcm    = "gcm",
 }
 
 local CIPHER_SIZES = {
@@ -71,22 +72,42 @@ function cipher.new(session)
     }, cipher)
 end
 
-function cipher:encrypt(data, key, salt)
+function cipher:encrypt(data, key, salt, _)
     local cip, err = get_cipher(self, key, salt)
     if not cip then
         return nil, err or "unable to aes encrypt data"
     end
 
-    return cip:encrypt(data)
+    local encrypted_data
+    encrypted_data, err = cip:encrypt(data)
+    if not encrypted_data then
+        return nil, err or "aes encryption failed"
+    end
+
+    if self.mode == "gcm" then
+        return encrypted_data[1], nil, encrypted_data[2]
+    end
+
+    return encrypted_data
 end
 
-function cipher:decrypt(data, key, salt)
+function cipher:decrypt(data, key, salt, _, tag)
     local cip, err = get_cipher(self, key, salt)
     if not cip then
         return nil, err or "unable to aes decrypt data"
     end
 
-    return cip:decrypt(data)
+    local decrypted_data
+    decrypted_data, err = cip:decrypt(data, tag)
+    if not decrypted_data then
+        return nil, err or "aes decryption failed"
+    end
+
+    if self.mode == "gcm" then
+        return decrypted_data, nil, tag
+    end
+
+    return decrypted_data
 end
 
 return cipher

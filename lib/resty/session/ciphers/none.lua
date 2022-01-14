@@ -4,11 +4,11 @@ function cipher.new()
     return cipher
 end
 
-function cipher.encrypt(_, data)
+function cipher.encrypt(_, data, _, _)
     return data
 end
 
-function cipher.decrypt(_, data)
+function cipher.decrypt(_, data, _, _, _)
     return data
 end
 
