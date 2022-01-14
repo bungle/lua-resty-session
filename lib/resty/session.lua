@@ -24,6 +24,7 @@ local getmetatable = getmetatable
 local bytes        = random.bytes
 
 local UNDERSCORE = byte("_")
+local EXPIRE_FLAGS = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
 
 local COOKIE_PARTS = {
     DEFAULT = {
@@ -135,57 +136,57 @@ local function set_cookie(session, value, expires)
      -- build cookie parameters, elements 1+2 will be set later
     if expires then
         -- we're expiring/deleting the data, so set an expiry in the past
-        output[i] = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
-        i = i + 1
+        output[i] = EXPIRE_FLAGS
     elseif cookie.persistent then
-        output[i]   = "; Expires="
-        output[i+1] = http_time(session.expires)
-        output[i+2] = "; Max-Age="
-        output[i+3] = cookie.lifetime
-        i = i + 4
+        -- persistent cookies have an expiry
+        output[i]   = "; Expires="  .. http_time(session.expires) .. "; Max-Age=" .. cookie.lifetime
+    else
+        -- just to reserve index 3 for expiry as cookie might get smaller,
+        -- and some cookies need to be expired.
+        output[i] = ""
     end
 
     if cookie.domain and cookie.domain ~= "localhost" and cookie.domain ~= "" then
-        output[i]   = "; Domain="
-        output[i+1] = cookie.domain
-        i = i + 2
+        i = i + 1
+        output[i]   = "; Domain=" .. cookie.domain
     end
 
-    output[i]   = "; Path="
-    output[i+1] = cookie.path or "/"
-    i = i + 2
+    i = i + 1
+    output[i] = "; Path=" .. (cookie.path or "/")
 
     if cookie.samesite == "Lax"
     or cookie.samesite == "Strict"
     or cookie.samesite == "None"
     then
-        output[i] = "; SameSite="
-        output[i+1] = cookie.samesite
-        i = i + 2
+        i = i + 1
+        output[i] = "; SameSite=" .. cookie.samesite
     end
 
     if cookie.secure then
-        output[i] = "; Secure"
         i = i + 1
+        output[i] = "; Secure"
     end
 
     if cookie.httponly then
+        i = i + 1
         output[i] = "; HttpOnly"
     end
 
     -- How many chunks do we need?
     local cookie_parts
+    local cookie_chunks
     if expires then
         -- expiring cookie, so deleting data. Do not measure data, but use
         -- existing chunk count to make sure we clear all of them
         cookie_parts = cookie.chunks or 1
     else
         -- calculate required chunks from data
-        cookie_parts = max(ceil(#value / cookie.maxsize), 1)
+        cookie_chunks = max(ceil(#value / cookie.maxsize), 1)
+        cookie_parts = max(cookie_chunks, cookie.chunks or 1)
     end
 
     local cookie_header = header["Set-Cookie"]
-    for j=1, cookie_parts do
+    for j = 1, cookie_parts do
         -- create numbered chunk names if required
         local chunk_name = { session.name }
         if j > 1 then
@@ -201,10 +202,15 @@ local function set_cookie(session, value, expires)
         if expires then
             -- expiring cookie, so deleting data; clear it
             output[2] = ""
+        elseif j > cookie_chunks then
+            -- less chunks than before, clearing excess cookies
+            output[2] = ""
+            output[3] = EXPIRE_FLAGS
+
         else
             -- grab the piece for the current chunk
             local sp = j * cookie.maxsize - (cookie.maxsize - 1)
-            if j < cookie_parts then
+            if j < cookie_chunks then
                 output[2] = sub(value, sp, sp + (cookie.maxsize - 1)) .. "0"
             else
                 output[2] = sub(value, sp)
@@ -226,7 +232,7 @@ local function set_cookie(session, value, expires)
                 end
             end
             if not found then
-                cookie_header[cookie_count +1] = cookie_content
+                cookie_header[cookie_count + 1] = cookie_content
             end
         elseif header_type == "string" and find(cookie_header, chunk_name, 1, true) ~= 1  then
             cookie_header = { cookie_header, cookie_content }
@@ -472,7 +478,7 @@ function session:parse_cookie(value)
 end
 
 function session.new(opts)
-    if getmetatable(opts) == session then
+    if opts and getmetatable(opts) == session then
         return opts
     end
 
@@ -567,7 +573,7 @@ end
 
 function session.open(opts, keep_lock)
     local self = opts
-    if getmetatable(self) == session then
+    if self and getmetatable(self) == session then
         if self.opened then
             return self, self.present
         end
@@ -608,7 +614,7 @@ function session.open(opts, keep_lock)
 end
 
 function session.start(opts)
-    if getmetatable(opts) == session and opts.started then
+    if opts and getmetatable(opts) == session and opts.started then
         return opts, opts.present
     end
 
@@ -651,7 +657,7 @@ function session.start(opts)
 end
 
 function session.destroy(opts)
-    if getmetatable(opts) == session and opts.destroyed then
+    if opts and getmetatable(opts) == session and opts.destroyed then
         return true
     end
 
@@ -678,7 +684,9 @@ end
 
 function session:regenerate(flush, close)
     close = close ~= false
-    regenerate(self, flush)
+    if not self.strategy.regenerate then
+        regenerate(self, flush)
+    end
     return save(self, close)
 end
 

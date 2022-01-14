@@ -544,9 +544,9 @@ By default this will use `256` bits key size. This can be configured with Nginx
 **mode**
 
 `session.aes.mode` holds the mode of the cipher. `lua-resty-string` supports AES in `ecb`, `cbc`,
-`cfb1`, `cfb8`, `cfb128`, `ofb`, and `ctr` modes (ctr mode is not available with 256 bit keys).
-See `aes.cipher` function in `lua-resty-string` for more information. By default `cbc` mode is
-used. This can be configured with Nginx `set $session_aes_mode cbc;`.
+`cfb1`, `cfb8`, `cfb128`, `ofb`, `ctr`, and `gcm` (recommended!) modes (ctr mode is not available
+with 256 bit keys).  See `aes.cipher` function in `lua-resty-string` for more information.
+By default `cbc` mode is  used. This can be configured with Nginx `set $session_aes_mode cbc;`.
 
 **hash**
 
@@ -580,10 +580,11 @@ There isn't any settings for None adapter as it is basically a no-op adapter.
 If you want to write your own cipher adapter, you need to implement these three methods:
 
 * `cipher new(session)`
-* `string cipher:encrypt(data, key, iv or salt, associated data)`
-* `string cipher:decrypt(ciphertext, key, iv or salt, associated data)`
+* `string, err, tag = cipher:encrypt(data, key, salt, aad)`
+* `string, err, tag = cipher:decrypt(data, key, salt, aad, tag)`
 
-If you do not use say iv or associated data in your cipher, you can ignore them.
+If you do not use say salt or aad (associated data) in your cipher, you can ignore them.
+If you don't use `AEAD` construct (like `AES in GCM-mode`), don't return `tag`.
 
 You have to place your adapter inside `resty.session.ciphers` for auto-loader to work.
 

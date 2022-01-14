@@ -3,9 +3,10 @@ local default = require "resty.session.strategies.default"
 local concat  = table.concat
 
 local strategy = {
-  start   = default.start,
-  destroy = default.destroy,
-  close   = default.close,
+  regenerate = true,
+  start      = default.start,
+  destroy    = default.destroy,
+  close      = default.close,
 }
 
 local function key(source)
@@ -25,8 +26,8 @@ function strategy.touch(session, close)
 end
 
 function strategy.save(session, close)
-  local storage = session.storage
   if session.present then
+    local storage = session.storage
     if storage.ttl then
       storage:ttl(session.encoder.encode(session.id), session.cookie.discard, true)
     elseif storage.close then
