@@ -3,6 +3,10 @@
 All notable changes to `lua-resty-session` will be documented in this file.
 
 ## Unreleased
+### Fixed
+- Fix #138 issue of chunked cookies are not expired when session shrinks,
+  thanks @alexdowad.
+
 ### Added
 - AES GCM mode support was added to AES cipher.
   This is recommended, but for backward compatibility it was not set as default.
