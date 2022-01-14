@@ -684,9 +684,18 @@ end
 
 function session:regenerate(flush, close)
     close = close ~= false
-    if not self.strategy.regenerate then
+    if self.strategy.regenerate then
+        if flush then
+            self.data = {}
+        end
+
+        if not self.id then
+            self.id = session:identifier()
+        end
+    else
         regenerate(self, flush)
     end
+
     return save(self, close)
 end
 

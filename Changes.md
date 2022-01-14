@@ -2,6 +2,12 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [3.10] - 2022-01-14
+### Fixed
+- 3.9 introduced an issue where calling session:regenerate with flush=true,
+  didn't really flush if the session strategy was `regenerate`.
+
+
 ## [3.9] - 2022-01-14
 ### Fixed
 - Fix #138 issue of chunked cookies are not expired when session shrinks,
