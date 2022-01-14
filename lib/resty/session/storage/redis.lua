@@ -383,6 +383,10 @@ function storage:open(id, keep_lock)
 end
 
 function storage:start(id)
+    if not self.uselocking or not self.locked then
+        return true
+    end
+
     local ok, err = self:connect()
     if not ok then
         return nil, err
@@ -419,6 +423,10 @@ function storage:save(id, ttl, data, close)
 end
 
 function storage:close(id)
+    if not self.uselocking or not self.locked then
+        return true
+    end
+
     local ok, err = self:connect()
     if not ok then
         return nil, err

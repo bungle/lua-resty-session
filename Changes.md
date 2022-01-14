@@ -2,7 +2,7 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
-## Unreleased
+## [3.9] - 2022-01-14
 ### Fixed
 - Fix #138 issue of chunked cookies are not expired when session shrinks,
   thanks @alexdowad.
@@ -17,6 +17,11 @@ All notable changes to `lua-resty-session` will be documented in this file.
   - Add `session_redis_username`
   - Add `session_redis_password`
   - Deprecate `session_redis_auth`; use `session_redis_password`
+
+### Changed
+- Optimize Redis and Memcache storage adapters to not connect to database
+  when not needed.
+  
 
 ## [3.8] - 2021-01-04
 ### Added
