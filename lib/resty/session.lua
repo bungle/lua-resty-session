@@ -478,7 +478,7 @@ function session:parse_cookie(value)
 end
 
 function session.new(opts)
-    if getmetatable(opts) == session then
+    if opts and getmetatable(opts) == session then
         return opts
     end
 
@@ -573,7 +573,7 @@ end
 
 function session.open(opts, keep_lock)
     local self = opts
-    if getmetatable(self) == session then
+    if self and getmetatable(self) == session then
         if self.opened then
             return self, self.present
         end
@@ -614,7 +614,7 @@ function session.open(opts, keep_lock)
 end
 
 function session.start(opts)
-    if getmetatable(opts) == session and opts.started then
+    if opts and getmetatable(opts) == session and opts.started then
         return opts, opts.present
     end
 
@@ -657,7 +657,7 @@ function session.start(opts)
 end
 
 function session.destroy(opts)
-    if getmetatable(opts) == session and opts.destroyed then
+    if opts and getmetatable(opts) == session and opts.destroyed then
         return true
     end
 
