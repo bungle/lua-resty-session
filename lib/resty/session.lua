@@ -7,13 +7,20 @@ local bit = require "bit"
 
 local setmetatable = setmetatable
 local assert = assert
+local header = ngx.header
 local error = error
 local ceil = math.ceil
 local time = ngx.time
 local band = bit.band
+local byte = string.byte
+local type = type
 local bor = bit.bor
 local var = ngx.var
+local fmt = string.format
 local sub = string.sub
+
+
+local EQUALS_BYTE = byte("=")
 
 
 local bpack, bunpack do
@@ -76,7 +83,8 @@ local COMPRESSION_THRESHOLD = 1024
 
 
 local MAX_COOKIE_SIZE = 4096
-local MAX_COOKIES_SIZE = 9 * MAX_COOKIE_SIZE -- 36864 bytes
+local MAX_COOKIES = 9
+local MAX_STATELESS_SIZE = MAX_COOKIES * MAX_COOKIE_SIZE -- 36864 bytes
 
 
 local OPTIONS_NONE         = 0x0000
@@ -119,9 +127,9 @@ local SUBJECT_IDX  = 2
 local DATA_IDX     = 3
 
 
-local COOKIE_WRITE_BUFFER = buffer.new(MAX_COOKIE_SIZE)
+local PAYLOAD_BUFFER = buffer.new(MAX_STATELESS_SIZE)
 local COOKIE_FLAGS_BUFFER = buffer.new(128)
-local HEADER_BUFFER       = buffer.new(HEADER_SIZE)
+local HEADER_BUFFER = buffer.new(HEADER_SIZE)
 
 
 local encode_buffer, decode_buffer do
@@ -435,6 +443,65 @@ local hmac_sha256 do
 end
 
 
+local function calculate_cookie_chunks(cookie_name_size, data_size)
+  local space_needed = cookie_name_size + 1 + HEADER_ENCODED_SIZE + data_size
+  if space_needed > MAX_STATELESS_SIZE then
+    return nil, "size limit exceeded"
+  end
+
+  if space_needed <= MAX_COOKIE_SIZE then
+    return 1
+  end
+
+  for i = 2, MAX_COOKIES do
+    space_needed = space_needed + cookie_name_size + 2
+    if space_needed > MAX_STATELESS_SIZE then
+      return nil, "size limit exceeded"
+    elseif space_needed <= (MAX_COOKIE_SIZE * i) then
+      return i
+    end
+  end
+
+  return nil, "size limit exceeded"
+end
+
+
+local function merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data)
+  if not cookies then
+    return cookie_data
+  end
+
+  if type(cookies) == "string" then
+    if byte(cookies, cookie_name_size + 1) == EQUALS_BYTE and
+       sub(cookies, 1, cookie_name_size) == cookie_name
+    then
+      return cookie_data
+    end
+
+    return { cookies, cookie_data }
+  end
+
+  if type(cookies) ~= "table" then
+    return nil, "invalid cookies"
+  end
+
+  local count = #cookies
+  for i = 1, count do
+    if byte(cookies[i], cookie_name_size + 1) == EQUALS_BYTE and
+       sub(cookies[i], 1, cookie_name_size) == cookie_name
+    then
+      cookies[i] = cookie_data
+      return cookies
+    end
+
+    if i == count then
+      cookies[i+1] = cookie_data
+      return cookies
+    end
+  end
+end
+
+
 local metatable = {}
 
 
@@ -482,7 +549,7 @@ function metatable:create()
   local cookie_name = self.cookie_name
   local cookie_name_size = #cookie_name
 
-  local data, data_size do
+  local data, data_size, cookie_chunks do
     local err
     if band(options, OPTION_STRING_BUFFER) ~= 0 then
       data, err = encode_buffer(self[DATA_KEY])
@@ -502,27 +569,23 @@ function metatable:create()
     data_size = #data
 
     if data_size > COMPRESSION_THRESHOLD then
-      local deflated_data = deflate(data)
-      if deflated_data then
-        local deflated_size = #deflated_data
-        if deflated_size < data_size then
-          options = bor(options, OPTION_DEFLATE)
-          data = deflated_data
-          data_size = deflated_size
-        end
-      end
+      --local deflated_data = deflate(data)
+      --if deflated_data then
+      --  local deflated_size = #deflated_data
+      --  if deflated_size < data_size then
+      --    options = bor(options, OPTION_DEFLATE)
+      --    data = deflated_data
+      --    data_size = deflated_size
+      --  end
+      --end
     end
 
     data_size = ceil(4 * data_size / 3) -- base64url encoded size
 
     if stateless then
-      local total_size = cookie_name_size * 9
-                       + HEADER_ENCODED_SIZE
-                       + data_size
-                       + 17
-
-      if total_size > MAX_COOKIES_SIZE then
-        return nil, "size limit exceeded"
+      cookie_chunks, err = calculate_cookie_chunks(cookie_name_size, data_size)
+      if not cookie_chunks then
+        return nil, err
       end
     end
   end
@@ -563,9 +626,9 @@ function metatable:create()
     return nil, err
   end
 
-  local header = HEADER_BUFFER:put(sub(mac, 1, MAC_SIZE)):get()
-  header, err = encode_base64url(header)
-  if not header then
+  local payload_header = HEADER_BUFFER:put(sub(mac, 1, MAC_SIZE)):get()
+  payload_header, err = encode_base64url(payload_header)
+  if not payload_header then
     return nil, err
   end
 
@@ -574,13 +637,53 @@ function metatable:create()
     return nil, err
   end
 
-  -- TODO: stateless cookie splitting
-  -- TODO: should just return true/false after setting the response cookie
-  return COOKIE_WRITE_BUFFER:reset():put(cookie_name, "=", header, payload, self.cookie_flags):get()
+  local cookies = header["Set-Cookie"]
+  local cookie_flags = self.cookie_flags
+
+  if cookie_chunks == 1 then
+    local cookie_data
+    if stateless then
+      cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, payload, cookie_flags)
+    else
+      cookie_data = fmt("%s=%s%s", cookie_name, payload_header, cookie_flags)
+    end
+
+    cookies, err = merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data)
+    if not cookies then
+      return nil, err
+    end
+
+  else
+    PAYLOAD_BUFFER:set(payload)
+
+    local cookie_data = PAYLOAD_BUFFER:get(MAX_COOKIE_SIZE - HEADER_ENCODED_SIZE - cookie_name_size - 1)
+    cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, cookie_data, cookie_flags)
+    cookies, err = merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data)
+    if not cookies then
+      return nil, err
+    end
+
+    for i = 2, cookie_chunks do
+      local name = fmt("%s%d", cookie_name, i)
+      cookie_data = PAYLOAD_BUFFER:get(MAX_COOKIE_SIZE - cookie_name_size - 2)
+      cookie_data = fmt("%s=%s%s", name, cookie_data, cookie_flags)
+      cookies, err = merge_cookies(cookies, cookie_name_size + 1, name, cookie_data)
+      if not cookies then
+        return nil, err
+      end
+    end
+  end
+
+  header["Set-Cookie"] = cookies
+
+  return true
 end
 
 
 function metatable:open(cookie)
+  local cookie_name = self.cookie_name
+  local cookie_name_size = #cookie_name
+
   if not cookie then
     local cookie_name = self.cookie_name
     cookie = var["cookie_" .. cookie_name]
@@ -691,14 +794,36 @@ function metatable:open(cookie)
 
   local ciphertext
   if band(options, OPTION_STATELESS) then
-    ciphertext = sub(cookie, -payload_size)
+    local cookie_chunks, err = calculate_cookie_chunks(cookie_name_size, payload_size)
+    if not cookie_chunks then
+      return nil, err
+    end
+
+    if cookie_chunks == 1 then
+      ciphertext = sub(cookie, -payload_size)
+
+    else
+      PAYLOAD_BUFFER:reset():put(sub(cookie, cookie_name_size + 1 + HEADER_ENCODED_SIZE))
+      for i = 2, cookie_chunks do
+        local name = fmt("%s%d", cookie_name, i)
+        local chunk = var["cookie_" .. name]
+        if not chunk then
+          return nil, "missing session cookie chunk"
+        end
+
+        PAYLOAD_BUFFER:put(sub(chunk, cookie_name_size + 2))
+      end
+
+      ciphertext = PAYLOAD_BUFFER:get()
+    end
+
     if #ciphertext ~= payload_size then
-      return nil, "invalid session payload"
+      return nil, "invalid session payload1"
     end
 
     ciphertext = decode_base64url(ciphertext)
     if not ciphertext then
-      return nil, "invalid session payload"
+      return nil, "invalid session payload2"
     end
 
   else
@@ -714,14 +839,14 @@ function metatable:open(cookie)
   local aad = sub(header, 1, HEADER_SIZE - MAC_SIZE - TAG_SIZE - IDLING_OFFSET_SIZE)
   local plaintext = decrypt_aes_256_gcm(key, iv, ciphertext, aad, tag)
   if not plaintext then
-    return nil, "invalid session payload"
+    return nil, "invalid session payload3"
   end
 
   local data do
     if band(options, OPTION_DEFLATE) ~= 0 then
-      data = inflate(plaintext)
-      if not data then
-        return nil, "invalid session payload"
+      plaintext = inflate(plaintext)
+      if not plaintext then
+        return nil, "invalid session payload4"
       end
     end
 
@@ -732,7 +857,7 @@ function metatable:open(cookie)
     end
 
     if not data then
-      return nil, "invalid session payload"
+      return nil, "invalid session payload5"
     end
 
     local count = #data
