@@ -55,29 +55,35 @@ function storage.new(session)
             max_step    = tonumber(lock_opts.max_step, 10) or defaults.max_step,
         }
         self.lock = lock:new(store, opts)
+        self.locked = false
     end
 
     return setmetatable(self, storage)
 end
 
 function storage:open(id, keep_lock)
-    if self.uselocking then
+    if self.uselocking and not self.locked then
         local ok, err = self.lock:lock(concat{ id, ".lock" })
         if not ok then
             return nil, err
         end
+        self.locked = true
     end
 
     local data, err = self.store:get(id)
 
     if self.uselocking and (err or not data or not keep_lock) then
         self.lock:unlock()
+        self.locked = nil
     end
 
     return data, err
 end
 
 function storage:start(id)
+    if self.locked then
+        return true
+    end
     if self.uselocking then
         return self.lock:lock(concat{ id, ".lock" })
     end
@@ -89,6 +95,7 @@ function storage:save(id, ttl, data, close)
     local ok, err = self.store:set(id, data, ttl)
     if close and self.uselocking then
         self.lock:unlock()
+        self.locked = nil
     end
 
     return ok, err
@@ -97,6 +104,7 @@ end
 function storage:close()
     if self.uselocking then
         self.lock:unlock()
+        self.locked = nil
     end
 
     return true
@@ -107,6 +115,7 @@ function storage:destroy(id)
 
     if self.uselocking then
         self.lock:unlock()
+        self.locked = nil
     end
 
     return true
@@ -117,6 +126,7 @@ function storage:ttl(id, lifetime, close)
 
     if close and self.uselocking then
         self.lock:unlock()
+        self.locked = nil
     end
 
     return ok, err
