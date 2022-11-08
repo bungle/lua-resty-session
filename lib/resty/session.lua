@@ -104,6 +104,7 @@ local OPTIONS = {
 
 local DEFAULT_AUDIENCE = ""
 local DEFAULT_SUBJECT  = ""
+local DEFAULT_META     = {}
 
 
 local DEFAULT_COOKIE_NAME = "session"
@@ -119,6 +120,7 @@ local DEFAULT_ABSOLUTE_TIMEOUT = 86400 -- 24 hours
 
 local IKM_KEY      = {}
 local AUDIENCE_KEY = {}
+local META_KEY     = {}
 local DATA_KEY     = {}
 
 
@@ -595,14 +597,19 @@ function metatable:create()
     return nil, err
   end
 
-  local payload_size   = bpack(PAYLOAD_SIZE, data_size)
-  local options        = bpack(OPTIONS_SIZE, options)
-  local created_at     = bpack(CREATED_AT_SIZE, time())
-  local rolling_offset = bpack(ROLLING_OFFSET_SIZE, 0)
-  local idling_offset  = bpack(IDLING_OFFSET_SIZE, 0)
+  local rolling_offset = 0
+  local idling_offset = 0
+
+  local created_at = time()
+
+  local packed_data_size      = bpack(PAYLOAD_SIZE, data_size)
+  local packed_options        = bpack(OPTIONS_SIZE, options)
+  local packed_created_at     = bpack(CREATED_AT_SIZE, created_at)
+  local packed_rolling_offset = bpack(ROLLING_OFFSET_SIZE, rolling_offset)
+  local packed_idling_offset  = bpack(IDLING_OFFSET_SIZE, idling_offset)
 
   HEADER_BUFFER:reset()
-  HEADER_BUFFER:put(COOKIE_TYPE, sid, payload_size, options, created_at, rolling_offset)
+  HEADER_BUFFER:put(COOKIE_TYPE, sid, packed_data_size, packed_options, packed_created_at, packed_rolling_offset)
 
   local key, err, iv = derive_aes_gcm_256_key_and_iv(self[IKM_KEY], sid)
   if not key then
@@ -614,7 +621,7 @@ function metatable:create()
     return nil, err
   end
 
-  HEADER_BUFFER:put(tag, idling_offset)
+  HEADER_BUFFER:put(tag, packed_idling_offset)
 
   local auth_key, err = derive_hmac_sha256_key(self[IKM_KEY], sid)
   if not auth_key then
@@ -640,9 +647,11 @@ function metatable:create()
   local cookies = header["Set-Cookie"]
   local cookie_flags = self.cookie_flags
 
+  local initial_chunk
   if cookie_chunks == 1 then
     local cookie_data
     if stateless then
+      initial_chunk = payload
       cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, payload, cookie_flags)
     else
       cookie_data = fmt("%s=%s%s", cookie_name, payload_header, cookie_flags)
@@ -656,8 +665,9 @@ function metatable:create()
   else
     PAYLOAD_BUFFER:set(payload)
 
-    local cookie_data = PAYLOAD_BUFFER:get(MAX_COOKIE_SIZE - HEADER_ENCODED_SIZE - cookie_name_size - 1)
-    cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, cookie_data, cookie_flags)
+    initial_chunk = PAYLOAD_BUFFER:get(MAX_COOKIE_SIZE - HEADER_ENCODED_SIZE - cookie_name_size - 1)
+
+    local cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, initial_chunk, cookie_flags)
     cookies, err = merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data)
     if not cookies then
       return nil, err
@@ -675,6 +685,19 @@ function metatable:create()
   end
 
   header["Set-Cookie"] = cookies
+
+  self[META_KEY] = {
+    id = sid,
+    size = data_size,
+    options = options,
+    created_at = created_at,
+    rolling_offset = rolling_offset,
+    tag = tag,
+    idling_offset = idling_offset,
+    mac = mac,
+    header = header,
+    initial_chunk = initial_chunk,
+  }
 
   return true
 end
@@ -702,8 +725,8 @@ function metatable:open(ngx_var)
 
   HEADER_BUFFER:set(header)
 
-  do
-    local cookie_type = HEADER_BUFFER:get(COOKIE_TYPE_SIZE)
+  local cookie_type do
+    cookie_type = HEADER_BUFFER:get(COOKIE_TYPE_SIZE)
     if #cookie_type ~= COOKIE_TYPE_SIZE then
       return nil, "invalid session cookie type"
     end
@@ -817,42 +840,45 @@ function metatable:open(ngx_var)
     end
   end
 
-  local ciphertext
-  if band(options, OPTION_STATELESS) ~= 0 then
-    local cookie_chunks, err = calculate_cookie_chunks(#cookie_name, payload_size)
-    if not cookie_chunks then
-      return nil, err
-    end
-
-    if cookie_chunks == 1 then
-      ciphertext = sub(cookie, -payload_size)
-
-    else
-      PAYLOAD_BUFFER:reset():put(sub(cookie, HEADER_ENCODED_SIZE + 1))
-      for i = 2, cookie_chunks do
-        local chunk = var["cookie_" .. cookie_name .. i]
-        if not chunk then
-          return nil, "missing session cookie chunk"
-        end
-
-        PAYLOAD_BUFFER:put(chunk)
+  local initial_chunk, ciphertext do
+    if band(options, OPTION_STATELESS) ~= 0 then
+      local cookie_chunks, err = calculate_cookie_chunks(#cookie_name, payload_size)
+      if not cookie_chunks then
+        return nil, err
       end
 
-      ciphertext = PAYLOAD_BUFFER:get()
-    end
+      if cookie_chunks == 1 then
+        initial_chunk = sub(cookie, -payload_size)
+        ciphertext = initial_chunk
 
-    if #ciphertext ~= payload_size then
-      return nil, "invalid session payload"
-    end
+      else
+        initial_chunk = sub(cookie, HEADER_ENCODED_SIZE + 1)
+        PAYLOAD_BUFFER:reset():put(initial_chunk)
+        for i = 2, cookie_chunks do
+          local chunk = var["cookie_" .. cookie_name .. i]
+          if not chunk then
+            return nil, "missing session cookie chunk"
+          end
 
-    ciphertext = decode_base64url(ciphertext)
-    if not ciphertext then
-      return nil, "invalid session payload"
-    end
+          PAYLOAD_BUFFER:put(chunk)
+        end
 
-  else
-    -- TODO: storage.load
-    error("load data from db not implemented")
+        ciphertext = PAYLOAD_BUFFER:get()
+      end
+
+      if #ciphertext ~= payload_size then
+        return nil, "invalid session payload"
+      end
+
+      ciphertext = decode_base64url(ciphertext)
+      if not ciphertext then
+        return nil, "invalid session payload"
+      end
+
+    else
+      -- TODO: storage.load
+      error("load data from db not implemented")
+    end
   end
 
   local key, err, iv = derive_aes_gcm_256_key_and_iv(self[IKM_KEY], sid)
@@ -899,7 +925,69 @@ function metatable:open(ngx_var)
     end
   end
 
+  self[META_KEY] = {
+    id = sid,
+    size = payload_size,
+    options = options,
+    created_at = created_at,
+    rolling_offset = rolling_offset,
+    tag = tag,
+    idling_offset = idling_offset,
+    mac = mac,
+    header = header,
+    initial_chunk = initial_chunk,
+  }
   self[DATA_KEY] = data
+
+  return true
+end
+
+
+function metatable:touch()
+  local meta = self[META_KEY]
+  if meta == DEFAULT_META then
+    return nil, "unable to touch a closed session"
+  end
+
+  local idling_offset = time() - meta.created_at - meta.rolling_offset
+
+  HEADER_BUFFER:reset():put(sub(self[META_KEY].header, 1, HEADER_SIZE - IDLING_OFFSET_SIZE - MAC_SIZE),
+                            bpack(IDLING_OFFSET_SIZE, idling_offset))
+
+  -- TODO: we need to know if the session was opened with a fallback IKM
+  local auth_key, err = derive_hmac_sha256_key(self[IKM_KEY], meta.id)
+  if not auth_key then
+    return nil, err
+  end
+
+  local mac, err = hmac_sha256(auth_key, HEADER_BUFFER:tostring())
+  if not mac then
+    return nil, err
+  end
+
+  mac = sub(mac, 1, MAC_SIZE)
+
+  local payload_header = HEADER_BUFFER:put(mac):get()
+
+  self[META_KEY].idling_offset = idling_offset
+  self[META_KEY].mac = mac
+  self[META_KEY].header = payload_header
+
+  payload_header, err = encode_base64url(payload_header)
+  if not payload_header then
+    return nil, err
+  end
+
+  local cookie_flags = self.cookie_flags
+  local cookie_name = self.cookie_name
+  local cookie_data
+  if band(meta.options, OPTION_STATELESS) ~= 0 then
+    cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, meta.initial_chunk, cookie_flags)
+  else
+    cookie_data = fmt("%s=%s%s", cookie_name, payload_header, cookie_flags)
+  end
+
+  header["Set-Cookie"] = merge_cookies(header["Set-Cookie"], #cookie_name, cookie_name, cookie_data)
 
   return true
 end
@@ -1013,6 +1101,7 @@ function session.new(configuration)
     options          = opts,
     [IKM_KEY]        = ikm,
     [AUDIENCE_KEY]   = 1,
+    [META_KEY]       = DEFAULT_META,
     [DATA_KEY]       = {
       {
         [AUDIENCE_IDX] = audience,
