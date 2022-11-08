@@ -681,6 +681,7 @@ end
 
 
 function metatable:open(ngx_var)
+  local current_time = time()
   local cookie_name = self.cookie_name
   local var = ngx_var or var
   local cookie = var["cookie_" .. cookie_name]
@@ -723,6 +724,8 @@ function metatable:open(ngx_var)
     if #payload_size ~= PAYLOAD_SIZE then
       return nil, "invalid session payload size"
     end
+
+    payload_size = bunpack(PAYLOAD_SIZE, payload_size)
   end
 
   local options do
@@ -730,12 +733,21 @@ function metatable:open(ngx_var)
     if #options ~= OPTIONS_SIZE then
       return nil, "invalid session options"
     end
+
+    options = bunpack(OPTIONS_SIZE, options)
   end
 
   local created_at do
     created_at = HEADER_BUFFER:get(CREATED_AT_SIZE)
     if #created_at ~= CREATED_AT_SIZE then
       return nil, "invalid session creation time"
+    end
+
+    created_at = bunpack(CREATED_AT_SIZE, created_at)
+
+    local absolute_period = current_time - created_at
+    if absolute_period > self.absolute_timeout then
+      return nil, "session absolute timeout exceeded"
     end
   end
 
@@ -744,12 +756,26 @@ function metatable:open(ngx_var)
     if #rolling_offset ~= ROLLING_OFFSET_SIZE then
       return nil, "invalid session rolling offset"
     end
+
+    rolling_offset = bunpack(ROLLING_OFFSET_SIZE, rolling_offset)
+
+    local rolling_period = current_time - created_at - rolling_offset
+    if rolling_period > self.rolling_timeout then
+      return nil, "session rolling timeout exceeded"
+    end
   end
 
   local idling_offset do
     idling_offset = HEADER_BUFFER:get(IDLING_OFFSET_SIZE)
     if #idling_offset ~= IDLING_OFFSET_SIZE then
       return nil, "invalid session idling offset"
+    end
+
+    idling_offset  = bunpack(IDLING_OFFSET_SIZE, idling_offset)
+
+    local idling_period = current_time - created_at - rolling_offset - idling_offset
+    if idling_period > self.idling_timeout then
+      return nil, "session idling timeout exceeded"
     end
   end
 
@@ -781,12 +807,6 @@ function metatable:open(ngx_var)
       return nil, "invalid session mac"
     end
   end
-
-  payload_size   = bunpack(PAYLOAD_SIZE, payload_size)
-  options        = bunpack(OPTIONS_SIZE, options)
-  created_at     = bunpack(CREATED_AT_SIZE, created_at)
-  rolling_offset = bunpack(ROLLING_OFFSET_SIZE, rolling_offset)
-  idling_offset  = bunpack(IDLING_OFFSET_SIZE, idling_offset)
 
   local ciphertext
   if band(options, OPTION_STATELESS) ~= 0 then
