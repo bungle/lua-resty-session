@@ -746,8 +746,11 @@ function metatable:open(ngx_var)
     created_at = bunpack(CREATED_AT_SIZE, created_at)
 
     local absolute_period = current_time - created_at
-    if absolute_period > self.absolute_timeout then
-      return nil, "session absolute timeout exceeded"
+    local absolute_timeout = self.absolute_timeout
+    if absolute_timeout ~= 0 then
+      if absolute_period > absolute_timeout then
+        return nil, "session absolute timeout exceeded"
+      end
     end
   end
 
@@ -759,9 +762,12 @@ function metatable:open(ngx_var)
 
     rolling_offset = bunpack(ROLLING_OFFSET_SIZE, rolling_offset)
 
-    local rolling_period = current_time - created_at - rolling_offset
-    if rolling_period > self.rolling_timeout then
-      return nil, "session rolling timeout exceeded"
+    local rolling_timeout = self.rolling_timeout
+    if rolling_timeout ~= 0 then
+      local rolling_period = current_time - created_at - rolling_offset
+      if rolling_period > rolling_timeout then
+        return nil, "session rolling timeout exceeded"
+      end
     end
   end
 
