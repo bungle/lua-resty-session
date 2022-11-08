@@ -60,7 +60,7 @@ local bpack, bunpack do
   end
 end
 
--- Type (1B) || Session ID (32B) || Payload Size (4B) || Options (2B) || Creation Time (8B) || Rolling Offset (4B) || Idling Offset (2B) || Tag (16B) || Mac (6B) || Payload (*B)
+-- Type (1B) || Session ID (32B) || Payload Size (4B) || Options (2B) || Creation Time (8B) || Rolling Offset (4B) || Tag (16B) || Idling Offset (2B) || Mac (6B) || [ Payload (*B) ]
 
 local COOKIE_TYPE_SIZE = 1
 local SID_SIZE = 32
@@ -68,11 +68,11 @@ local PAYLOAD_SIZE = 4
 local OPTIONS_SIZE = 2
 local CREATED_AT_SIZE = 8
 local ROLLING_OFFSET_SIZE = 4
-local IDLING_OFFSET_SIZE = 2
 local TAG_SIZE = 16
+local IDLING_OFFSET_SIZE = 2
 local MAC_SIZE = 6
 local HEADER_SIZE = COOKIE_TYPE_SIZE + SID_SIZE + PAYLOAD_SIZE + OPTIONS_SIZE + CREATED_AT_SIZE +
-                    ROLLING_OFFSET_SIZE + IDLING_OFFSET_SIZE + TAG_SIZE + MAC_SIZE
+                    ROLLING_OFFSET_SIZE + TAG_SIZE + IDLING_OFFSET_SIZE + MAC_SIZE
 local HEADER_ENCODED_SIZE = ceil(4 * HEADER_SIZE / 3) -- base64url encoded size
 
 
@@ -614,7 +614,7 @@ function metatable:create()
     return nil, err
   end
 
-  HEADER_BUFFER:put(idling_offset, tag)
+  HEADER_BUFFER:put(tag, idling_offset)
 
   local auth_key, err = derive_hmac_sha256_key(self[IKM_KEY], sid)
   if not auth_key then
@@ -771,6 +771,13 @@ function metatable:open(ngx_var)
     end
   end
 
+  local tag do
+    tag = HEADER_BUFFER:get(TAG_SIZE)
+    if #tag ~= TAG_SIZE then
+      return nil, "invalid session tag"
+    end
+  end
+
   local idling_offset do
     idling_offset = HEADER_BUFFER:get(IDLING_OFFSET_SIZE)
     if #idling_offset ~= IDLING_OFFSET_SIZE then
@@ -785,13 +792,6 @@ function metatable:open(ngx_var)
       if idling_period > idling_timeout then
         return nil, "session idling timeout exceeded"
       end
-    end
-  end
-
-  local tag do
-    tag = HEADER_BUFFER:get(TAG_SIZE)
-    if #tag ~= TAG_SIZE then
-      return nil, "invalid session tag"
     end
   end
 
