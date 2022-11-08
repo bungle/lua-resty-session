@@ -569,15 +569,15 @@ function metatable:create()
     data_size = #data
 
     if data_size > COMPRESSION_THRESHOLD then
-      --local deflated_data = deflate(data)
-      --if deflated_data then
-      --  local deflated_size = #deflated_data
-      --  if deflated_size < data_size then
-      --    options = bor(options, OPTION_DEFLATE)
-      --    data = deflated_data
-      --    data_size = deflated_size
-      --  end
-      --end
+      local deflated_data = deflate(data)
+      if deflated_data then
+        local deflated_size = #deflated_data
+        if deflated_size < data_size then
+          options = bor(options, OPTION_DEFLATE)
+          data = deflated_data
+          data_size = deflated_size
+        end
+      end
     end
 
     data_size = ceil(4 * data_size / 3) -- base64url encoded size
@@ -680,16 +680,12 @@ function metatable:create()
 end
 
 
-function metatable:open(cookie)
+function metatable:open(ngx_var)
   local cookie_name = self.cookie_name
-  local cookie_name_size = #cookie_name
-
+  local var = ngx_var or var
+  local cookie = var["cookie_" .. cookie_name]
   if not cookie then
-    local cookie_name = self.cookie_name
-    cookie = var["cookie_" .. cookie_name]
-    if not cookie then
-      return nil, "missing session cookie"
-    end
+    return nil, "missing session cookie"
   end
 
   local header do
@@ -793,8 +789,8 @@ function metatable:open(cookie)
   idling_offset  = bunpack(IDLING_OFFSET_SIZE, idling_offset)
 
   local ciphertext
-  if band(options, OPTION_STATELESS) then
-    local cookie_chunks, err = calculate_cookie_chunks(cookie_name_size, payload_size)
+  if band(options, OPTION_STATELESS) ~= 0 then
+    local cookie_chunks, err = calculate_cookie_chunks(#cookie_name, payload_size)
     if not cookie_chunks then
       return nil, err
     end
@@ -803,27 +799,26 @@ function metatable:open(cookie)
       ciphertext = sub(cookie, -payload_size)
 
     else
-      PAYLOAD_BUFFER:reset():put(sub(cookie, cookie_name_size + 1 + HEADER_ENCODED_SIZE))
+      PAYLOAD_BUFFER:reset():put(sub(cookie, HEADER_ENCODED_SIZE + 1))
       for i = 2, cookie_chunks do
-        local name = fmt("%s%d", cookie_name, i)
-        local chunk = var["cookie_" .. name]
+        local chunk = var["cookie_" .. cookie_name .. i]
         if not chunk then
           return nil, "missing session cookie chunk"
         end
 
-        PAYLOAD_BUFFER:put(sub(chunk, cookie_name_size + 2))
+        PAYLOAD_BUFFER:put(chunk)
       end
 
       ciphertext = PAYLOAD_BUFFER:get()
     end
 
     if #ciphertext ~= payload_size then
-      return nil, "invalid session payload1"
+      return nil, "invalid session payload"
     end
 
     ciphertext = decode_base64url(ciphertext)
     if not ciphertext then
-      return nil, "invalid session payload2"
+      return nil, "invalid session payload"
     end
 
   else
@@ -839,14 +834,14 @@ function metatable:open(cookie)
   local aad = sub(header, 1, HEADER_SIZE - MAC_SIZE - TAG_SIZE - IDLING_OFFSET_SIZE)
   local plaintext = decrypt_aes_256_gcm(key, iv, ciphertext, aad, tag)
   if not plaintext then
-    return nil, "invalid session payload3"
+    return nil, "invalid session payload"
   end
 
   local data do
     if band(options, OPTION_DEFLATE) ~= 0 then
       plaintext = inflate(plaintext)
       if not plaintext then
-        return nil, "invalid session payload4"
+        return nil, "invalid session payload"
       end
     end
 
@@ -857,7 +852,7 @@ function metatable:open(cookie)
     end
 
     if not data then
-      return nil, "invalid session payload5"
+      return nil, "invalid session payload"
     end
 
     local count = #data
