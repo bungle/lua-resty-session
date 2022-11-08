@@ -771,11 +771,14 @@ function metatable:open(ngx_var)
       return nil, "invalid session idling offset"
     end
 
-    idling_offset  = bunpack(IDLING_OFFSET_SIZE, idling_offset)
+    idling_offset = bunpack(IDLING_OFFSET_SIZE, idling_offset)
 
-    local idling_period = current_time - created_at - rolling_offset - idling_offset
-    if idling_period > self.idling_timeout then
-      return nil, "session idling timeout exceeded"
+    local idling_timeout = self.idling_timeout
+    if idling_timeout ~= 0 then
+      local idling_period = current_time - created_at - rolling_offset - idling_offset
+      if idling_period > idling_timeout then
+        return nil, "session idling timeout exceeded"
+      end
     end
   end
 
