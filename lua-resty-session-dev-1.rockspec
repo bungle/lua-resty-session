@@ -12,13 +12,14 @@ description = {
 }
 dependencies = {
   "lua >= 5.1",
+  "lua_pack >= 2.0.0",
   "lua-ffi-zlib >= 0.5",
-  "lua-pack >= 2.0.0",
   "lua-resty-openssl >= 0.8.0",
 }
 build = {
   type = "builtin",
   modules = {
     ["resty.session"] = "lib/resty/session.lua",
+    ["resty.session.shm"] = "lib/resty/session/shm.lua",
   },
 }

@@ -101,8 +101,8 @@ local OPTION_DEFLATE       = 0x0100
 
 
 local OPTIONS = {
-  json              = OPTION_JSON,
   deflate           = OPTION_DEFLATE,
+  json              = OPTION_JSON,
   ["string.buffer"] = OPTION_STRING_BUFFER,
 }
 
@@ -110,17 +110,25 @@ local OPTIONS = {
 local DEFAULT_AUDIENCE = ""
 local DEFAULT_SUBJECT  = ""
 local DEFAULT_META     = {}
+local DEFAULT_IKM
 
 
 local DEFAULT_COOKIE_NAME = "session"
 local DEFAULT_COOKIE_PATH = "/"
 local DEFAULT_COOKIE_SAME_SITE = "Lax"
 local DEFAULT_COOKIE_HTTP_ONLY = true
+local DEFAULT_COOKIE_PREFIX
+local DEFAULT_COOKIE_DOMAIN
+local DEFAULT_COOKIE_SECURE
 
 
 local DEFAULT_IDLING_TIMEOUT   = 900   -- 15 minutes
 local DEFAULT_ROLLING_TIMEOUT  = 3600  -- 60 minutes
 local DEFAULT_ABSOLUTE_TIMEOUT = 86400 -- 24 hours
+local DEFAULT_STALE_TTL        = 10    -- 10 seconds
+
+
+local DEFAULT_STORAGE
 
 
 local MAX_IDLING_TIMEOUT = 65535
@@ -754,6 +762,35 @@ local function save(self, state)
         end
       end
     end
+
+  else
+    local key, err = encode_base64url(sid)
+    if not key then
+      return nil, err
+    end
+
+    local storage = self.storage
+    local ok, err = storage:set(key, payload, self.rolling_timeout)
+    if not ok then
+      return nil, err
+    end
+
+    local old_sid = meta.id
+    if old_sid then
+      key, err = encode_base64url(old_sid)
+      if not key then
+        return nil, err
+      end
+
+      local stale_ttl = self.stale_ttl
+      local ttl = self.storage:ttl(key)
+      if ttl and ttl > stale_ttl then
+        local ok, err = storage:expire(key, stale_ttl)
+        if not ok then
+          -- TODO: log or ignore?
+        end
+      end
+    end
   end
 
   header["Set-Cookie"] = cookies
@@ -1042,8 +1079,24 @@ function metatable:open(ngx_var)
       end
 
     else
-      -- TODO: storage.load
-      error("load data from db not implemented")
+      local key, err = encode_base64url(sid)
+      if not key then
+        return nil, err
+      end
+
+      ciphertext = self.storage:get(key)
+      if not ciphertext then
+        return nil, "invalid session payload"
+      end
+
+      if #ciphertext ~= payload_size then
+        return nil, "invalid session payload"
+      end
+
+      ciphertext = decode_base64url(ciphertext)
+      if not ciphertext then
+        return nil, "invalid session payload"
+      end
     end
   end
 
@@ -1222,7 +1275,7 @@ function metatable:destroy()
   local cookie_name_size = #cookie_name
 
   local meta = self[META_KEY]
-  local stateless = band(meta.options, OPTION_STATELESS) ~= 0
+  local stateless = band(self.options, OPTION_STATELESS) ~= 0
 
   local cookie_flags = self.cookie_flags
 
@@ -1247,6 +1300,14 @@ function metatable:destroy()
         return nil, err
       end
     end
+  end
+
+  if not stateless then
+    local key, err = encode_base64url(meta.id)
+    if not key then
+      return nil, err
+    end
+    self.storage:delete(key)
   end
 
   header["Set-Cookie"] = cookies
@@ -1371,6 +1432,8 @@ function metatable:hide(ngx_var)
   else
     set_header("Cookie", HIDE_BUFFER:get())
   end
+
+  return true
 end
 
 
@@ -1379,45 +1442,67 @@ local session = {
 }
 
 
-function session.new(configuration)
-  local cookie_name
-  local cookie_path
-  local cookie_domain
-  local cookie_secure
-  local cookie_prefix
-  local cookie_same_site
-  local cookie_http_only
-  local secret
-  local audience
-  local absolute_timeout
-  local rolling_timeout
-  local idling_timeout
-  local options
-
+function session.init(configuration)
   if configuration then
-    cookie_name      = configuration.cookie_name
-    cookie_path      = configuration.cookie_path
-    cookie_domain    = configuration.cookie_domain
-    cookie_secure    = configuration.cookie_secure
-    cookie_prefix    = configuration.cookie_prefix
-    cookie_same_site = configuration.cookie_same_site
-    cookie_http_only = configuration.cookie_http_only
-    secret           = configuration.secret
-    audience         = configuration.audience
-    absolute_timeout = configuration.absolute_timeout
-    rolling_timeout  = configuration.rolling_timeout
-    idling_timeout   = configuration.idling_timeout
-    options          = configuration.options
+    local secret = configuration.secret
+    if secret then
+      DEFAULT_IKM = assert(sha256(secret))
+    end
+
+    DEFAULT_COOKIE_NAME      = configuration.cookie_name      or DEFAULT_COOKIE_NAME
+    DEFAULT_COOKIE_PATH      = configuration.cookie_path      or DEFAULT_COOKIE_PATH
+    DEFAULT_COOKIE_DOMAIN    = configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
+    DEFAULT_COOKIE_SAME_SITE = configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
+    DEFAULT_ABSOLUTE_TIMEOUT = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
+    DEFAULT_ROLLING_TIMEOUT  = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
+    DEFAULT_IDLING_TIMEOUT   = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
+    DEFAULT_STALE_TTL        = configuration.stale_ttl        or DEFAULT_STALE_TTL
+    DEFAULT_STORAGE          = configuration.storage          or DEFAULT_STORAGE
+
+    local cookie_http_only = configuration.cookie_http_only
+    if cookie_http_only ~= nil then
+      DEFAULT_COOKIE_HTTP_ONLY = cookie_http_only
+    end
+
+    local cookie_secure = configuration.cookie_secure
+    if cookie_secure ~= nil then
+      DEFAULT_COOKIE_SECURE = cookie_secure
+    end
   end
 
-  cookie_name      = cookie_name      or DEFAULT_COOKIE_NAME
-  cookie_path      = cookie_path      or DEFAULT_COOKIE_PATH
-  cookie_same_site = cookie_same_site or DEFAULT_COOKIE_SAME_SITE
-  cookie_http_only = cookie_http_only or DEFAULT_COOKIE_HTTP_ONLY
-  absolute_timeout = absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
-  rolling_timeout  = rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
-  idling_timeout   = idling_timeout   or DEFAULT_IDLING_TIMEOUT
-  audience         = audience         or DEFAULT_AUDIENCE
+  if not DEFAULT_IKM then
+    local default_secret = assert(rand_bytes(32))
+    DEFAULT_IKM = assert(sha256(default_secret))
+  end
+
+  return true
+end
+
+
+function session.new(configuration)
+  local cookie_name        = configuration and configuration.cookie_name      or DEFAULT_COOKIE_NAME
+  local cookie_path        = configuration and configuration.cookie_path      or DEFAULT_COOKIE_PATH
+  local cookie_domain      = configuration and configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
+  local cookie_same_site   = configuration and configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
+  local cookie_prefix      = configuration and configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
+  local audience           = configuration and configuration.audience         or DEFAULT_AUDIENCE
+  local absolute_timeout   = configuration and configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
+  local rolling_timeout    = configuration and configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
+  local idling_timeout     = configuration and configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
+  local stale_ttl          = configuration and configuration.stale_ttl        or DEFAULT_STALE_TTL
+  local storage            = configuration and configuration.storage          or DEFAULT_STORAGE
+  local secret             = configuration and configuration.secret
+  local options            = configuration and configuration.options
+
+  local cookie_http_only = configuration and configuration.cookie_http_only
+  if cookie_http_only == nil then
+    cookie_http_only = DEFAULT_COOKIE_HTTP_ONLY
+  end
+
+  local cookie_secure = configuration and configuration.cookie_secure
+  if cookie_secure == nil then
+    cookie_secure = DEFAULT_COOKIE_SECURE
+  end
 
   if cookie_prefix == "__Host-" then
     cookie_name   = cookie_prefix .. cookie_name
@@ -1451,9 +1536,17 @@ function session.new(configuration)
 
   local cookie_flags = FLAGS_BUFFER:get()
 
-  local ikm = secret
-  if ikm then
-    ikm = assert(sha256(ikm))
+  local ikm
+  if secret then
+    ikm = assert(sha256(secret))
+
+  else
+    if not DEFAULT_IKM then
+      local default_secret = assert(rand_bytes(32))
+      DEFAULT_IKM = assert(sha256(default_secret))
+    end
+
+    ikm = DEFAULT_IKM
   end
 
   local opts = OPTIONS_NONE
@@ -1470,16 +1563,19 @@ function session.new(configuration)
     opts = bor(opts, OPTION_JSON)
   end
 
-  -- TODO: non-stateless
-  opts = bor(opts, OPTION_STATELESS)
+  if not storage then
+    opts = bor(opts, OPTION_STATELESS)
+  end
 
   return setmetatable({
     absolute_timeout = absolute_timeout,
     rolling_timeout  = rolling_timeout,
     idling_timeout   = idling_timeout,
+    stale_ttl        = stale_ttl,
     cookie_name      = cookie_name,
     cookie_flags     = cookie_flags,
     options          = opts,
+    storage          = storage,
     [IKM_KEY]        = ikm,
     [STATE_KEY]      = STATE_NEW,
     [AUDIENCE_KEY]   = 1,
@@ -1497,27 +1593,34 @@ end
 
 function session.open(configuration)
   local self = session.new(configuration)
-  local ok, err = self:open()
-  if not ok then
-    return self, err
-  end
-
-  return self
+  local exists, err = self:open()
+  return self, err, exists
 end
 
 
 function session.start(configuration)
-  local self, err = session.open(configuration)
-  if not self then
-    return self, err
+  local self, err, exists = session.open(configuration)
+  if exists then
+    local refreshed, err = self:refresh()
+    return self, err, exists, refreshed
   end
 
-  local ok, err = self:refresh()
+  return self, err, exists
+end
+
+
+function session.destroy(configuration)
+  local self, err, exists = session.open(configuration)
+  if not exists then
+    return nil, err
+  end
+
+  local ok, err = self:destroy()
   if not ok then
-    return self, err
+    return nil, err, exists
   end
 
-  return self
+  return true, nil, exists
 end
 
 
