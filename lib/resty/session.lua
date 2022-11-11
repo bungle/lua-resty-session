@@ -18,21 +18,15 @@ local time = ngx.time
 local band = bit.band
 local byte = string.byte
 local type = type
+local sub = string.sub
+local fmt = string.format
 local bor = bit.bor
 local var = ngx.var
 local min = math.min
-local fmt = string.format
-local sub = string.sub
 
 
 local EQUALS_BYTE = byte("=")
 local SEMICOLON_BYTE = byte(";")
-local SPACE_BYTE = byte(" ")
-local TAB_BYTE = byte("\t")
-local CR_BYTE = byte("\r")
-local LF_BYTE = byte("\n")
-local VTAB_BYTE = byte("\v")
-local FF_BYTE = byte("\f")
 
 
 local bpack, bunpack do
@@ -156,6 +150,62 @@ local HIDE_BUFFER    = buffer.new(256)
 
 
 local COOKIE_EXPIRE_FLAGS = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
+
+
+local trim do
+  local SPACE_BYTE = byte(" ")
+  local TAB_BYTE = byte("\t")
+  local CR_BYTE = byte("\r")
+  local LF_BYTE = byte("\n")
+  local VTAB_BYTE = byte("\v")
+  local FF_BYTE = byte("\f")
+
+  trim = function(value)
+    if value == nil or value == "" then
+      return ""
+    end
+
+    local len = #value
+
+    local s = 1
+    for i = 1, len do
+      local b = byte(value, i)
+      if b == SPACE_BYTE
+      or b == TAB_BYTE
+      or b == CR_BYTE
+      or b == LF_BYTE
+      or b == VTAB_BYTE
+      or b == FF_BYTE
+      then
+        s = s + 1
+      else
+        break
+      end
+    end
+
+    local e = len
+    for i = len, 1, -1 do
+      local b = byte(value, i)
+      if b == SPACE_BYTE
+      or b == TAB_BYTE
+      or b == CR_BYTE
+      or b == LF_BYTE
+      or b == VTAB_BYTE
+      or b == FF_BYTE
+      then
+        e = e - 1
+      else
+        break
+      end
+    end
+
+    if s ~= 1 or e ~= len then
+      return sub(value, s, e)
+    end
+
+    return value
+  end
+end
 
 
 local encode_buffer, decode_buffer do
@@ -726,7 +776,6 @@ local function save(self, state)
 end
 
 
-
 local metatable = {}
 
 
@@ -1208,12 +1257,12 @@ function metatable:destroy()
 end
 
 
-function metatable:hide()
+function metatable:hide(ngx_var)
   if self[STATE_KEY] ~= STATE_OPEN then
     return nil, "unable to hide nonexistent session"
   end
 
-  local cookies = var.http_cookie
+  local cookies = (ngx_var or var).http_cookie
   if not cookies or cookies == "" then
     return
   end
@@ -1234,7 +1283,6 @@ function metatable:hide()
 
   local size = #cookies
   local name
-  local trim = true
   local skip = false
   local start = 1
   for i = 1, size do
@@ -1242,51 +1290,78 @@ function metatable:hide()
     if name then
       if b == SEMICOLON_BYTE or i == size then
         if not skip then
-          HIDE_BUFFER:put(name, "=", sub(cookies, start, i - 1))
+          local value
+          if b == SEMICOLON_BYTE then
+            value = trim(sub(cookies, start, i - 1))
+          else
+            value = trim(sub(cookies, start))
+          end
+
+          if value ~= "" then
+            HIDE_BUFFER:put(value)
+          end
+
           if i ~= size then
             HIDE_BUFFER:put("; ")
           end
         end
 
-        name = nil
-
         if i == size then
           break
         end
 
+        name = nil
         start = i + 1
-        trim = true
         skip = false
       end
+
     else
-      if b == EQUALS_BYTE or i == size then
+      if b == EQUALS_BYTE or b == SEMICOLON_BYTE then
         name = sub(cookies, start, i - 1)
-        if i == size then
-          HIDE_BUFFER:put(name)
-          break
-        end
-        local name_size = start - i
-        if name_size == cookie_name_size and name == cookie_name then
-          skip = true
-        elseif cookie_chunks > 1 and name_size == cookie_name_size + 1 then
-          local chunk_number = tonumber(sub(cookies, i - 1, i - 1), 10)
-          if chunk_number and chunk_number > 1 and chunk_number <= cookie_chunks
-                          and sub(name, 1, -2) == cookie_name
-          then
+      elseif i == size then
+        name = sub(cookies, start, i)
+      end
+
+      if name then
+        name = trim(name)
+        if b == SEMICOLON_BYTE or i == size then
+          if name ~= "" then
+            HIDE_BUFFER:put(name)
+            if i ~= size then
+              HIDE_BUFFER:put(";")
+            end
+
+          elseif i == size then
+            break
+          end
+
+          name = nil
+
+        else
+          if name == cookie_name then
             skip = true
+
+          elseif cookie_chunks > 1 then
+            local chunk_number = tonumber(sub(name, -1), 10)
+            if chunk_number and chunk_number > 1 and chunk_number <= cookie_chunks
+                            and sub(name, 1, -2) == cookie_name
+            then
+              skip = true
+            end
+          end
+
+          if not skip then
+            if name ~= "" then
+              HIDE_BUFFER:put(name)
+            end
+
+            if b == EQUALS_BYTE then
+              HIDE_BUFFER:put("=")
+            end
           end
         end
+
         start = i + 1
-      elseif trim and (b == SPACE_BYTE or
-                       b == TAB_BYTE   or
-                       b == CR_BYTE    or
-                       b == LF_BYTE    or
-                       b == VTAB_BYTE  or
-                       b == FF_BYTE)
-      then
-        start = i + 1
-      elseif trim then
-        trim = false
       end
     end
   end
