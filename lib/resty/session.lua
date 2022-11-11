@@ -1427,7 +1427,12 @@ function session.start(configuration)
     return nil, err
   end
 
-  return self:refresh()
+  ok, err = self:refresh()
+  if not ok then
+    return nil, err
+  end
+
+  return self
 end
 
 
