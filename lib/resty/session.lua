@@ -1420,16 +1420,26 @@ function session.new(configuration)
 end
 
 
-function session.start(configuration)
+function session.open(configuration)
   local self = session.new(configuration)
   local ok, err = self:open()
   if not ok then
-    return nil, err
+    return self, err
   end
 
-  ok, err = self:refresh()
+  return self
+end
+
+
+function session.start(configuration)
+  local self, err = session.open(configuration)
+  if not self then
+    return self, err
+  end
+
+  local ok, err = self:refresh()
   if not ok then
-    return nil, err
+    return self, err
   end
 
   return self
