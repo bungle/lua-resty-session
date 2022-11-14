@@ -783,8 +783,16 @@ local function save(self, state)
       end
 
       local stale_ttl = self.stale_ttl
-      local ttl = self.storage:ttl(key)
-      if ttl and ttl > stale_ttl then
+      if self.storage.ttl then
+        local ttl = self.storage:ttl(key)
+        if ttl and ttl > stale_ttl then
+          local ok, err = storage:expire(key, stale_ttl)
+          if not ok then
+            -- TODO: log or ignore?
+          end
+        end
+
+      else
         local ok, err = storage:expire(key, stale_ttl)
         if not ok then
           -- TODO: log or ignore?
@@ -1480,19 +1488,19 @@ end
 
 
 function session.new(configuration)
-  local cookie_name        = configuration and configuration.cookie_name      or DEFAULT_COOKIE_NAME
-  local cookie_path        = configuration and configuration.cookie_path      or DEFAULT_COOKIE_PATH
-  local cookie_domain      = configuration and configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
-  local cookie_same_site   = configuration and configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
-  local cookie_prefix      = configuration and configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
-  local audience           = configuration and configuration.audience         or DEFAULT_AUDIENCE
-  local absolute_timeout   = configuration and configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
-  local rolling_timeout    = configuration and configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
-  local idling_timeout     = configuration and configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
-  local stale_ttl          = configuration and configuration.stale_ttl        or DEFAULT_STALE_TTL
-  local storage            = configuration and configuration.storage          or DEFAULT_STORAGE
-  local secret             = configuration and configuration.secret
-  local options            = configuration and configuration.options
+  local cookie_name      = configuration.cookie_name      or DEFAULT_COOKIE_NAME
+  local cookie_path      = configuration.cookie_path      or DEFAULT_COOKIE_PATH
+  local cookie_domain    = configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
+  local cookie_same_site = configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
+  local cookie_prefix    = configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
+  local audience         = configuration.audience         or DEFAULT_AUDIENCE
+  local absolute_timeout = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
+  local rolling_timeout  = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
+  local idling_timeout   = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
+  local stale_ttl        = configuration.stale_ttl        or DEFAULT_STALE_TTL
+  local storage          = configuration.storage          or DEFAULT_STORAGE
+  local secret           = configuration.secret
+  local options          = configuration.options
 
   local cookie_http_only = configuration and configuration.cookie_http_only
   if cookie_http_only == nil then

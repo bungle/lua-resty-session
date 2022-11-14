@@ -1,6 +1,10 @@
 local setmetatable = setmetatable
 local shared = ngx.shared
+local assert = assert
 local error = error
+
+
+local DEFAULT_ZONE = "sessions"
 
 
 local metatable = {}
@@ -60,15 +64,10 @@ local storage = {}
 
 
 function storage.new(configuration)
-  local zone
-  if configuration then
-    zone = configuration.zone
-  end
-
-  zone = zone or "sessions"
-
+  local zone = configuration and configuration.zone or DEFAULT_ZONE
+  local dict = assert(shared[zone], "lua_shared_dict " .. zone .. " is missing")
   return setmetatable({
-    dict = shared[zone],
+    dict = dict,
   }, metatable)
 end
 
