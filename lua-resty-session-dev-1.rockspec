@@ -20,6 +20,8 @@ build = {
   type = "builtin",
   modules = {
     ["resty.session"] = "lib/resty/session.lua",
+    ["resty.session.memcached"] = "lib/resty/session/memcached.lua",
+    ["resty.session.redis"] = "lib/resty/session/redis.lua",
     ["resty.session.shm"] = "lib/resty/session/shm.lua",
   },
 }

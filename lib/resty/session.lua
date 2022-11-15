@@ -1,6 +1,11 @@
 local require = require
 
 
+local memcached = require "resty.session.memcached"
+local redis = require "resty.session.redis"
+local shm = require "resty.session.shm"
+
+
 local buffer = require "string.buffer"
 local bit = require "bit"
 
@@ -116,6 +121,7 @@ local DEFAULT_IKM
 local DEFAULT_COOKIE_NAME = "session"
 local DEFAULT_COOKIE_PATH = "/"
 local DEFAULT_COOKIE_SAME_SITE = "Lax"
+local DEFAULT_COOKIE_SAME_PARTY
 local DEFAULT_COOKIE_HTTP_ONLY = true
 local DEFAULT_COOKIE_PREFIX
 local DEFAULT_COOKIE_DOMAIN
@@ -1457,19 +1463,24 @@ function session.init(configuration)
       DEFAULT_IKM = assert(sha256(secret))
     end
 
-    DEFAULT_COOKIE_NAME      = configuration.cookie_name      or DEFAULT_COOKIE_NAME
-    DEFAULT_COOKIE_PATH      = configuration.cookie_path      or DEFAULT_COOKIE_PATH
-    DEFAULT_COOKIE_DOMAIN    = configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
-    DEFAULT_COOKIE_SAME_SITE = configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
-    DEFAULT_ABSOLUTE_TIMEOUT = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
-    DEFAULT_ROLLING_TIMEOUT  = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
-    DEFAULT_IDLING_TIMEOUT   = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
-    DEFAULT_STALE_TTL        = configuration.stale_ttl        or DEFAULT_STALE_TTL
-    DEFAULT_STORAGE          = configuration.storage          or DEFAULT_STORAGE
+    DEFAULT_COOKIE_NAME       = configuration.cookie_name      or DEFAULT_COOKIE_NAME
+    DEFAULT_COOKIE_PATH       = configuration.cookie_path      or DEFAULT_COOKIE_PATH
+    DEFAULT_COOKIE_DOMAIN     = configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
+    DEFAULT_COOKIE_SAME_SITE  = configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
+    DEFAULT_ABSOLUTE_TIMEOUT  = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
+    DEFAULT_ROLLING_TIMEOUT   = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
+    DEFAULT_IDLING_TIMEOUT    = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
+    DEFAULT_STALE_TTL         = configuration.stale_ttl        or DEFAULT_STALE_TTL
+    DEFAULT_STORAGE           = configuration.storage          or DEFAULT_STORAGE
 
     local cookie_http_only = configuration.cookie_http_only
     if cookie_http_only ~= nil then
       DEFAULT_COOKIE_HTTP_ONLY = cookie_http_only
+    end
+
+    local cookie_same_party = configuration.cookie_same_party
+    if cookie_same_party ~= nil then
+      DEFAULT_COOKIE_SAME_PARTY = cookie_same_party
     end
 
     local cookie_secure = configuration.cookie_secure
@@ -1483,24 +1494,36 @@ function session.init(configuration)
     DEFAULT_IKM = assert(sha256(default_secret))
   end
 
+  if type(DEFAULT_STORAGE) == "string" then
+    if DEFAULT_STORAGE == "memcached" then
+      DEFAULT_STORAGE = memcached.new(configuration and configuration.memcached)
+    elseif DEFAULT_STORAGE == "redis" then
+      DEFAULT_STORAGE = redis.new(configuration and configuration.redis)
+    elseif DEFAULT_STORAGE == "shm" then
+      DEFAULT_STORAGE = shm.new(configuration and configuration.shm)
+    else
+      error("not implemented")
+    end
+  end
+
   return true
 end
 
 
 function session.new(configuration)
-  local cookie_name      = configuration.cookie_name      or DEFAULT_COOKIE_NAME
-  local cookie_path      = configuration.cookie_path      or DEFAULT_COOKIE_PATH
-  local cookie_domain    = configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
-  local cookie_same_site = configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
-  local cookie_prefix    = configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
-  local audience         = configuration.audience         or DEFAULT_AUDIENCE
-  local absolute_timeout = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
-  local rolling_timeout  = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
-  local idling_timeout   = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
-  local stale_ttl        = configuration.stale_ttl        or DEFAULT_STALE_TTL
-  local storage          = configuration.storage          or DEFAULT_STORAGE
-  local secret           = configuration.secret
-  local options          = configuration.options
+  local cookie_name       = configuration and configuration.cookie_name      or DEFAULT_COOKIE_NAME
+  local cookie_path       = configuration and configuration.cookie_path      or DEFAULT_COOKIE_PATH
+  local cookie_domain     = configuration and configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
+  local cookie_same_site  = configuration and configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
+  local cookie_prefix     = configuration and configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
+  local audience          = configuration and configuration.audience         or DEFAULT_AUDIENCE
+  local absolute_timeout  = configuration and configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
+  local rolling_timeout   = configuration and configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
+  local idling_timeout    = configuration and configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
+  local stale_ttl         = configuration and configuration.stale_ttl        or DEFAULT_STALE_TTL
+  local storage           = configuration and configuration.storage          or DEFAULT_STORAGE
+  local secret            = configuration and configuration.secret
+  local options           = configuration and configuration.options
 
   local cookie_http_only = configuration and configuration.cookie_http_only
   if cookie_http_only == nil then
@@ -1510,6 +1533,11 @@ function session.new(configuration)
   local cookie_secure = configuration and configuration.cookie_secure
   if cookie_secure == nil then
     cookie_secure = DEFAULT_COOKIE_SECURE
+  end
+
+  local cookie_same_party = configuration and configuration.cookie_same_party
+  if cookie_same_party == nil then
+    cookie_same_party = DEFAULT_COOKIE_SAME_PARTY
   end
 
   if cookie_prefix == "__Host-" then
@@ -1526,6 +1554,11 @@ function session.new(configuration)
     cookie_secure = true
   end
 
+  if cookie_same_party then
+    assert(cookie_same_site ~= "Strict", "SameParty session cookies cannot use SameSite=Strict")
+    cookie_secure = true
+  end
+
   FLAGS_BUFFER:reset()
 
   if cookie_domain and cookie_domain ~= "localhost" and cookie_domain ~= "" then
@@ -1533,6 +1566,10 @@ function session.new(configuration)
   end
 
   FLAGS_BUFFER:put("; Path=", cookie_path, "; SameSite=", cookie_same_site)
+
+  if cookie_same_party then
+    FLAGS_BUFFER:put("; SameParty")
+  end
 
   if cookie_secure then
     FLAGS_BUFFER:put("; Secure")
@@ -1571,7 +1608,19 @@ function session.new(configuration)
     opts = bor(opts, OPTION_JSON)
   end
 
-  if not storage then
+  if type(storage) == "string" then
+    if storage == "memcached" then
+      storage = memcached.new(configuration and configuration.memcached)
+    elseif storage == "redis" then
+      storage = redis.new(configuration and configuration.redis)
+    elseif storage == "shm" then
+      storage = shm.new(configuration and configuration.shm)
+    else
+      error("not implemented")
+    end
+
+  elseif type(storage) ~= "table" then
+    assert(storage == nil, "invalid session storage")
     opts = bor(opts, OPTION_STATELESS)
   end
 
