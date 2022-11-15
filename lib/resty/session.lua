@@ -1,11 +1,6 @@
 local require = require
 
 
-local memcached = require "resty.session.memcached"
-local redis = require "resty.session.redis"
-local shm = require "resty.session.shm"
-
-
 local buffer = require "string.buffer"
 local bit = require "bit"
 
@@ -529,6 +524,21 @@ local hmac_sha256 do
     end
     hmac_sha256 = hmac_sha256_real
     return hmac_sha256(key, value)
+  end
+end
+
+
+local function load_storage(storage, configuration)
+  if storage == "memcached" then
+    return require("resty.session.memcached").new(configuration and configuration.memcached)
+  elseif storage == "redis" then
+    return require("resty.session.redis").new(configuration and configuration.redis)
+  elseif storage == "redis-cluster" then
+    return require("resty.session.redis-cluster").new(configuration and configuration["redis-cluster"])
+  elseif storage == "shm" then
+    return require("resty.session.shm").new(configuration and configuration.shm)
+  else
+    return require(storage).new(configuration and configuration[storage])
   end
 end
 
@@ -1495,15 +1505,7 @@ function session.init(configuration)
   end
 
   if type(DEFAULT_STORAGE) == "string" then
-    if DEFAULT_STORAGE == "memcached" then
-      DEFAULT_STORAGE = memcached.new(configuration and configuration.memcached)
-    elseif DEFAULT_STORAGE == "redis" then
-      DEFAULT_STORAGE = redis.new(configuration and configuration.redis)
-    elseif DEFAULT_STORAGE == "shm" then
-      DEFAULT_STORAGE = shm.new(configuration and configuration.shm)
-    else
-      error("not implemented")
-    end
+    DEFAULT_STORAGE = load_storage(DEFAULT_STORAGE, configuration)
   end
 
   return true
@@ -1609,15 +1611,7 @@ function session.new(configuration)
   end
 
   if type(storage) == "string" then
-    if storage == "memcached" then
-      storage = memcached.new(configuration and configuration.memcached)
-    elseif storage == "redis" then
-      storage = redis.new(configuration and configuration.redis)
-    elseif storage == "shm" then
-      storage = shm.new(configuration and configuration.shm)
-    else
-      error("not implemented")
-    end
+    storage = load_storage(storage, configuration)
 
   elseif type(storage) ~= "table" then
     assert(storage == nil, "invalid session storage")

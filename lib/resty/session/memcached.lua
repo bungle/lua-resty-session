@@ -54,7 +54,7 @@ local function exec(self, func, ...)
     return nil, err
   end
 
-  if not memc:set_keepalive(self.idle_timeout) then
+  if not memc:set_keepalive(self.keepalive_timeout) then
     memc:close()
   end
 
@@ -96,20 +96,20 @@ local storage = {}
 
 
 function storage.new(configuration)
-  local host            = configuration and configuration.host            or DEFAULT_HOST
-  local port            = configuration and configuration.port            or DEFAULT_PORT
-  local socket          = configuration and configuration.socket          or DEFAULT_SOCKET
-  local prefix          = configuration and configuration.prefix          --or DEFAULT_PREFIX
-  local connect_timeout = configuration and configuration.connect_timeout --or DEFAULT_CONNECT_TIMEOUT
-  local send_timeout    = configuration and configuration.send_timeout    --or DEFAULT_SEND_TIMEOUT
-  local read_timeout    = configuration and configuration.read_timeout    --or DEFAULT_READ_TIMEOUT
-  local idle_timeout    = configuration and configuration.idle_timeout    --or DEFAULT_IDLE_TIMEOUT
-  local pool            = configuration and configuration.pool            --or DEFAULT_POOL
-  local pool_size       = configuration and configuration.pool_size       --or DEFAULT_POOL_SIZE
-  local backlog         = configuration and configuration.backlog         --or DEFAULT_BACKLOG
-  local ssl             = configuration and configuration.ssl             --or DEFAULT_SSL
-  local ssl_verify      = configuration and configuration.ssl_verify      --or DEFAULT_SSL_VERIFY
-  local server_name     = configuration and configuration.server_name     --or DEFAULT_SERVER_NAME
+  local host              = configuration and configuration.host              or DEFAULT_HOST
+  local port              = configuration and configuration.port              or DEFAULT_PORT
+  local socket            = configuration and configuration.socket            or DEFAULT_SOCKET
+  local prefix            = configuration and configuration.prefix            --or DEFAULT_PREFIX
+  local connect_timeout   = configuration and configuration.connect_timeout   --or DEFAULT_CONNECT_TIMEOUT
+  local send_timeout      = configuration and configuration.send_timeout      --or DEFAULT_SEND_TIMEOUT
+  local read_timeout      = configuration and configuration.read_timeout      --or DEFAULT_READ_TIMEOUT
+  local keepalive_timeout = configuration and configuration.keepalive_timeout --or DEFAULT_KEEPALIVE_TIMEOUT
+  local pool              = configuration and configuration.pool              --or DEFAULT_POOL
+  local pool_size         = configuration and configuration.pool_size         --or DEFAULT_POOL_SIZE
+  local backlog           = configuration and configuration.backlog           --or DEFAULT_BACKLOG
+  local ssl               = configuration and configuration.ssl               --or DEFAULT_SSL
+  local ssl_verify        = configuration and configuration.ssl_verify        --or DEFAULT_SSL_VERIFY
+  local server_name       = configuration and configuration.server_name       --or DEFAULT_SERVER_NAME
 
   local options
   if pool or pool_size or backlog then
@@ -128,7 +128,7 @@ function storage.new(configuration)
     connect_timeout = connect_timeout,
     send_timeout = send_timeout,
     read_timeout = read_timeout,
-    idle_timeout = idle_timeout,
+    keepalive_timeout = keepalive_timeout,
     options = options,
     ssl = ssl,
     ssl_verify = ssl_verify,
