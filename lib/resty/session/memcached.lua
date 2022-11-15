@@ -1,6 +1,12 @@
 local memcached = require "resty.memcached"
 
 
+local SET = memcached.set
+local GET = memcached.get
+local TOUCH = memcached.touch
+local DELETE = memcached.delete
+
+
 local setmetatable = setmetatable
 local null = ngx.null
 
@@ -73,22 +79,22 @@ metatable.__index = metatable
 
 
 function metatable:set(key, value, ttl)
-  return exec(self, memcached.set, key, value, ttl)
+  return exec(self, SET, key, value, ttl)
 end
 
 
 function metatable:get(key)
-  return exec(self, memcached.get, key)
+  return exec(self, GET, key)
 end
 
 
 function metatable:expire(key, ttl)
-  return exec(self, memcached.touch, key, ttl)
+  return exec(self, TOUCH, key, ttl)
 end
 
 
 function metatable:delete(key)
-  return exec(self, memcached.delete, key)
+  return exec(self, DELETE, key)
 end
 
 

@@ -1,6 +1,13 @@
 local redis = require "resty.rediscluster"
 
 
+local SET = redis.set
+local GET = redis.get
+local TTL = redis.ttl
+local EXPIRE = redis.expire
+local DEL = redis.del
+
+
 local setmetatable = setmetatable
 local null = ngx.null
 
@@ -28,27 +35,27 @@ metatable.__index = metatable
 
 
 function metatable:set(key, value, ttl)
-  return exec(self, redis.set, key, value, "EX", ttl)
+  return exec(self, SET, key, value, "EX", ttl)
 end
 
 
 function metatable:get(key)
-  return exec(self, redis.get, key)
+  return exec(self, GET, key)
 end
 
 
 function metatable:ttl(key)
-  return exec(self, redis.ttl, key)
+  return exec(self, TTL, key)
 end
 
 
 function metatable:expire(key, ttl)
-  return exec(self, redis.expire, key, ttl)
+  return exec(self, EXPIRE, key, ttl)
 end
 
 
 function metatable:delete(key)
-  return exec(self, redis.del, key)
+  return exec(self, DEL, key)
 end
 
 
