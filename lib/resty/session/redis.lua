@@ -5,7 +5,7 @@ local SET = redis.set
 local GET = redis.get
 local TTL = redis.ttl
 local EXPIRE = redis.expire
-local DEL = redis.del
+local UNLINK = redis.unlink
 
 
 local setmetatable = setmetatable
@@ -101,7 +101,7 @@ end
 
 
 function metatable:delete(key)
-  return exec(self, DEL, key)
+  return exec(self, UNLINK, key)
 end
 
 
