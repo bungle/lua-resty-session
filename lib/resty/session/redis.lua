@@ -145,31 +145,42 @@ function storage.new(configuration)
   local ssl_verify        = configuration and configuration.ssl_verify        --or DEFAULT_SSL_VERIFY
   local server_name       = configuration and configuration.server_name       --or DEFAULT_SERVER_NAME
 
-  local options
   if ssl ~= nil or ssl_verify ~= nil or server_name or pool or pool_size or backlog then
-    options = {
-      ssl = ssl,
-      ssl_verify = ssl_verify,
-      server_name = server_name,
-      pool = pool,
-      pool_size = pool_size,
-      backlog = backlog,
-    }
+    return setmetatable({
+      prefix = prefix,
+      host = host,
+      port = port,
+      socket = socket,
+      username = username,
+      password = password,
+      db = db,
+      connect_timeout = connect_timeout,
+      send_timeout = send_timeout,
+      read_timeout = read_timeout,
+      keepalive_timeout = keepalive_timeout,
+      options = {
+        ssl = ssl,
+        ssl_verify = ssl_verify,
+        server_name = server_name,
+        pool = pool,
+        pool_size = pool_size,
+        backlog = backlog,
+      }
+    })
   end
 
   return setmetatable({
+    prefix = prefix,
     host = host,
     port = port,
     socket = socket,
-    prefix = prefix,
+    username = username,
+    password = password,
+    db = db,
     connect_timeout = connect_timeout,
     send_timeout = send_timeout,
     read_timeout = read_timeout,
     keepalive_timeout = keepalive_timeout,
-    options = options,
-    username = username,
-    password = password,
-    db = db,
   }, metatable)
 end
 
