@@ -57,9 +57,9 @@ local function exec(self, func, ...)
     end
   end
 
-  local db = self.db
-  if db then
-    ok, err = red:select(db)
+  local database = self.database
+  if database then
+    ok, err = red:select(database)
     if not ok then
       return nil, err
     end
@@ -131,7 +131,7 @@ function storage.new(configuration)
 
   local username          = configuration and configuration.username          --or DEFAULT_USERNAME
   local password          = configuration and configuration.password          --or DEFAULT_PASSWORD
-  local db                = configuration and configuration.db                --or DEFAULT_DB
+  local database          = configuration and configuration.database          --or DEFAULT_DATABASE
 
   local connect_timeout   = configuration and configuration.connect_timeout   --or DEFAULT_CONNECT_TIMEOUT
   local send_timeout      = configuration and configuration.send_timeout      --or DEFAULT_SEND_TIMEOUT
@@ -153,7 +153,7 @@ function storage.new(configuration)
       socket = socket,
       username = username,
       password = password,
-      db = db,
+      database = database,
       connect_timeout = connect_timeout,
       send_timeout = send_timeout,
       read_timeout = read_timeout,
@@ -176,7 +176,7 @@ function storage.new(configuration)
     socket = socket,
     username = username,
     password = password,
-    db = db,
+    database = database,
     connect_timeout = connect_timeout,
     send_timeout = send_timeout,
     read_timeout = read_timeout,

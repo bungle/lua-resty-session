@@ -84,7 +84,7 @@ function storage.new(configuration)
 
   local username                = configuration and configuration.username                --or DEFAULT_USERNAME
   local password                = configuration and configuration.password                --or DEFAULT_PASSWORD
-  local db                      = configuration and configuration.db                      --or DEFAULT_DB
+  local database                = configuration and configuration.database                --or DEFAULT_DATABASE
 
   local connect_timeout         = configuration and configuration.connect_timeout         --or DEFAULT_CONNECT_TIMEOUT
   local send_timeout            = configuration and configuration.send_timeout            --or DEFAULT_SEND_TIMEOUT
@@ -108,7 +108,7 @@ function storage.new(configuration)
       sentinel_password = sentinel_password,
       username = username,
       password = password,
-      db = db,
+      db = database,
       connect_timeout = connect_timeout,
       send_timeout = send_timeout,
       read_timeout = read_timeout,
@@ -132,7 +132,7 @@ function storage.new(configuration)
       sentinel_password = sentinel_password,
       username = username,
       password = password,
-      db = db,
+      db = database,
       connect_timeout = connect_timeout,
       send_timeout = send_timeout,
       read_timeout = read_timeout,
