@@ -27,8 +27,6 @@ local function exec(self, func, ...)
     memc:set_timeouts(connect_timeout, send_timeout, read_timeout)
   end
 
-  self.memcached = memc
-
   local ok, err do
     local socket = self.socket
     if socket then
