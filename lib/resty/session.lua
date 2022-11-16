@@ -530,7 +530,10 @@ end
 
 
 local function load_storage(storage, configuration)
-  if storage == "memcached" then
+  if storage == "file" then
+    return require("resty.session.file").new(configuration and configuration.file)
+
+  elseif storage == "memcached" then
     return require("resty.session.memcached").new(configuration and configuration.memcached)
 
   elseif storage == "redis" then
@@ -802,27 +805,29 @@ local function save(self, state)
       return nil, err
     end
 
-    local old_sid = meta.id
-    if old_sid then
-      key, err = encode_base64url(old_sid)
-      if not key then
-        return nil, err
-      end
+    if storage.expire then
+      local old_sid = meta.id
+      if old_sid then
+        key, err = encode_base64url(old_sid)
+        if not key then
+          return nil, err
+        end
 
-      local stale_ttl = self.stale_ttl
-      if self.storage.ttl then
-        local ttl = self.storage:ttl(key)
-        if ttl and ttl > stale_ttl then
+        local stale_ttl = self.stale_ttl
+        if storage.ttl then
+          local ttl = storage:ttl(key)
+          if ttl and ttl > stale_ttl then
+            local ok, err = storage:expire(key, stale_ttl)
+            if not ok then
+              -- TODO: log or ignore?
+            end
+          end
+
+        else
           local ok, err = storage:expire(key, stale_ttl)
           if not ok then
             -- TODO: log or ignore?
           end
-        end
-
-      else
-        local ok, err = storage:expire(key, stale_ttl)
-        if not ok then
-          -- TODO: log or ignore?
         end
       end
     end
