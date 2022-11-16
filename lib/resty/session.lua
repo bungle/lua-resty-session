@@ -117,6 +117,7 @@ local DEFAULT_COOKIE_NAME = "session"
 local DEFAULT_COOKIE_PATH = "/"
 local DEFAULT_COOKIE_SAME_SITE = "Lax"
 local DEFAULT_COOKIE_SAME_PARTY
+local DEFAULT_COOKIE_PARTITIONED
 local DEFAULT_COOKIE_HTTP_ONLY = true
 local DEFAULT_COOKIE_PREFIX
 local DEFAULT_COOKIE_DOMAIN
@@ -1504,6 +1505,11 @@ function session.init(configuration)
       DEFAULT_COOKIE_SAME_PARTY = cookie_same_party
     end
 
+    local cookie_partitioned = configuration.cookie_partitioned
+    if cookie_partitioned ~= nil then
+      DEFAULT_COOKIE_PARTITIONED = cookie_partitioned
+    end
+
     local cookie_secure = configuration.cookie_secure
     if cookie_secure ~= nil then
       DEFAULT_COOKIE_SECURE = cookie_secure
@@ -1553,6 +1559,11 @@ function session.new(configuration)
     cookie_same_party = DEFAULT_COOKIE_SAME_PARTY
   end
 
+  local cookie_partitioned = configuration and configuration.cookie_partitioned
+  if cookie_partitioned == nil then
+    cookie_partitioned = DEFAULT_COOKIE_PARTITIONED
+  end
+
   if cookie_prefix == "__Host-" then
     cookie_name   = cookie_prefix .. cookie_name
     cookie_path   = DEFAULT_COOKIE_PATH
@@ -1582,6 +1593,10 @@ function session.new(configuration)
 
   if cookie_same_party then
     FLAGS_BUFFER:put("; SameParty")
+  end
+
+  if cookie_partitioned then
+    FLAGS_BUFFER:put("; Partitioned")
   end
 
   if cookie_secure then
