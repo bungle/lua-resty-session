@@ -537,6 +537,9 @@ local function load_storage(storage, configuration)
   elseif storage == "memcached" then
     return require("resty.session.memcached").new(configuration and configuration.memcached)
 
+  elseif storage == "postgres" then
+    return require("resty.session.postgres").new(configuration and configuration.postgres)
+
   elseif storage == "redis" then
     local cfg = configuration and configuration.redis
     if cfg then
@@ -801,34 +804,32 @@ local function save(self, state)
     end
 
     local storage = self.storage
-    local ok, err = storage:set(key, payload, self.rolling_timeout)
+    local ok, err = storage:set(key, payload, self.rolling_timeout, current_time)
     if not ok then
       return nil, err
     end
 
-    if storage.expire then
-      local old_sid = meta.id
-      if old_sid then
-        key, err = encode_base64url(old_sid)
-        if not key then
-          return nil, err
-        end
+    local old_sid = meta.id
+    if old_sid and storage.expire then
+      key, err = encode_base64url(old_sid)
+      if not key then
+        return nil, err
+      end
 
-        local stale_ttl = self.stale_ttl
-        if storage.ttl then
-          local ttl = storage:ttl(key)
-          if ttl and ttl > stale_ttl then
-            local ok, err = storage:expire(key, stale_ttl)
-            if not ok then
-              -- TODO: log or ignore?
-            end
-          end
-
-        else
-          local ok, err = storage:expire(key, stale_ttl)
+      local stale_ttl = self.stale_ttl
+      if storage.ttl then
+        local ttl = storage:ttl(key)
+        if ttl and ttl > stale_ttl then
+          local ok, err = storage:expire(key, stale_ttl, current_time)
           if not ok then
             -- TODO: log or ignore?
           end
+        end
+
+      else
+        local ok, err = storage:expire(key, stale_ttl, current_time)
+        if not ok then
+          -- TODO: log or ignore?
         end
       end
     end
@@ -1125,7 +1126,7 @@ function metatable:open(ngx_var)
         return nil, err
       end
 
-      ciphertext = self.storage:get(key)
+      ciphertext = self.storage:get(key, current_time)
       if not ciphertext then
         return nil, "invalid session payload"
       end

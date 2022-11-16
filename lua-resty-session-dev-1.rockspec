@@ -24,6 +24,7 @@ build = {
     ["resty.session.file"] = "lib/resty/session/file.lua",
     ["resty.session.file-thread"] = "lib/resty/session/file-thread.lua",
     ["resty.session.memcached"] = "lib/resty/session/memcached.lua",
+    ["resty.session.postgres"] = "lib/resty/session/postgres.lua",
     ["resty.session.redis"] = "lib/resty/session/redis.lua",
     ["resty.session.redis-cluster"] = "lib/resty/session/redis-cluster.lua",
     ["resty.session.redis-sentinel"] = "lib/resty/session/redis-sentinel.lua",
