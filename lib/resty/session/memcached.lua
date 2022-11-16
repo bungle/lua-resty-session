@@ -39,7 +39,7 @@ local function exec(self, func, ...)
     return nil, err
   end
 
-  if self.ssl and memc:getreusedtimes() == 0 then
+  if self.ssl and memc:get_reused_times() == 0 then
     ok, err = memc:sslhandshake(false, self.server_name, self.ssl_verify)
     if not ok then
       memc:close()
