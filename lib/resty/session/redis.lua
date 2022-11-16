@@ -1,15 +1,16 @@
 local redis = require "resty.redis"
 
 
+local setmetatable = setmetatable
+local error = error
+local null = ngx.null
+
+
 local SET = redis.set
 local GET = redis.get
 local TTL = redis.ttl
 local EXPIRE = redis.expire
 local UNLINK = redis.unlink
-
-
-local setmetatable = setmetatable
-local null = ngx.null
 
 
 local DEFAULT_HOST = "127.0.0.1"
@@ -78,6 +79,11 @@ local metatable = {}
 
 
 metatable.__index = metatable
+
+
+function metatable.__newindex()
+  error("attempt to update a read-only table", 2)
+end
 
 
 function metatable:set(key, value, ttl)

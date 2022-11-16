@@ -1,14 +1,15 @@
 local memcached = require "resty.memcached"
 
 
+local setmetatable = setmetatable
+local error = error
+local null = ngx.null
+
+
 local SET = memcached.set
 local GET = memcached.get
 local TOUCH = memcached.touch
 local DELETE = memcached.delete
-
-
-local setmetatable = setmetatable
-local null = ngx.null
 
 
 local DEFAULT_HOST = "127.0.0.1"
@@ -76,6 +77,11 @@ local metatable = {}
 
 
 metatable.__index = metatable
+
+
+function metatable.__newindex()
+  error("attempt to update a read-only table", 2)
+end
 
 
 function metatable:set(key, value, ttl)
