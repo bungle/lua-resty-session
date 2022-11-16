@@ -117,6 +117,7 @@ local DEFAULT_COOKIE_NAME = "session"
 local DEFAULT_COOKIE_PATH = "/"
 local DEFAULT_COOKIE_SAME_SITE = "Lax"
 local DEFAULT_COOKIE_SAME_PARTY
+local DEFAULT_COOKIE_PRIORITY
 local DEFAULT_COOKIE_PARTITIONED
 local DEFAULT_COOKIE_HTTP_ONLY = true
 local DEFAULT_COOKIE_PREFIX
@@ -1494,6 +1495,7 @@ function session.init(configuration)
     DEFAULT_COOKIE_PATH       = configuration.cookie_path      or DEFAULT_COOKIE_PATH
     DEFAULT_COOKIE_DOMAIN     = configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
     DEFAULT_COOKIE_SAME_SITE  = configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
+    DEFAULT_COOKIE_PRIORITY   = configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
     DEFAULT_ABSOLUTE_TIMEOUT  = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
     DEFAULT_ROLLING_TIMEOUT   = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
     DEFAULT_IDLING_TIMEOUT    = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
@@ -1539,6 +1541,7 @@ function session.new(configuration)
   local cookie_path       = configuration and configuration.cookie_path      or DEFAULT_COOKIE_PATH
   local cookie_domain     = configuration and configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
   local cookie_same_site  = configuration and configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
+  local cookie_priority   = configuration and configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
   local cookie_prefix     = configuration and configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
   local audience          = configuration and configuration.audience         or DEFAULT_AUDIENCE
   local absolute_timeout  = configuration and configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
@@ -1595,6 +1598,10 @@ function session.new(configuration)
   end
 
   FLAGS_BUFFER:put("; Path=", cookie_path, "; SameSite=", cookie_same_site)
+
+  if cookie_priority then
+    FLAGS_BUFFER:put("; Priority=", cookie_priority)
+  end
 
   if cookie_same_party then
     FLAGS_BUFFER:put("; SameParty")
