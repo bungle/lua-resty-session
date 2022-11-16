@@ -1496,6 +1496,7 @@ function session.init(configuration)
     DEFAULT_COOKIE_DOMAIN     = configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
     DEFAULT_COOKIE_SAME_SITE  = configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
     DEFAULT_COOKIE_PRIORITY   = configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
+    DEFAULT_COOKIE_PREFIX     = configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
     DEFAULT_ABSOLUTE_TIMEOUT  = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
     DEFAULT_ROLLING_TIMEOUT   = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
     DEFAULT_IDLING_TIMEOUT    = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
