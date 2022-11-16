@@ -921,7 +921,7 @@ end
 
 
 function metatable:get_mac()
-  return get_meta(self, "idling_offset")
+  return get_meta(self, "mac")
 end
 
 
