@@ -1463,6 +1463,7 @@ end
 
 local session = {
   _VERSION = "4.0.0",
+  metatable = metatable,
 }
 
 
