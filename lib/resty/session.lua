@@ -531,12 +531,22 @@ end
 local function load_storage(storage, configuration)
   if storage == "memcached" then
     return require("resty.session.memcached").new(configuration and configuration.memcached)
+
   elseif storage == "redis" then
-    return require("resty.session.redis").new(configuration and configuration.redis)
-  elseif storage == "redis-cluster" then
-    return require("resty.session.redis-cluster").new(configuration and configuration["redis-cluster"])
+    local cfg = configuration and configuration.redis
+    if cfg then
+      if cfg.nodes then
+        return require("resty.session.redis-cluster").new(cfg)
+      elseif cfg.sentinels then
+        return require("resty.session.redis-sentinel").new(cfg)
+      end
+    end
+
+    return require("resty.session.redis").new(cfg)
+
   elseif storage == "shm" then
     return require("resty.session.shm").new(configuration and configuration.shm)
+
   else
     return require(storage).new(configuration and configuration[storage])
   end

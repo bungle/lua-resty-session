@@ -23,6 +23,7 @@ build = {
     ["resty.session.memcached"] = "lib/resty/session/memcached.lua",
     ["resty.session.redis"] = "lib/resty/session/redis.lua",
     ["resty.session.redis-cluster"] = "lib/resty/session/redis-cluster.lua",
+    ["resty.session.redis-sentinel"] = "lib/resty/session/redis-sentinel.lua",
     ["resty.session.shm"] = "lib/resty/session/shm.lua",
   },
 }

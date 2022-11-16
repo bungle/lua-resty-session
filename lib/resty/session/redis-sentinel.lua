@@ -1,4 +1,4 @@
-local redis = require "resty.rediscluster"
+local redis = require "resty.redis.connector"
 
 
 local setmetatable = setmetatable
@@ -6,17 +6,20 @@ local error = error
 local null = ngx.null
 
 
-local SET = redis.set
-local GET = redis.get
-local TTL = redis.ttl
-local EXPIRE = redis.expire
-local UNLINK = redis.unlink
+local SET = "set"
+local GET = "get"
+local TTL = "ttl"
+local EXPIRE = "expire"
+local UNLINK = "unlink"
 
 
 local function exec(self, func, ...)
-  local red = redis:new(self.options)
+  local red, err = self.connector:connect()
+  if not red then
+    return nil, err
+  end
 
-  local ok, err = func(red, ...)
+  local ok, err = red[func](red, ...)
   if err then
     return nil, err
   end
@@ -24,6 +27,8 @@ local function exec(self, func, ...)
   if ok == null then
     ok = nil
   end
+
+  self.connector:set_keepalive(red)
 
   return ok, err
 end
@@ -71,16 +76,15 @@ local storage = {}
 function storage.new(configuration)
   local prefix                  = configuration and configuration.prefix                  --or DEFAULT_PREFIX
 
-  local name                    = configuration and configuration.name                    --or DEFAULT_NAME
-  local lock_zone               = configuration and configuration.lock_zone               --or DEFAULT_LOCK_ZONE
-  local lock_prefix             = configuration and configuration.lock_prefix             --or DEFAULT_LOCK_PREFIX
-  local nodes                   = configuration and configuration.nodes                   --or DEFAULT_NODES
-  local max_redirections        = configuration and configuration.max_redirections        --or DEFAULT_MAX_REDIRECTIONS
-  local max_connection_attempts = configuration and configuration.max_connection_attempts --or DEFAULT_MAX_CONNECTION_ATTEMPTS
-  local max_connection_timeout  = configuration and configuration.max_connection_timeout  --or DEFAULT_MAX_CONNECTION_TIMEOUT
+  local master                  = configuration and configuration.master                  --or DEFAULT_MASTER
+  local role                    = configuration and configuration.role                    --or DEFAULT_ROLE
+  local sentinels               = configuration and configuration.sentinels               --or DEFAULT_SENTINELS
+  local sentinel_username       = configuration and configuration.sentinel_username       --or DEFAULT_SENTINEL_USERNAME
+  local sentinel_password       = configuration and configuration.sentinel_password       --or DEFAULT_SENTINEL_PASSWORD
 
   local username                = configuration and configuration.username                --or DEFAULT_USERNAME
   local password                = configuration and configuration.password                --or DEFAULT_PASSWORD
+  local db                      = configuration and configuration.db                      --or DEFAULT_DB
 
   local connect_timeout         = configuration and configuration.connect_timeout         --or DEFAULT_CONNECT_TIMEOUT
   local send_timeout            = configuration and configuration.send_timeout            --or DEFAULT_SEND_TIMEOUT
@@ -94,61 +98,52 @@ function storage.new(configuration)
   local ssl_verify              = configuration and configuration.ssl_verify              --or DEFAULT_SSL_VERIFY
   local server_name             = configuration and configuration.server_name             --or DEFAULT_SERVER_NAME
 
-  local auth
-  if password then
-    if username then
-      auth = username .. " " .. password
-    else
-      auth = password
-    end
-  end
-
+  local connector
   if ssl ~= nil or ssl_verify ~= nil or server_name or pool or pool_size or backlog then
-    return setmetatable({
-      prefix = prefix,
-      options = {
-        name = name,
-        dict_name = lock_zone,
-        refresh_lock_key = lock_prefix,
-        serv_list = nodes,
-        connect_timeout = connect_timeout,
-        send_timeout = send_timeout,
-        read_timeout = read_timeout,
-        keepalive_timeout = keepalive_timeout,
-        keepalive_cons = pool_size,
-        max_redirection = max_redirections,
-        max_connection_attempts = max_connection_attempts,
-        max_connection_timeout = max_connection_timeout,
-        auth = auth,
-        connect_opts = {
-          ssl = ssl,
-          ssl_verify = ssl_verify,
-          server_name = server_name,
-          pool = pool,
-          pool_size = pool_size,
-          backlog = backlog,
-        },
-      },
-    }, metatable)
-  end
-
-  return setmetatable({
-    prefix = prefix,
-    options = {
-      name = name,
-      dict_name = lock_zone,
-      refresh_lock_key = lock_prefix,
-      serv_list = nodes,
+    connector = redis.new({
+      master_name = master,
+      role = role,
+      sentinels = sentinels,
+      sentinel_username = sentinel_username,
+      sentinel_password = sentinel_password,
+      username = username,
+      password = password,
+      db = db,
       connect_timeout = connect_timeout,
       send_timeout = send_timeout,
       read_timeout = read_timeout,
       keepalive_timeout = keepalive_timeout,
-      keepalive_cons = pool_size,
-      max_redirection = max_redirections,
-      max_connection_attempts = max_connection_attempts,
-      max_connection_timeout = max_connection_timeout,
-      auth = auth,
-    },
+      keepalive_poolsize = pool_size,
+      connection_options = {
+        ssl = ssl,
+        ssl_verify = ssl_verify,
+        server_name = server_name,
+        pool = pool,
+        pool_size = pool_size,
+        backlog = backlog,
+      }
+    })
+  else
+    connector = redis.new({
+      master_name = master,
+      role = role,
+      sentinels = sentinels,
+      sentinel_username = sentinel_username,
+      sentinel_password = sentinel_password,
+      username = username,
+      password = password,
+      db = db,
+      connect_timeout = connect_timeout,
+      send_timeout = send_timeout,
+      read_timeout = read_timeout,
+      keepalive_timeout = keepalive_timeout,
+      keepalive_poolsize = pool_size,
+    })
+  end
+
+  return setmetatable({
+    prefix = prefix,
+    connector = connector,
   }, metatable)
 end
 
