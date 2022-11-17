@@ -16,7 +16,22 @@ local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 4321
 
 
-local function exec(self, func, ...)
+local function get_name(self, key)
+  local prefix = self.prefix
+  local suffix = self.suffix
+  if prefix and suffix then
+    return prefix .. key .. suffix
+  elseif prefix then
+    return prefix .. key
+  elseif suffix then
+    return key .. suffix
+  else
+    return key
+  end
+end
+
+
+local function exec(self, func, key, ...)
   local dshmc = dshm:new()
 
   local connect_timeout = self.connect_timeout
@@ -39,7 +54,7 @@ local function exec(self, func, ...)
     end
   end
 
-  ok, err = func(dshmc, ...)
+  ok, err = func(dshmc, get_name(self, key), ...)
   if err then
     dshmc:close()
     return nil, err
@@ -93,6 +108,7 @@ local storage = {}
 
 function storage.new(configuration)
   local prefix            = configuration and configuration.prefix            --or DEFAULT_PREFIX
+  local suffix            = configuration and configuration.suffix            --or DEFAULT_SUFFIX
 
   local host              = configuration and configuration.host              or DEFAULT_HOST
   local port              = configuration and configuration.port              or DEFAULT_PORT
@@ -112,6 +128,7 @@ function storage.new(configuration)
   if pool or pool_size or backlog then
     setmetatable({
       prefix = prefix,
+      suffix = suffix,
       host = host,
       port = port,
       connect_timeout = connect_timeout,
@@ -131,6 +148,7 @@ function storage.new(configuration)
 
   return setmetatable({
     prefix = prefix,
+    suffix = suffix,
     host = host,
     port = port,
     connect_timeout = connect_timeout,

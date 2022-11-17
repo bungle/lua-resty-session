@@ -13,13 +13,28 @@ local EXPIRE = "expire"
 local UNLINK = "unlink"
 
 
-local function exec(self, func, ...)
+local function get_name(self, key)
+  local prefix = self.prefix
+  local suffix = self.suffix
+  if prefix and suffix then
+    return prefix .. key .. suffix
+  elseif prefix then
+    return prefix .. key
+  elseif suffix then
+    return key .. suffix
+  else
+    return key
+  end
+end
+
+
+local function exec(self, func, key, ...)
   local red, err = self.connector:connect()
   if not red then
     return nil, err
   end
 
-  local ok, err = red[func](red, ...)
+  local ok, err = red[func](red, get_name(self, key), ...)
   if err then
     return nil, err
   end
@@ -75,6 +90,7 @@ local storage = {}
 
 function storage.new(configuration)
   local prefix            = configuration and configuration.prefix            --or DEFAULT_PREFIX
+  local suffix            = configuration and configuration.suffix            --or DEFAULT_SUFFIX
 
   local master            = configuration and configuration.master            --or DEFAULT_MASTER
   local role              = configuration and configuration.role              --or DEFAULT_ROLE
@@ -143,6 +159,7 @@ function storage.new(configuration)
 
   return setmetatable({
     prefix = prefix,
+    suffix = suffix,
     connector = connector,
   }, metatable)
 end

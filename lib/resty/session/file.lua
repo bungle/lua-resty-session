@@ -33,6 +33,21 @@ local run_worker_thread do
 end
 
 
+local function get_path(self, key)
+  local prefix = self.prefix
+  local suffix = self.suffix
+  if prefix and suffix then
+    return self.path .. prefix .. key .. suffix
+  elseif prefix then
+    return self.path .. prefix .. key
+  elseif suffix then
+    return self.path .. key .. suffix
+  else
+    return self.path .. key
+  end
+end
+
+
 local metatable = {}
 
 
@@ -44,16 +59,16 @@ function metatable.__newindex()
 end
 
 
-function metatable:set(key, value, ttl)
-  -- TODO: deletion of expired files
-  return run_worker_thread(self.pool, "resty.session.file-thread", "set", self.path .. key, value)
+function metatable:set(key, value)
+  return run_worker_thread(self.pool, "resty.session.file-thread", "set", get_path(self, key), value)
 end
 
 
 function metatable:get(key)
-  return run_worker_thread(self.pool, "resty.session.file-thread", "get", self.path .. key)
+  return run_worker_thread(self.pool, "resty.session.file-thread", "get", get_path(self, key))
 end
 
+-- TODO: deletion of expired files
 -- TODO: adjustments to file expiry
 --function metatable:ttl(key)
 --  local ttl, err = self.dict:ttl(key)
@@ -74,7 +89,7 @@ end
 
 
 function metatable:delete(key)
-  return run_worker_thread(self.pool, "resty.session.file-thread", "delete", self.path .. key)
+  return run_worker_thread(self.pool, "resty.session.file-thread", "delete", get_path(self, key))
 end
 
 
@@ -82,13 +97,19 @@ local storage = {}
 
 
 function storage.new(configuration)
-  local pool = configuration and configuration.pool or DEFAULT_POOL
-  local path = configuration and configuration.path or DEFAULT_PATH
+  local prefix = configuration and configuration.prefix --or DEFAULT_PREFIX
+  local suffix = configuration and configuration.suffix --or DEFAULT_SUFFIX
+
+  local pool   = configuration and configuration.pool or DEFAULT_POOL
+  local path   = configuration and configuration.path or DEFAULT_PATH
+
   if byte(path, -1) ~= SLASH_BYTE then
     path = path .. "/"
   end
 
   return setmetatable({
+    prefix = prefix,
+    suffix = suffix,
     pool = pool,
     path = path,
   }, metatable)

@@ -13,10 +13,25 @@ local EXPIRE = redis.expire
 local UNLINK = redis.unlink
 
 
-local function exec(self, func, ...)
+local function get_name(self, key)
+  local prefix = self.prefix
+  local suffix = self.suffix
+  if prefix and suffix then
+    return prefix .. key .. suffix
+  elseif prefix then
+    return prefix .. key
+  elseif suffix then
+    return key .. suffix
+  else
+    return key
+  end
+end
+
+
+local function exec(self, func, key, ...)
   local red = redis:new(self.options)
 
-  local ok, err = func(red, ...)
+  local ok, err = func(red, get_name(self, key), ...)
   if err then
     return nil, err
   end
@@ -70,6 +85,7 @@ local storage = {}
 
 function storage.new(configuration)
   local prefix                  = configuration and configuration.prefix                  --or DEFAULT_PREFIX
+  local suffix                  = configuration and configuration.suffix                  --or DEFAULT_SUFFIX
 
   local name                    = configuration and configuration.name                    --or DEFAULT_NAME
   local lock_zone               = configuration and configuration.lock_zone               --or DEFAULT_LOCK_ZONE
@@ -106,6 +122,7 @@ function storage.new(configuration)
   if ssl ~= nil or ssl_verify ~= nil or server_name or pool or pool_size or backlog then
     return setmetatable({
       prefix = prefix,
+      suffix = suffix,
       options = {
         name = name,
         dict_name = lock_zone,
@@ -134,6 +151,7 @@ function storage.new(configuration)
 
   return setmetatable({
     prefix = prefix,
+    suffix = suffix,
     options = {
       name = name,
       dict_name = lock_zone,

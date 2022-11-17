@@ -14,10 +14,24 @@ local DELETE = memcached.delete
 
 local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 11211
-local DEFAULT_SOCKET
 
 
-local function exec(self, func, ...)
+local function get_name(self, key)
+  local prefix = self.prefix
+  local suffix = self.suffix
+  if prefix and suffix then
+    return prefix .. key .. suffix
+  elseif prefix then
+    return prefix .. key
+  elseif suffix then
+    return key .. suffix
+  else
+    return key
+  end
+end
+
+
+local function exec(self, func, key, ...)
   local memc = memcached:new()
 
   local connect_timeout = self.connect_timeout
@@ -47,11 +61,13 @@ local function exec(self, func, ...)
     end
   end
 
+  key = get_name(self, key)
+
   if func == memc.get then
     local _
-    ok, _, err = memc:get(...)
+    ok, _, err = memc:get(key)
   else
-    ok, err = func(memc, ...)
+    ok, err = func(memc, key, ...)
   end
 
   if err then
@@ -107,10 +123,11 @@ local storage = {}
 
 function storage.new(configuration)
   local prefix            = configuration and configuration.prefix            --or DEFAULT_PREFIX
+  local suffix            = configuration and configuration.suffix            --or DEFAULT_SUFFIX
 
   local host              = configuration and configuration.host              or DEFAULT_HOST
   local port              = configuration and configuration.port              or DEFAULT_PORT
-  local socket            = configuration and configuration.socket            or DEFAULT_SOCKET
+  local socket            = configuration and configuration.socket            --or DEFAULT_SOCKET
 
   local connect_timeout   = configuration and configuration.connect_timeout   --or DEFAULT_CONNECT_TIMEOUT
   local send_timeout      = configuration and configuration.send_timeout      --or DEFAULT_SEND_TIMEOUT
@@ -127,6 +144,7 @@ function storage.new(configuration)
   if pool or pool_size or backlog then
     setmetatable({
       prefix = prefix,
+      suffix = suffix,
       host = host,
       port = port,
       socket = socket,
@@ -147,6 +165,7 @@ function storage.new(configuration)
 
   return setmetatable({
     prefix = prefix,
+    suffix = suffix,
     host = host,
     port = port,
     socket = socket,

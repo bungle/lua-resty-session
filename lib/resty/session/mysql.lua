@@ -17,7 +17,6 @@ local fmt = string.format
 
 local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 3306
-local DEFAULT_SOCKET
 
 
 local SET = "INSERT INTO %s (sid, data, exp) VALUES ('%s', '%s', FROM_UNIXTIME(%d))"
@@ -105,7 +104,7 @@ local storage = {}
 function storage.new(configuration)
   local host              = configuration and configuration.host              or DEFAULT_HOST
   local port              = configuration and configuration.port              or DEFAULT_PORT
-  local socket            = configuration and configuration.socket            or DEFAULT_SOCKET
+  local socket            = configuration and configuration.socket            --or DEFAULT_SOCKET
 
   local username          = configuration and configuration.username          --or DEFAULT_USERNAME
   local password          = configuration and configuration.password          --or DEFAULT_PASSWORD
