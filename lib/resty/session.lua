@@ -47,10 +47,8 @@ local bpack = utils.bpack
 local trim = utils.trim
 
 
-local EQUALS_BYTE    = byte("=")
-local SEMICOLON_BYTE = byte(";")
-
 -- Type (1B) || Session ID (32B) || Payload Size (4B) || Options (2B) || Creation Time (8B) || Rolling Offset (4B) || Tag (16B) || Idling Offset (2B) || Mac (6B) || [ Payload (*B) ]
+
 
 local COOKIE_TYPE_SIZE    = 1
 local SID_SIZE            = 32
@@ -133,13 +131,17 @@ local STATE_OPEN   = 1
 local STATE_CLOSED = 2
 
 
+local EQUALS_BYTE    = byte("=")
+local SEMICOLON_BYTE = byte(";")
+
+
+local COOKIE_EXPIRE_FLAGS = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
+
+
 local HEADER_BUFFER  = buffer.new(HEADER_SIZE)
 local PAYLOAD_BUFFER = buffer.new(MAX_COOKIES_SIZE)
 local FLAGS_BUFFER   = buffer.new(128)
 local HIDE_BUFFER    = buffer.new(256)
-
-
-local COOKIE_EXPIRE_FLAGS = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
 
 
 local function calculate_cookie_chunks(cookie_name_size, data_size)
