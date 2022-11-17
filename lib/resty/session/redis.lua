@@ -15,7 +15,6 @@ local UNLINK = redis.unlink
 
 local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 6379
-local DEFAULT_SOCKET
 
 
 local function get_name(self, key)
@@ -143,7 +142,7 @@ function storage.new(configuration)
 
   local host              = configuration and configuration.host              or DEFAULT_HOST
   local port              = configuration and configuration.port              or DEFAULT_PORT
-  local socket            = configuration and configuration.socket            or DEFAULT_SOCKET
+  local socket            = configuration and configuration.socket            --or DEFAULT_SOCKET
 
   local username          = configuration and configuration.username          --or DEFAULT_USERNAME
   local password          = configuration and configuration.password          --or DEFAULT_PASSWORD

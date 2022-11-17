@@ -30,5 +30,6 @@ build = {
     ["resty.session.redis-cluster"] = "lib/resty/session/redis-cluster.lua",
     ["resty.session.redis-sentinel"] = "lib/resty/session/redis-sentinel.lua",
     ["resty.session.shm"] = "lib/resty/session/shm.lua",
+    ["resty.session.utils"] = "lib/resty/session/utils.lua",
   },
 }
