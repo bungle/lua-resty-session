@@ -42,26 +42,27 @@ local rand_bytes = utils.rand_bytes
 local inflate = utils.inflate
 local deflate = utils.deflate
 local bunpack = utils.bunpack
+local errmsg = utils.errmsg
 local sha256 = utils.sha256
 local bpack = utils.bpack
 local trim = utils.trim
 
 
--- Type (1B) || Session ID (32B) || Payload Size (4B) || Options (2B) || Creation Time (8B) || Rolling Offset (4B) || Tag (16B) || Idling Offset (2B) || Mac (6B) || [ Payload (*B) ]
+-- Type (1B) || Options (2B) || Session ID (32B) || Creation Time (8B) || Rolling Offset (4B) || Data Size (4B) || Tag (16B) || Idling Offset (2B) || Mac (6B) || [ Data (*B) ]
 
 
 local COOKIE_TYPE_SIZE    = 1
-local SID_SIZE            = 32
-local PAYLOAD_SIZE        = 4
 local OPTIONS_SIZE        = 2
+local SID_SIZE            = 32
 local CREATED_AT_SIZE     = 8
 local ROLLING_OFFSET_SIZE = 4
+local DATA_SIZE           = 4
 local TAG_SIZE            = 16
 local IDLING_OFFSET_SIZE  = 2
 local MAC_SIZE            = 6
 
-local HEADER_SIZE = COOKIE_TYPE_SIZE + SID_SIZE + PAYLOAD_SIZE + OPTIONS_SIZE + CREATED_AT_SIZE +
-                    ROLLING_OFFSET_SIZE + TAG_SIZE + IDLING_OFFSET_SIZE + MAC_SIZE
+local HEADER_SIZE = COOKIE_TYPE_SIZE + OPTIONS_SIZE + SID_SIZE + CREATED_AT_SIZE + ROLLING_OFFSET_SIZE +
+                    DATA_SIZE + TAG_SIZE + IDLING_OFFSET_SIZE + MAC_SIZE
 local HEADER_ENCODED_SIZE = base64_size(HEADER_SIZE)
 
 
@@ -147,7 +148,7 @@ local HIDE_BUFFER    = buffer.new(256)
 local function calculate_cookie_chunks(cookie_name_size, data_size)
   local space_needed = cookie_name_size + 1 + HEADER_ENCODED_SIZE + data_size
   if space_needed > MAX_COOKIES_SIZE then
-    return nil, "size limit exceeded"
+    return nil, "cookie size limit exceeded"
   end
 
   if space_needed <= MAX_COOKIE_SIZE then
@@ -157,13 +158,13 @@ local function calculate_cookie_chunks(cookie_name_size, data_size)
   for i = 2, MAX_COOKIES do
     space_needed = space_needed + cookie_name_size + 2
     if space_needed > MAX_COOKIES_SIZE then
-      return nil, "size limit exceeded"
+      return nil, "cookie size limit exceeded"
     elseif space_needed <= (MAX_COOKIE_SIZE * i) then
       return i
     end
   end
 
-  return nil, "size limit exceeded"
+  return nil, "cookie size limit exceeded"
 end
 
 
@@ -183,7 +184,7 @@ local function merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data
   end
 
   if type(cookies) ~= "table" then
-    return nil, "invalid cookies"
+    return nil, "unable to merge session cookies with response cookies"
   end
 
   local count = #cookies
@@ -213,38 +214,58 @@ end
 
 
 local function save(self, state)
-  local options = self.options
-  local stateless = band(options, OPTION_STATELESS) ~= 0
   local cookie_name = self.cookie_name
   local cookie_name_size = #cookie_name
+  local options = self.options
+  local stateless = band(options, OPTION_STATELESS) ~= 0
+
+  local sid, err = rand_bytes(SID_SIZE)
+  if not sid then
+    return nil, errmsg(err, "unable to generate session id")
+  end
+
+  local meta = self[META_KEY]
+  local current_time = time()
+  local created_at = meta.created_at
+  local rolling_offset
+  if created_at then
+    rolling_offset = current_time - created_at
+
+  else
+    created_at = current_time
+    rolling_offset = 0
+  end
 
   local data, data_size, cookie_chunks do
     local err
     if band(options, OPTION_STRING_BUFFER) ~= 0 then
       data, err = encode_buffer(self[DATA_KEY])
-      if not data then
-        return nil, err
-      end
 
     else
       data, err = encode_json(self[DATA_KEY])
-      if not data then
-        return nil, err
+      if data then
+        options = bor(options, OPTION_JSON)
       end
+    end
 
-      options = bor(options, OPTION_JSON)
+    if not data then
+      return nil, errmsg(err, "unable to encode session data")
     end
 
     data_size = #data
 
     if data_size > COMPRESSION_THRESHOLD then
-      local deflated_data = deflate(data)
-      if deflated_data then
-        local deflated_size = #deflated_data
-        if deflated_size < data_size then
-          options = bor(options, OPTION_DEFLATE)
-          data = deflated_data
-          data_size = deflated_size
+      local deflated_data, err = deflate(data)
+      if not deflated_data then
+        -- TODO: log
+      else
+        if deflated_data then
+          local deflated_size = #deflated_data
+          if deflated_size < data_size then
+            options = bor(options, OPTION_DEFLATE)
+            data = deflated_data
+            data_size = deflated_size
+          end
         end
       end
     end
@@ -262,65 +283,48 @@ local function save(self, state)
     end
   end
 
-  local sid, err = rand_bytes(SID_SIZE)
-  if not sid then
-    return nil, err
-  end
-
-  local meta = self[META_KEY]
-
-  local current_time = time()
-  local created_at = meta.created_at
-  local rolling_offset
-  if created_at then
-    rolling_offset = current_time - created_at
-  else
-    created_at = current_time
-    rolling_offset = 0
-  end
-
   local idling_offset = 0
 
-  local packed_data_size      = bpack(PAYLOAD_SIZE, data_size)
   local packed_options        = bpack(OPTIONS_SIZE, options)
+  local packed_data_size      = bpack(DATA_SIZE, data_size)
   local packed_created_at     = bpack(CREATED_AT_SIZE, created_at)
   local packed_rolling_offset = bpack(ROLLING_OFFSET_SIZE, rolling_offset)
   local packed_idling_offset  = bpack(IDLING_OFFSET_SIZE, idling_offset)
 
   HEADER_BUFFER:reset()
-  HEADER_BUFFER:put(COOKIE_TYPE, sid, packed_data_size, packed_options, packed_created_at, packed_rolling_offset)
+  HEADER_BUFFER:put(COOKIE_TYPE, packed_options, sid, packed_created_at, packed_rolling_offset, packed_data_size)
 
   local key, err, iv = derive_aes_gcm_256_key_and_iv(self[IKM_KEY], sid)
   if not key then
-    return nil, err
+    return nil, errmsg(err, "unable to derive session encryption key")
   end
 
   local ciphertext, err, tag = encrypt_aes_256_gcm(key, iv, data, HEADER_BUFFER:tostring())
   if not ciphertext then
-    return nil, err
+    return nil, errmsg(err, "unable to encrypt session data")
   end
 
   HEADER_BUFFER:put(tag, packed_idling_offset)
 
   local auth_key, err = derive_hmac_sha256_key(self[IKM_KEY], sid)
   if not auth_key then
-    return nil, err
+    return nil, errmsg(err, "unable to derive session message authentication key")
   end
 
   local mac, err = hmac_sha256(auth_key, HEADER_BUFFER:tostring())
   if not mac then
-    return nil, err
+    return nil, errmsg(err, "unable to calculate session message authentication code")
   end
 
   local payload_header = HEADER_BUFFER:put(sub(mac, 1, MAC_SIZE)):get()
   payload_header, err = encode_base64url(payload_header)
   if not payload_header then
-    return nil, err
+    return nil, errmsg(err, "unable to base64url encode session header")
   end
 
   local payload, err = encode_base64url(ciphertext)
   if not payload then
-    return nil, err
+    return nil, errmsg(err, "unable to base64url encode session data")
   end
 
   local cookies = header["Set-Cookie"]
@@ -383,36 +387,37 @@ local function save(self, state)
   else
     local key, err = encode_base64url(sid)
     if not key then
-      return nil, err
+      return nil, errmsg(err, "unable to base64url encode session id")
     end
 
     local storage = self.storage
     local ok, err = storage:set(key, payload, self.rolling_timeout, current_time)
     if not ok then
-      return nil, err
+      return nil, errmsg(err, "unable to store session data")
     end
 
     local old_sid = meta.id
     if old_sid and storage.expire then
       key, err = encode_base64url(old_sid)
       if not key then
-        return nil, err
-      end
+        -- TODO: log or ignore?
 
-      local stale_ttl = self.stale_ttl
-      if storage.ttl then
-        local ttl = storage:ttl(key)
-        if ttl and ttl > stale_ttl then
-          local ok, err = storage:expire(key, stale_ttl, current_time)
+      else
+        local stale_ttl = self.stale_ttl
+        if storage.ttl then
+          local ttl = storage:ttl(key)
+          if ttl and ttl > stale_ttl then
+            local ok, err = storage:expire(key, stale_ttl, current_time)
+            if not ok then
+              -- TODO: log or ignore?
+            end
+          end
+
+        else
+          ok, err = storage:expire(key, stale_ttl, current_time)
           if not ok then
             -- TODO: log or ignore?
           end
-        end
-
-      else
-        local ok, err = storage:expire(key, stale_ttl, current_time)
-        if not ok then
-          -- TODO: log or ignore?
         end
       end
     end
@@ -540,9 +545,10 @@ function metatable:open(ngx_var)
     if #header ~= HEADER_ENCODED_SIZE then
       return nil, "invalid session header"
     end
-    header = decode_base64url(header)
+    local err
+    header, err = decode_base64url(header)
     if not header then
-      return nil, "invalid session header"
+      return nil, errmsg(err, "unable to base64url decode session header")
     end
   end
 
@@ -558,22 +564,6 @@ function metatable:open(ngx_var)
     end
   end
 
-  local sid do
-    sid = HEADER_BUFFER:get(SID_SIZE)
-    if #sid ~= SID_SIZE then
-      return nil, "invalid session id"
-    end
-  end
-
-  local payload_size do
-    payload_size = HEADER_BUFFER:get(PAYLOAD_SIZE)
-    if #payload_size ~= PAYLOAD_SIZE then
-      return nil, "invalid session payload size"
-    end
-
-    payload_size = bunpack(PAYLOAD_SIZE, payload_size)
-  end
-
   local options, stateless do
     options = HEADER_BUFFER:get(OPTIONS_SIZE)
     if #options ~= OPTIONS_SIZE then
@@ -585,6 +575,13 @@ function metatable:open(ngx_var)
     stateless = band(self.options, OPTION_STATELESS) ~= 0
     if stateless ~= (band(options, OPTION_STATELESS) ~= 0) then
       return nil, "invalid session options"
+    end
+  end
+
+  local sid do
+    sid = HEADER_BUFFER:get(SID_SIZE)
+    if #sid ~= SID_SIZE then
+      return nil, "invalid session id"
     end
   end
 
@@ -622,6 +619,15 @@ function metatable:open(ngx_var)
     end
   end
 
+  local payload_size do
+    payload_size = HEADER_BUFFER:get(DATA_SIZE)
+    if #payload_size ~= DATA_SIZE then
+      return nil, "invalid session data size"
+    end
+
+    payload_size = bunpack(DATA_SIZE, payload_size)
+  end
+
   local tag do
     tag = HEADER_BUFFER:get(TAG_SIZE)
     if #tag ~= TAG_SIZE then
@@ -649,22 +655,22 @@ function metatable:open(ngx_var)
   local mac do
     mac = HEADER_BUFFER:get(MAC_SIZE)
     if #mac ~= MAC_SIZE then
-      return nil, "invalid session mac"
+      return nil, "invalid session message authentication code"
     end
 
     local key, err = derive_hmac_sha256_key(self[IKM_KEY], sid)
     if not key then
-      return nil, err
+      return nil, errmsg(err, "unable to derive session message authentication key")
     end
 
     local expected_mac, err = hmac_sha256(key, sub(header, 1, HEADER_SIZE - MAC_SIZE))
     if not expected_mac then
-      return nil, err
+      return nil, errmsg(err, "unable to calculate session message authentication code")
     end
 
     expected_mac = sub(expected_mac, 1, MAC_SIZE)
     if mac ~= expected_mac then
-      return nil, "invalid session mac"
+      return nil, "invalid session message authentication code"
     end
   end
 
@@ -685,7 +691,7 @@ function metatable:open(ngx_var)
         for i = 2, cookie_chunks do
           local chunk = var["cookie_" .. cookie_name .. i]
           if not chunk then
-            return nil, "missing session cookie chunk"
+            return nil, errmsg(err, "missing session cookie chunk")
           end
 
           PAYLOAD_BUFFER:put(chunk)
@@ -694,64 +700,56 @@ function metatable:open(ngx_var)
         ciphertext = PAYLOAD_BUFFER:get()
       end
 
-      if #ciphertext ~= payload_size then
-        return nil, "invalid session payload"
-      end
-
-      ciphertext = decode_base64url(ciphertext)
-      if not ciphertext then
-        return nil, "invalid session payload"
-      end
-
     else
       local key, err = encode_base64url(sid)
       if not key then
-        return nil, err
+        return nil, errmsg(err, "unable to base64url encode session id")
       end
 
-      ciphertext = self.storage:get(key, current_time)
+      ciphertext, err = self.storage:get(key, current_time)
       if not ciphertext then
-        return nil, "invalid session payload"
+        return nil, errmsg(err, "unable to load session data")
       end
+    end
 
-      if #ciphertext ~= payload_size then
-        return nil, "invalid session payload"
-      end
+    if #ciphertext ~= payload_size then
+      return nil, "invalid session payload"
+    end
 
-      ciphertext = decode_base64url(ciphertext)
-      if not ciphertext then
-        return nil, "invalid session payload"
-      end
+    local err
+    ciphertext, err = decode_base64url(ciphertext)
+    if not ciphertext then
+      return nil, errmsg(err, "unable to base64url decode session data")
     end
   end
 
   local key, err, iv = derive_aes_gcm_256_key_and_iv(self[IKM_KEY], sid)
   if not key then
-    return nil, err
+    return nil, errmsg(err, "unable to derive session decryption key")
   end
 
   local aad = sub(header, 1, HEADER_SIZE - MAC_SIZE - TAG_SIZE - IDLING_OFFSET_SIZE)
-  local plaintext = decrypt_aes_256_gcm(key, iv, ciphertext, aad, tag)
+  local plaintext, err = decrypt_aes_256_gcm(key, iv, ciphertext, aad, tag)
   if not plaintext then
-    return nil, "invalid session payload"
+    return nil, errmsg(err, "unable to decrypt session data")
   end
 
   local data, audience_count, audience_index do
     if band(options, OPTION_DEFLATE) ~= 0 then
-      plaintext = inflate(plaintext)
+      plaintext, err = inflate(plaintext)
       if not plaintext then
-        return nil, "invalid session payload"
+        return nil, errmsg(err, "unable to inflate session data")
       end
     end
 
     if band(options, OPTION_JSON) ~= 0 then
-      data = decode_json(plaintext)
+      data, err = decode_json(plaintext)
     elseif band(options, OPTION_STRING_BUFFER) ~= 0 then
-      data = decode_buffer(plaintext)
+      data, err = decode_buffer(plaintext)
     end
 
     if not data then
-      return nil, "invalid session payload"
+      return nil, errmsg(err, "unable to decode session data")
     end
 
     audience_count = #data
@@ -812,12 +810,12 @@ function metatable:touch()
   -- TODO: we need to know if the session was opened with a fallback IKM
   local auth_key, err = derive_hmac_sha256_key(self[IKM_KEY], meta.id)
   if not auth_key then
-    return nil, err
+    return nil, errmsg(err, "unable to derive session message authentication key")
   end
 
   local mac, err = hmac_sha256(auth_key, HEADER_BUFFER:tostring())
   if not mac then
-    return nil, err
+    return nil, errmsg(err, "unable to calculate session message authentication code")
   end
 
   mac = sub(mac, 1, MAC_SIZE)
@@ -830,7 +828,7 @@ function metatable:touch()
 
   payload_header, err = encode_base64url(payload_header)
   if not payload_header then
-    return nil, err
+    return nil, errmsg(err, "unable to base64url encode session header")
   end
 
   local cookie_flags = self.cookie_flags
@@ -907,7 +905,11 @@ function metatable:destroy()
   local cookie_chunks = 1
   local data_size = meta.size
   if stateless and data_size then
-    cookie_chunks = calculate_cookie_chunks(cookie_name_size, data_size)
+    local err
+    cookie_chunks, err = calculate_cookie_chunks(cookie_name_size, data_size)
+    if not cookie_chunks then
+      return nil, err
+    end
   end
 
   local cookie_data = fmt("%s=%s%s", cookie_name, cookie_flags, COOKIE_EXPIRE_FLAGS)
@@ -930,9 +932,13 @@ function metatable:destroy()
   if not stateless then
     local key, err = encode_base64url(meta.id)
     if not key then
-      return nil, err
+      return nil, errmsg(err, "unable to base64url encode session id")
     end
-    self.storage:delete(key)
+
+    local ok, err = self.storage:delete(key)
+    if not ok then
+      -- TODO: log or return nil, err?
+    end
   end
 
   header["Set-Cookie"] = cookies

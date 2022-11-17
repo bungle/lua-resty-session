@@ -4,9 +4,11 @@ local require = require
 local buffer = require "string.buffer"
 
 
+local select = select
 local ceil = math.ceil
 local byte = string.byte
-local sub  = string.sub
+local fmt = string.format
+local sub = string.sub
 
 
 local bpack, bunpack do
@@ -185,7 +187,7 @@ local deflate, inflate do
   local function gzip(inflate_or_deflate, input, chunk_size, window_bits_or_options)
     prepare_buffers(input)
     local ok, err = inflate_or_deflate(read_input_buffer, write_output_buffer,
-            chunk_size, window_bits_or_options)
+                                       chunk_size, window_bits_or_options)
     if not ok then
       return nil, err
     end
@@ -450,6 +452,19 @@ local function load_storage(storage, configuration)
 end
 
 
+local function errmsg(err, msg, ...)
+  if select("#", ...) > 0 then
+    msg = fmt(msg, ...)
+  end
+
+  if err then
+    return fmt("%s (%s)", msg, err)
+  end
+
+  return msg
+end
+
+
 return {
   bpack = bpack,
   bunpack = bunpack,
@@ -472,4 +487,5 @@ return {
   decrypt_aes_256_gcm = decrypt_aes_256_gcm,
   hmac_sha256 = hmac_sha256,
   load_storage = load_storage,
+  errmsg = errmsg,
 }
