@@ -21,7 +21,7 @@ local DEFAULT_PORT = 3306
 
 local SET = "INSERT INTO %s (sid, data, exp) VALUES ('%s', '%s', FROM_UNIXTIME(%d))"
 local GET = "SELECT data FROM %s WHERE sid = '%s' AND exp >= FROM_UNIXTIME(%d)"
-local EXPIRE = "UPDATE %s SET exp = FROM_UNIXTIME(%d) WHERE sid = '%s' AND exp >= FROM_UNIXTIME(%d)"
+local EXPIRE = "UPDATE %s SET exp = FROM_UNIXTIME(%d) WHERE sid = '%s' AND exp > FROM_UNIXTIME(%d)"
 local DELETE = "DELETE FROM %s WHERE sid = '%s'"
 
 

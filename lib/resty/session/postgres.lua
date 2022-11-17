@@ -21,7 +21,7 @@ local DEFAULT_PORT = 5432
 
 local SET = "INSERT INTO %s (sid, data, exp) VALUES ('%s', '%s', TO_TIMESTAMP(%d) AT TIME ZONE 'UTC')"
 local GET = "SELECT data FROM %s WHERE sid = '%s' AND exp >= TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
-local EXPIRE = "UPDATE %s SET exp = TO_TIMESTAMP(%d) AT TIME ZONE 'UTC' WHERE sid = '%s' AND exp >= TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
+local EXPIRE = "UPDATE %s SET exp = TO_TIMESTAMP(%d) AT TIME ZONE 'UTC' WHERE sid = '%s' AND exp > TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
 local DELETE = "DELETE FROM %s WHERE sid = '%s'"
 
 
