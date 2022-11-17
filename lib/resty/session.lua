@@ -537,6 +537,9 @@ local function load_storage(storage, configuration)
   elseif storage == "memcached" then
     return require("resty.session.memcached").new(configuration and configuration.memcached)
 
+  elseif storage == "mysql" then
+    return require("resty.session.mysql").new(configuration and configuration.mysql)
+
   elseif storage == "postgres" then
     return require("resty.session.postgres").new(configuration and configuration.postgres)
 
