@@ -4,6 +4,7 @@ local require = require
 local buffer = require "string.buffer"
 
 
+local ceil = math.ceil
 local byte = string.byte
 local sub  = string.sub
 
@@ -133,7 +134,7 @@ local encode_json, decode_json do
 end
 
 
-local encode_base64url, decode_base64url do
+local encode_base64url, decode_base64url, base64_size do
   local base64
   encode_base64url = function(value)
     if not base64 then
@@ -148,6 +149,10 @@ local encode_base64url, decode_base64url do
     end
     decode_base64url = base64.decode_base64url
     return decode_base64url(value)
+  end
+
+  base64_size = function(size)
+    return ceil(4 * size / 3)
   end
 end
 
@@ -455,6 +460,7 @@ return {
   decode_json = decode_json,
   encode_base64url = encode_base64url,
   decode_base64url = decode_base64url,
+  base64_size = base64_size,
   inflate = inflate,
   deflate = deflate,
   rand_bytes = rand_bytes,

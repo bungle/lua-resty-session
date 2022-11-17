@@ -14,7 +14,6 @@ local assert = assert
 local remove = table.remove
 local header = ngx.header
 local error = error
-local ceil = math.ceil
 local time = ngx.time
 local band = bit.band
 local byte = string.byte
@@ -37,6 +36,7 @@ local decode_buffer = utils.encode_buffer
 local load_storage = utils.load_storage
 local encode_json = utils.encode_json
 local decode_json = utils.decode_json
+local base64_size = utils.base64_size
 local hmac_sha256 = utils.hmac_sha256
 local rand_bytes = utils.rand_bytes
 local inflate = utils.inflate
@@ -64,7 +64,7 @@ local MAC_SIZE            = 6
 
 local HEADER_SIZE = COOKIE_TYPE_SIZE + SID_SIZE + PAYLOAD_SIZE + OPTIONS_SIZE + CREATED_AT_SIZE +
                     ROLLING_OFFSET_SIZE + TAG_SIZE + IDLING_OFFSET_SIZE + MAC_SIZE
-local HEADER_ENCODED_SIZE = ceil(4 * HEADER_SIZE / 3) -- base64url encoded size
+local HEADER_ENCODED_SIZE = base64_size(HEADER_SIZE)
 
 
 local COMPRESSION_THRESHOLD = 1024 -- 1 kB
@@ -247,7 +247,7 @@ local function save(self, state)
       end
     end
 
-    data_size = ceil(4 * data_size / 3) -- base64url encoded size
+    data_size = base64_size(data_size)
 
     if stateless then
       cookie_chunks, err = calculate_cookie_chunks(cookie_name_size, data_size)
