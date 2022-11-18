@@ -222,15 +222,6 @@ local function merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data
 end
 
 
-local function get_meta(self, name)
-  if self[STATE_KEY] ~= STATE_OPEN then
-    return
-  end
-
-  return self[META_KEY][name]
-end
-
-
 local function save(self, state)
   local cookie_name = self.cookie_name
   local cookie_name_size = #cookie_name
@@ -468,79 +459,80 @@ end
 
 
 function metatable:set(key, value)
-  if self[STATE_KEY] ~= STATE_CLOSED then
-    self[DATA_KEY][self[AUDIENCE_KEY]][DATA_IDX][key] = value
-  end
+  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to set session data on closed session")
+  self[DATA_KEY][self[AUDIENCE_KEY]][DATA_IDX][key] = value
 end
 
 
 function metatable:get(key)
-  if self[STATE_KEY] ~= STATE_CLOSED then
-    return self[DATA_KEY][self[AUDIENCE_KEY]][DATA_IDX][key]
-  end
+  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to get session data on closed session")
+  return self[DATA_KEY][self[AUDIENCE_KEY]][DATA_IDX][key]
 end
 
 
 function metatable:set_subject(subject)
-  if self[STATE_KEY] ~= STATE_CLOSED then
-    self[DATA_KEY][self[AUDIENCE_KEY]][SUBJECT_IDX] = subject
-  end
+  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to set subject on closed session")
+  self[DATA_KEY][self[AUDIENCE_KEY]][SUBJECT_IDX] = subject
 end
 
 
 function metatable:get_subject()
-  if self[STATE_KEY] ~= STATE_CLOSED then
-    return self[DATA_KEY][self[AUDIENCE_KEY]][SUBJECT_IDX]
-  end
+  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to get subject on closed session")
+  return self[DATA_KEY][self[AUDIENCE_KEY]][SUBJECT_IDX]
 end
 
 
 function metatable:set_audience(audience)
-  if self[STATE_KEY] ~= STATE_CLOSED then
-    self[DATA_KEY][self[AUDIENCE_KEY]][AUDIENCE_IDX] = audience
-  end
+  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to set audience on closed session")
+  self[DATA_KEY][self[AUDIENCE_KEY]][AUDIENCE_IDX] = audience
 end
 
 
 function metatable:get_audience()
-  if self[STATE_KEY] ~= STATE_CLOSED then
-    return self[DATA_KEY][self[AUDIENCE_KEY]][AUDIENCE_IDX]
-  end
+  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to get audience on closed session")
+  return self[DATA_KEY][self[AUDIENCE_KEY]][AUDIENCE_IDX]
 end
 
 
 function metatable:get_id()
-  return get_meta(self, "id")
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session id on nonexistent or closed session")
+  return self[META_KEY].id
 end
 
 
 function metatable:get_size()
-  return get_meta(self, "size")
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session data size on nonexistent or closed session")
+  return self[META_KEY].size
 end
 
 
 function metatable:get_created_at()
-  return get_meta(self, "created_at")
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session creation time on nonexistent or closed session")
+  return self[META_KEY].created_at
 end
 
 
 function metatable:get_rolling_offset()
-  return get_meta(self, "rolling_offset")
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session rolling offset on nonexistent or closed session")
+  return self[META_KEY].rolling_offset
 end
 
 
 function metatable:get_tag()
-  return get_meta(self, "tag")
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session tag on nonexistent or closed session")
+  return self[META_KEY].tag
 end
 
 
 function metatable:get_idling_offset()
-  return get_meta(self, "idling_offset")
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session idling offset on nonexistent or closed session")
+  return self[META_KEY].idling_offset
 end
 
 
 function metatable:get_mac()
-  return get_meta(self, "mac")
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session mac on nonexistent or closed session")
+  return self[META_KEY].mac
 end
 
 
@@ -825,9 +817,7 @@ end
 
 
 function metatable:touch()
-  if self[STATE_KEY] ~= STATE_OPEN then
-    return nil, "unable to touch nonexistent session"
-  end
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to touch nonexistent or closed session")
 
   local meta = self[META_KEY]
   local idling_offset = min(time() - meta.created_at - meta.rolling_offset, MAX_IDLING_TIMEOUT)
@@ -867,9 +857,7 @@ end
 
 
 function metatable:refresh()
-  if self[STATE_KEY] ~= STATE_OPEN then
-    return nil, "unable to refresh nonexistent session"
-  end
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to refresh nonexistent or closed session")
 
   local meta = self[META_KEY]
   local created_at = meta.created_at
@@ -895,9 +883,7 @@ end
 
 
 function metatable:logout()
-  if self[STATE_KEY] ~= STATE_OPEN then
-    return nil, "unable to logout nonexistent session"
-  end
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to logout nonexistent or closed session")
 
   if #self[DATA_KEY] == 1 then
     return self:destroy()
@@ -910,9 +896,7 @@ end
 
 
 function metatable:destroy()
-  if self[STATE_KEY] ~= STATE_OPEN then
-    return nil, "unable to destroy nonexistent session"
-  end
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to destroy nonexistent or closed session")
 
   local cookie_name = self.cookie_name
   local cookie_name_size = #cookie_name
@@ -969,10 +953,14 @@ function metatable:destroy()
 end
 
 
+function metatable:close()
+  self[STATE_KEY] = STATE_CLOSED
+  return true
+end
+
+
 function metatable:hide(ngx_var)
-  if self[STATE_KEY] ~= STATE_OPEN then
-    return nil, "unable to hide nonexistent session"
-  end
+  assert(self[STATE_KEY] == STATE_OPEN, "unable to hide nonexistent session")
 
   local cookies = (ngx_var or var).http_cookie
   if not cookies or cookies == "" then
@@ -1355,10 +1343,25 @@ end
 function session.destroy(configuration)
   local self, err, exists = session.open(configuration)
   if not exists then
-    return nil, err
+    return nil, err, exists
   end
 
   local ok, err = self:destroy()
+  if not ok then
+    return nil, err, exists
+  end
+
+  return true, nil, exists
+end
+
+
+function session.logout(configuration)
+  local self, err, exists = session.open(configuration)
+  if not exists then
+    return nil, err, exists
+  end
+
+  local ok, err = self:logout()
   if not ok then
     return nil, err, exists
   end
