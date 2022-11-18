@@ -3,7 +3,7 @@
 All notable changes to `lua-resty-session` will be documented in this file.
 
 ## [4.0.0] - Unreleased
-- Almost total rewrite
+- Total rewrite.
 
 
 ## [3.10] - 2022-01-14

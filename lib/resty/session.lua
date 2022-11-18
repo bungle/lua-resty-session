@@ -1,6 +1,7 @@
 local require = require
 
 
+local table_new = require "table.new"
 local buffer = require "string.buffer"
 local utils = require "resty.session.utils"
 local bit = require "bit"
@@ -92,6 +93,7 @@ local DEFAULT_AUDIENCE = ""
 local DEFAULT_SUBJECT  = ""
 local DEFAULT_META     = {}
 local DEFAULT_IKM
+local DEFAULT_IKM_FALLBACKS
 
 
 local DEFAULT_COOKIE_NAME = "session"
@@ -115,11 +117,12 @@ local DEFAULT_STALE_TTL        = 10    -- 10 seconds
 local DEFAULT_STORAGE
 
 
-local IKM_KEY      = {}
-local STATE_KEY    = {}
-local AUDIENCE_KEY = {}
-local META_KEY     = {}
-local DATA_KEY     = {}
+local IKM_KEY           = {}
+local IKM_FALLBACKS_KEY = {}
+local STATE_KEY         = {}
+local AUDIENCE_KEY      = {}
+local META_KEY          = {}
+local DATA_KEY          = {}
 
 
 local AUDIENCE_IDX = 1
@@ -143,6 +146,21 @@ local HEADER_BUFFER  = buffer.new(HEADER_SIZE)
 local PAYLOAD_BUFFER = buffer.new(MAX_COOKIES_SIZE)
 local FLAGS_BUFFER   = buffer.new(128)
 local HIDE_BUFFER    = buffer.new(256)
+
+
+local function calculate_mac(ikm, nonce, msg)
+  local auth_key, err = derive_hmac_sha256_key(ikm, nonce)
+  if not auth_key then
+    return nil, errmsg(err, "unable to derive session message authentication key")
+  end
+
+  local mac, err = hmac_sha256(auth_key, msg)
+  if not mac then
+    return nil, errmsg(err, "unable to calculate session message authentication code")
+  end
+
+  return sub(mac, 1, MAC_SIZE)
+end
 
 
 local function calculate_cookie_chunks(cookie_name_size, data_size)
@@ -306,14 +324,9 @@ local function save(self, state)
 
   HEADER_BUFFER:put(tag, packed_idling_offset)
 
-  local auth_key, err = derive_hmac_sha256_key(self[IKM_KEY], sid)
-  if not auth_key then
-    return nil, errmsg(err, "unable to derive session message authentication key")
-  end
-
-  local mac, err = hmac_sha256(auth_key, HEADER_BUFFER:tostring())
+  local mac, err = calculate_mac(self[IKM_KEY], sid, HEADER_BUFFER:tostring())
   if not mac then
-    return nil, errmsg(err, "unable to calculate session message authentication code")
+    return nil, err
   end
 
   local payload_header = HEADER_BUFFER:put(sub(mac, 1, MAC_SIZE)):get()
@@ -652,25 +665,39 @@ function metatable:open(ngx_var)
     end
   end
 
-  local mac do
+  local mac, ikm do
+    ikm = self[IKM_KEY]
     mac = HEADER_BUFFER:get(MAC_SIZE)
     if #mac ~= MAC_SIZE then
       return nil, "invalid session message authentication code"
     end
 
-    local key, err = derive_hmac_sha256_key(self[IKM_KEY], sid)
-    if not key then
-      return nil, errmsg(err, "unable to derive session message authentication key")
-    end
-
-    local expected_mac, err = hmac_sha256(key, sub(header, 1, HEADER_SIZE - MAC_SIZE))
-    if not expected_mac then
-      return nil, errmsg(err, "unable to calculate session message authentication code")
-    end
-
-    expected_mac = sub(expected_mac, 1, MAC_SIZE)
+    local msg = sub(header, 1, HEADER_SIZE - MAC_SIZE)
+    local expected_mac, err = calculate_mac(ikm, sid, msg)
     if mac ~= expected_mac then
-      return nil, "invalid session message authentication code"
+      local fallback_keys = self[IKM_FALLBACKS_KEY]
+      if fallback_keys then
+        local count = #fallback_keys
+        if count > 0 then
+          for i = 1, count do
+            ikm = fallback_keys[i]
+            local expected_mac, err = calculate_mac(ikm, sid, msg)
+            if mac == expected_mac then
+              break
+            end
+
+            if i == count then
+              return nil, errmsg(err, "invalid session message authentication code")
+            end
+          end
+
+        else
+          return nil, errmsg(err, "invalid session message authentication code")
+        end
+
+      else
+        return nil, errmsg(err, "invalid session message authentication code")
+      end
     end
   end
 
@@ -723,7 +750,7 @@ function metatable:open(ngx_var)
     end
   end
 
-  local key, err, iv = derive_aes_gcm_256_key_and_iv(self[IKM_KEY], sid)
+  local key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
   if not key then
     return nil, errmsg(err, "unable to derive session decryption key")
   end
@@ -773,6 +800,7 @@ function metatable:open(ngx_var)
     mac = mac,
     header = header,
     initial_chunk = initial_chunk,
+    ikm = ikm,
   }
 
   if not audience_index then
@@ -807,18 +835,10 @@ function metatable:touch()
   HEADER_BUFFER:reset():put(sub(meta.header, 1, HEADER_SIZE - IDLING_OFFSET_SIZE - MAC_SIZE),
                             bpack(IDLING_OFFSET_SIZE, idling_offset))
 
-  -- TODO: we need to know if the session was opened with a fallback IKM
-  local auth_key, err = derive_hmac_sha256_key(self[IKM_KEY], meta.id)
-  if not auth_key then
-    return nil, errmsg(err, "unable to derive session message authentication key")
-  end
-
-  local mac, err = hmac_sha256(auth_key, HEADER_BUFFER:tostring())
+  local mac, err = calculate_mac(meta.ikm, meta.id, HEADER_BUFFER:tostring())
   if not mac then
-    return nil, errmsg(err, "unable to calculate session message authentication code")
+    return nil, err
   end
-
-  mac = sub(mac, 1, MAC_SIZE)
 
   local payload_header = HEADER_BUFFER:put(mac):get()
 
@@ -1076,9 +1096,35 @@ local session = {
 
 function session.init(configuration)
   if configuration then
-    local secret = configuration.secret
-    if secret then
-      DEFAULT_IKM = assert(sha256(secret))
+    local ikm = configuration.ikm
+    if ikm then
+      DEFAULT_IKM = ikm
+
+    else
+      local secret = configuration.secret
+      if secret then
+        DEFAULT_IKM = assert(sha256(secret))
+      end
+    end
+
+    local ikm_fallbacks = configuration.ikm_fallbacks
+    if ikm_fallbacks then
+      DEFAULT_IKM_FALLBACKS = ikm_fallbacks
+
+    else
+      local secret_fallbacks = configuration.secret_fallbacks
+      if secret_fallbacks then
+        local count = #secret_fallbacks
+        if count > 0 then
+          DEFAULT_IKM_FALLBACKS = table_new(count, 0)
+          for i = 1, count do
+            DEFAULT_IKM_FALLBACKS[i] = assert(sha256(secret_fallbacks[i]))
+          end
+
+        else
+          DEFAULT_IKM_FALLBACKS = nil
+        end
+      end
     end
 
     DEFAULT_COOKIE_NAME       = configuration.cookie_name      or DEFAULT_COOKIE_NAME
@@ -1115,8 +1161,7 @@ function session.init(configuration)
   end
 
   if not DEFAULT_IKM then
-    local default_secret = assert(rand_bytes(32))
-    DEFAULT_IKM = assert(sha256(default_secret))
+    DEFAULT_IKM = assert(sha256(assert(rand_bytes(32))))
   end
 
   if type(DEFAULT_STORAGE) == "string" then
@@ -1135,12 +1180,14 @@ function session.new(configuration)
   local cookie_priority   = configuration and configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
   local cookie_prefix     = configuration and configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
   local audience          = configuration and configuration.audience         or DEFAULT_AUDIENCE
+  local subject           = configuration and configuration.subject          or DEFAULT_SUBJECT
   local absolute_timeout  = configuration and configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
   local rolling_timeout   = configuration and configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
   local idling_timeout    = configuration and configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
   local stale_ttl         = configuration and configuration.stale_ttl        or DEFAULT_STALE_TTL
   local storage           = configuration and configuration.storage          or DEFAULT_STORAGE
-  local secret            = configuration and configuration.secret
+  local ikm               = configuration and configuration.ikm
+  local ikm_fallbacks     = configuration and configuration.ikm_fallbacks
   local options           = configuration and configuration.options
 
   local cookie_http_only = configuration and configuration.cookie_http_only
@@ -1212,17 +1259,34 @@ function session.new(configuration)
 
   local cookie_flags = FLAGS_BUFFER:get()
 
-  local ikm
-  if secret then
-    ikm = assert(sha256(secret))
+  if not ikm then
+    local secret = configuration and configuration.secret
+    if secret then
+      ikm = assert(sha256(secret))
 
-  else
-    if not DEFAULT_IKM then
-      local default_secret = assert(rand_bytes(32))
-      DEFAULT_IKM = assert(sha256(default_secret))
+    else
+      if not DEFAULT_IKM then
+        DEFAULT_IKM = assert(sha256(assert(rand_bytes(32))))
+      end
+
+      ikm = DEFAULT_IKM
     end
+  end
 
-    ikm = DEFAULT_IKM
+  if not ikm_fallbacks then
+    local secret_fallbacks = configuration and configuration.secret_fallbacks
+    if secret_fallbacks then
+      local count = #secret_fallbacks
+      if count > 0 then
+        ikm_fallbacks = table_new(count, 0)
+        for i = 1, count do
+          ikm_fallbacks[i] = assert(sha256(secret_fallbacks[i]))
+        end
+      end
+
+    else
+      ikm_fallbacks = ikm_fallbacks or DEFAULT_IKM_FALLBACKS
+    end
   end
 
   local opts = OPTIONS_NONE
@@ -1233,9 +1297,7 @@ function session.new(configuration)
     end
   end
 
-  if band(opts, OPTION_JSON)          == 0 and
-     band(opts, OPTION_STRING_BUFFER) == 0
-  then
+  if band(opts, OPTION_JSON) == 0 and band(opts, OPTION_STRING_BUFFER) == 0 then
     opts = bor(opts, OPTION_JSON)
   end
 
@@ -1248,23 +1310,24 @@ function session.new(configuration)
   end
 
   return setmetatable({
-    absolute_timeout = absolute_timeout,
-    rolling_timeout  = rolling_timeout,
-    idling_timeout   = idling_timeout,
-    stale_ttl        = stale_ttl,
-    cookie_name      = cookie_name,
-    cookie_flags     = cookie_flags,
-    options          = opts,
-    storage          = storage,
-    [IKM_KEY]        = ikm,
-    [STATE_KEY]      = STATE_NEW,
-    [AUDIENCE_KEY]   = 1,
-    [META_KEY]       = DEFAULT_META,
-    [DATA_KEY]       = {
+    absolute_timeout    = absolute_timeout,
+    rolling_timeout     = rolling_timeout,
+    idling_timeout      = idling_timeout,
+    stale_ttl           = stale_ttl,
+    cookie_name         = cookie_name,
+    cookie_flags        = cookie_flags,
+    options             = opts,
+    storage             = storage,
+    [IKM_KEY]           = ikm,
+    [IKM_FALLBACKS_KEY] = ikm_fallbacks,
+    [STATE_KEY]         = STATE_NEW,
+    [AUDIENCE_KEY]      = 1,
+    [META_KEY]          = DEFAULT_META,
+    [DATA_KEY]          = {
       {
-        [AUDIENCE_IDX] = audience,
-        [SUBJECT_IDX]  = DEFAULT_SUBJECT,
-        [DATA_IDX]     = {},
+        [AUDIENCE_IDX]  = audience,
+        [SUBJECT_IDX]   = subject,
+        [DATA_IDX]      = {},
       },
     },
   }, metatable)
