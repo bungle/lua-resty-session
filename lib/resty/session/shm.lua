@@ -79,10 +79,10 @@ local storage = {}
 
 
 function storage.new(configuration)
-  local prefix = configuration and configuration.prefix --or DEFAULT_PREFIX
-  local suffix = configuration and configuration.suffix --or DEFAULT_SUFFIX
+  local prefix = configuration and configuration.prefix
+  local suffix = configuration and configuration.suffix
 
-  local zone   = configuration and configuration.zone   or DEFAULT_ZONE
+  local zone   = configuration and configuration.zone or DEFAULT_ZONE
 
   local dict = assert(shared[zone], "lua_shared_dict " .. zone .. " is missing")
   return setmetatable({

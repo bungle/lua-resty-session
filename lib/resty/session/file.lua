@@ -68,25 +68,6 @@ function metatable:get(key)
   return run_worker_thread(self.pool, "resty.session.file-thread", "get", get_path(self, key))
 end
 
--- TODO: deletion of expired files
--- TODO: adjustments to file expiry
---function metatable:ttl(key)
---  local ttl, err = self.dict:ttl(key)
---  if not ttl then
---    return nil, err
---  end
---  return ttl
---end
---
---
---function metatable:expire(key, ttl)
---  local ok, err = self.dict:expire(key, ttl)
---  if not ok then
---    return nil, err
---  end
---  return true
---end
-
 
 function metatable:delete(key)
   return run_worker_thread(self.pool, "resty.session.file-thread", "delete", get_path(self, key))
@@ -97,8 +78,8 @@ local storage = {}
 
 
 function storage.new(configuration)
-  local prefix = configuration and configuration.prefix --or DEFAULT_PREFIX
-  local suffix = configuration and configuration.suffix --or DEFAULT_SUFFIX
+  local prefix = configuration and configuration.prefix
+  local suffix = configuration and configuration.suffix
 
   local pool   = configuration and configuration.pool or DEFAULT_POOL
   local path   = configuration and configuration.path or DEFAULT_PATH

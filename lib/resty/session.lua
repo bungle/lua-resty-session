@@ -91,7 +91,7 @@ local OPTIONS = {
 
 local DEFAULT_AUDIENCE = ""
 local DEFAULT_SUBJECT
-local DEFAULT_META     = {}
+local DEFAULT_META = {}
 local DEFAULT_IKM
 local DEFAULT_IKM_FALLBACKS
 

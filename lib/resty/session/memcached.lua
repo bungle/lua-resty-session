@@ -122,24 +122,24 @@ local storage = {}
 
 
 function storage.new(configuration)
-  local prefix            = configuration and configuration.prefix            --or DEFAULT_PREFIX
-  local suffix            = configuration and configuration.suffix            --or DEFAULT_SUFFIX
+  local prefix            = configuration and configuration.prefix
+  local suffix            = configuration and configuration.suffix
 
-  local host              = configuration and configuration.host              or DEFAULT_HOST
-  local port              = configuration and configuration.port              or DEFAULT_PORT
-  local socket            = configuration and configuration.socket            --or DEFAULT_SOCKET
+  local host              = configuration and configuration.host or DEFAULT_HOST
+  local port              = configuration and configuration.port or DEFAULT_PORT
+  local socket            = configuration and configuration.socket
 
-  local connect_timeout   = configuration and configuration.connect_timeout   --or DEFAULT_CONNECT_TIMEOUT
-  local send_timeout      = configuration and configuration.send_timeout      --or DEFAULT_SEND_TIMEOUT
-  local read_timeout      = configuration and configuration.read_timeout      --or DEFAULT_READ_TIMEOUT
-  local keepalive_timeout = configuration and configuration.keepalive_timeout --or DEFAULT_KEEPALIVE_TIMEOUT
+  local connect_timeout   = configuration and configuration.connect_timeout
+  local send_timeout      = configuration and configuration.send_timeout
+  local read_timeout      = configuration and configuration.read_timeout
+  local keepalive_timeout = configuration and configuration.keepalive_timeout
 
-  local pool              = configuration and configuration.pool              --or DEFAULT_POOL
-  local pool_size         = configuration and configuration.pool_size         --or DEFAULT_POOL_SIZE
-  local backlog           = configuration and configuration.backlog           --or DEFAULT_BACKLOG
-  local ssl               = configuration and configuration.ssl               --or DEFAULT_SSL
-  local ssl_verify        = configuration and configuration.ssl_verify        --or DEFAULT_SSL_VERIFY
-  local server_name       = configuration and configuration.server_name       --or DEFAULT_SERVER_NAME
+  local pool              = configuration and configuration.pool
+  local pool_size         = configuration and configuration.pool_size
+  local backlog           = configuration and configuration.backlog
+  local ssl               = configuration and configuration.ssl
+  local ssl_verify        = configuration and configuration.ssl_verify
+  local server_name       = configuration and configuration.server_name
 
   if pool or pool_size or backlog then
     setmetatable({

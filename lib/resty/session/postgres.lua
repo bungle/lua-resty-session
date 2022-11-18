@@ -110,27 +110,27 @@ local storage = {}
 
 
 function storage.new(configuration)
-  local host              = configuration and configuration.host              or DEFAULT_HOST
-  local port              = configuration and configuration.port              or DEFAULT_PORT
+  local host              = configuration and configuration.host or DEFAULT_HOST
+  local port              = configuration and configuration.port or DEFAULT_PORT
 
-  local application       = configuration and configuration.application       --or DEFAULT_APPLICATION
-  local username          = configuration and configuration.username          --or DEFAULT_USERNAME
-  local password          = configuration and configuration.password          --or DEFAULT_PASSWORD
-  local database          = configuration and configuration.database          --or DEFAULT_DATABASE
-  local schema            = configuration and configuration.schema            --or DEFAULT_SCHEMA
-  local table_name        = configuration and configuration.table             --or DEFAULT_TABLE
+  local application       = configuration and configuration.application
+  local username          = configuration and configuration.username
+  local password          = configuration and configuration.password
+  local database          = configuration and configuration.database
+  local schema            = configuration and configuration.schema
+  local table_name        = configuration and configuration.table
 
-  local connect_timeout   = configuration and configuration.connect_timeout   --or DEFAULT_CONNECT_TIMEOUT
-  local send_timeout      = configuration and configuration.send_timeout      --or DEFAULT_SEND_TIMEOUT
-  local read_timeout      = configuration and configuration.read_timeout      --or DEFAULT_READ_TIMEOUT
-  local keepalive_timeout = configuration and configuration.keepalive_timeout --or DEFAULT_KEEPALIVE_TIMEOUT
+  local connect_timeout   = configuration and configuration.connect_timeout
+  local send_timeout      = configuration and configuration.send_timeout
+  local read_timeout      = configuration and configuration.read_timeout
+  local keepalive_timeout = configuration and configuration.keepalive_timeout
 
-  local pool              = configuration and configuration.pool              --or DEFAULT_POOL
-  local pool_size         = configuration and configuration.pool_size         --or DEFAULT_POOL_SIZE
-  local backlog           = configuration and configuration.backlog           --or DEFAULT_BACKLOG
-  local ssl               = configuration and configuration.ssl               --or DEFAULT_SSL
-  local ssl_verify        = configuration and configuration.ssl_verify        --or DEFAULT_SSL_VERIFY
-  local ssl_required      = configuration and configuration.ssl_required      --or DEFAULT_SSL_REQUIRED
+  local pool              = configuration and configuration.pool
+  local pool_size         = configuration and configuration.pool_size
+  local backlog           = configuration and configuration.backlog
+  local ssl               = configuration and configuration.ssl
+  local ssl_verify        = configuration and configuration.ssl_verify
+  local ssl_required      = configuration and configuration.ssl_required
 
   return setmetatable({
     schema = schema,
