@@ -3,6 +3,7 @@ local require = require
 
 local table_new = require "table.new"
 local buffer = require "string.buffer"
+local nkeys = require "table.nkeys"
 local utils = require "resty.session.utils"
 local bit = require "bit"
 
@@ -12,7 +13,6 @@ local clear_header = ngx.req.clear_header
 local set_header = ngx.req.set_header
 local tonumber = tonumber
 local assert = assert
-local remove = table.remove
 local header = ngx.header
 local error = error
 local time = ngx.time
@@ -90,7 +90,7 @@ local OPTIONS = {
 
 
 local DEFAULT_AUDIENCE = ""
-local DEFAULT_SUBJECT  = ""
+local DEFAULT_SUBJECT
 local DEFAULT_META     = {}
 local DEFAULT_IKM
 local DEFAULT_IKM_FALLBACKS
@@ -117,35 +117,9 @@ local DEFAULT_STALE_TTL        = 10    -- 10 seconds
 local DEFAULT_STORAGE
 
 
-local IKM_KEY           = {}
-local IKM_FALLBACKS_KEY = {}
-local STATE_KEY         = {}
-local AUDIENCE_KEY      = {}
-local META_KEY          = {}
-local DATA_KEY          = {}
-
-
-local AUDIENCE_IDX = 1
-local SUBJECT_IDX  = 2
-local DATA_IDX     = 3
-
-
-local OPTIONS_IDX        = 1
-local SID_IDX            = 2
-local CREATED_AT_IDX     = 3
-local ROLLING_OFFSET_IDX = 4
-local DATA_SIZE_IDX      = 5
-local TAG_IDX            = 6
-local IDLING_OFFSET_IDX  = 7
-local MAC_IDX            = 8
-local IKM_IDX            = 9
-local HEADER_IDX         = 10
-local INITIAL_CHUNK_IDX  = 11
-
-
-local STATE_NEW    = 1
-local STATE_OPEN   = 2
-local STATE_CLOSED = 3
+local STATE_NEW    = "new"
+local STATE_OPEN   = "open"
+local STATE_CLOSED = "closed"
 
 
 local EQUALS_BYTE    = byte("=")
@@ -155,10 +129,10 @@ local SEMICOLON_BYTE = byte(";")
 local COOKIE_EXPIRE_FLAGS = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
 
 
-local HEADER_BUFFER  = buffer.new(HEADER_SIZE)
-local PAYLOAD_BUFFER = buffer.new(MAX_COOKIES_SIZE)
-local FLAGS_BUFFER   = buffer.new(128)
-local HIDE_BUFFER    = buffer.new(256)
+local HEADER_BUFFER = buffer.new(HEADER_SIZE)
+local FLAGS_BUFFER  = buffer.new(128)
+local DATA_BUFFER   = buffer.new(MAX_COOKIES_SIZE)
+local HIDE_BUFFER   = buffer.new(256)
 
 
 local function calculate_mac(ikm, nonce, msg)
@@ -246,9 +220,9 @@ local function save(self, state)
     return nil, errmsg(err, "unable to generate session id")
   end
 
-  local meta = self[META_KEY]
+  local meta = self.meta
   local current_time = time()
-  local created_at = meta[CREATED_AT_IDX]
+  local created_at = meta.created_at
   local rolling_offset
   if created_at then
     rolling_offset = current_time - created_at
@@ -261,10 +235,10 @@ local function save(self, state)
   local data, data_size, cookie_chunks do
     local err
     if band(options, OPTION_STRING_BUFFER) ~= 0 then
-      data, err = encode_buffer(self[DATA_KEY])
+      data, err = encode_buffer(self.data)
 
     else
-      data, err = encode_json(self[DATA_KEY])
+      data, err = encode_json(self.data)
       if data then
         options = bor(options, OPTION_JSON)
       end
@@ -316,7 +290,7 @@ local function save(self, state)
   HEADER_BUFFER:reset()
   HEADER_BUFFER:put(COOKIE_TYPE, packed_options, sid, packed_created_at, packed_rolling_offset, packed_data_size)
 
-  local ikm = self[IKM_KEY]
+  local ikm = self.ikm
   local key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
   if not key then
     return nil, errmsg(err, "unable to derive session encryption key")
@@ -329,7 +303,7 @@ local function save(self, state)
 
   HEADER_BUFFER:put(tag, packed_idling_offset)
 
-  local mac, err = calculate_mac(self[IKM_KEY], sid, HEADER_BUFFER:tostring())
+  local mac, err = calculate_mac(ikm, sid, HEADER_BUFFER:tostring())
   if not mac then
     return nil, err
   end
@@ -365,9 +339,9 @@ local function save(self, state)
     end
 
   else
-    PAYLOAD_BUFFER:set(payload)
+    DATA_BUFFER:set(payload)
 
-    initial_chunk = PAYLOAD_BUFFER:get(MAX_COOKIE_SIZE - HEADER_ENCODED_SIZE - cookie_name_size - 1)
+    initial_chunk = DATA_BUFFER:get(MAX_COOKIE_SIZE - HEADER_ENCODED_SIZE - cookie_name_size - 1)
 
     local cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, initial_chunk, cookie_flags)
     cookies, err = merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data)
@@ -377,7 +351,7 @@ local function save(self, state)
 
     for i = 2, cookie_chunks do
       local name = fmt("%s%d", cookie_name, i)
-      cookie_data = PAYLOAD_BUFFER:get(MAX_COOKIE_SIZE - cookie_name_size - 2)
+      cookie_data = DATA_BUFFER:get(MAX_COOKIE_SIZE - cookie_name_size - 2)
       cookie_data = fmt("%s=%s%s", name, cookie_data, cookie_flags)
       cookies, err = merge_cookies(cookies, cookie_name_size + 1, name, cookie_data)
       if not cookies then
@@ -387,7 +361,7 @@ local function save(self, state)
   end
 
   if stateless then
-    local old_data_size = meta[DATA_SIZE_IDX]
+    local old_data_size = meta.data_size
     if old_data_size then
       local old_cookie_chunks = calculate_cookie_chunks(cookie_name_size, old_data_size)
       if old_cookie_chunks and old_cookie_chunks > cookie_chunks then
@@ -414,7 +388,7 @@ local function save(self, state)
       return nil, errmsg(err, "unable to store session data")
     end
 
-    local old_sid = meta[SID_IDX]
+    local old_sid = meta.sid
     if old_sid and storage.expire then
       key, err = encode_base64url(old_sid)
       if not key then
@@ -443,19 +417,19 @@ local function save(self, state)
 
   header["Set-Cookie"] = cookies
 
-  self[STATE_KEY] = state or STATE_OPEN
-  self[META_KEY] = {
-    [OPTIONS_IDX]        = options,
-    [SID_IDX]            = sid,
-    [CREATED_AT_IDX]     = created_at,
-    [ROLLING_OFFSET_IDX] = rolling_offset,
-    [DATA_SIZE_IDX]      = data_size,
-    [TAG_IDX]            = tag,
-    [IDLING_OFFSET_IDX]  = idling_offset,
-    [MAC_IDX]            = mac,
-    [IKM_IDX]            = ikm,
-    [HEADER_IDX]         = header,
-    [INITIAL_CHUNK_IDX]  = initial_chunk,
+  self.state = state or STATE_OPEN
+  self.meta = {
+    options        = options,
+    sid            = sid,
+    created_at     = created_at,
+    rolling_offset = rolling_offset,
+    data_size      = data_size,
+    tag            = tag,
+    idling_offset  = idling_offset,
+    mac            = mac,
+    ikm            = ikm,
+    header         = header,
+    initial_chunk  = initial_chunk,
   }
 
   return true
@@ -474,80 +448,82 @@ end
 
 
 function metatable:set(key, value)
-  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to set session data on closed session")
-  self[DATA_KEY][self[AUDIENCE_KEY]][DATA_IDX][key] = value
+  assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
+  self.data[self.audience].data[key] = value
 end
 
 
 function metatable:get(key)
-  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to get session data on closed session")
-  return self[DATA_KEY][self[AUDIENCE_KEY]][DATA_IDX][key]
+  assert(self.state ~= STATE_CLOSED, "unable to get session data on closed session")
+  return self.data[self.audience].data[key]
 end
 
 
 function metatable:set_subject(subject)
-  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to set subject on closed session")
-  self[DATA_KEY][self[AUDIENCE_KEY]][SUBJECT_IDX] = subject
+  assert(self.state ~= STATE_CLOSED, "unable to set subject on closed session")
+  self.data[self.audience].subject = subject
 end
 
 
 function metatable:get_subject()
-  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to get subject on closed session")
-  return self[DATA_KEY][self[AUDIENCE_KEY]][SUBJECT_IDX]
+  assert(self.state ~= STATE_CLOSED, "unable to get subject on closed session")
+  return self.data[self.audience].subject
 end
 
 
 function metatable:set_audience(audience)
-  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to set audience on closed session")
-  self[DATA_KEY][self[AUDIENCE_KEY]][AUDIENCE_IDX] = audience
+  assert(self.state ~= STATE_CLOSED, "unable to set audience on closed session")
+  self.data[audience] = self.data[self.audience]
+  self.data[self.audience] = nil
+  self.audience = audience
 end
 
 
 function metatable:get_audience()
-  assert(self[STATE_KEY] ~= STATE_CLOSED, "unable to get audience on closed session")
-  return self[DATA_KEY][self[AUDIENCE_KEY]][AUDIENCE_IDX]
+  assert(self.state ~= STATE_CLOSED, "unable to get audience on closed session")
+  return self.audience
 end
 
 
-function metatable:get_id()
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session id on nonexistent or closed session")
-  return self[META_KEY][SID_IDX]
+function metatable:get_sid()
+  assert(self.state == STATE_OPEN, "unable to get session id on nonexistent or closed session")
+  return self.meta.sid
 end
 
 
-function metatable:get_size()
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session data size on nonexistent or closed session")
-  return self[META_KEY][DATA_SIZE_IDX]
+function metatable:get_data_size()
+  assert(self.state == STATE_OPEN, "unable to get session data size on nonexistent or closed session")
+  return self.meta.data_size
 end
 
 
 function metatable:get_created_at()
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session creation time on nonexistent or closed session")
-  return self[META_KEY][CREATED_AT_IDX]
+  assert(self.state == STATE_OPEN, "unable to get session creation time on nonexistent or closed session")
+  return self.meta.created_at
 end
 
 
 function metatable:get_rolling_offset()
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session rolling offset on nonexistent or closed session")
-  return self[META_KEY][ROLLING_OFFSET_IDX]
+  assert(self.state == STATE_OPEN, "unable to get session rolling offset on nonexistent or closed session")
+  return self.meta.rolling_offset
 end
 
 
 function metatable:get_tag()
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session tag on nonexistent or closed session")
-  return self[META_KEY][TAG_IDX]
+  assert(self.state == STATE_OPEN, "unable to get session tag on nonexistent or closed session")
+  return self.meta.tag
 end
 
 
 function metatable:get_idling_offset()
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session idling offset on nonexistent or closed session")
-  return self[META_KEY][IDLING_OFFSET_IDX]
+  assert(self.state == STATE_OPEN, "unable to get session idling offset on nonexistent or closed session")
+  return self.meta.idling_offset
 end
 
 
 function metatable:get_mac()
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to get session mac on nonexistent or closed session")
-  return self[META_KEY][MAC_IDX]
+  assert(self.state == STATE_OPEN, "unable to get session mac on nonexistent or closed session")
+  return self.meta.mac
 end
 
 
@@ -673,7 +649,7 @@ function metatable:open(ngx_var)
   end
 
   local mac, ikm do
-    ikm = self[IKM_KEY]
+    ikm = self.ikm
     mac = HEADER_BUFFER:get(MAC_SIZE)
     if #mac ~= MAC_SIZE then
       return nil, "invalid session message authentication code"
@@ -682,7 +658,7 @@ function metatable:open(ngx_var)
     local msg = sub(header, 1, HEADER_SIZE - MAC_SIZE)
     local expected_mac, err = calculate_mac(ikm, sid, msg)
     if mac ~= expected_mac then
-      local fallback_keys = self[IKM_FALLBACKS_KEY]
+      local fallback_keys = self.ikm_fallbacks
       if fallback_keys then
         local count = #fallback_keys
         if count > 0 then
@@ -721,17 +697,17 @@ function metatable:open(ngx_var)
 
       else
         initial_chunk = sub(cookie, HEADER_ENCODED_SIZE + 1)
-        PAYLOAD_BUFFER:reset():put(initial_chunk)
+        DATA_BUFFER:reset():put(initial_chunk)
         for i = 2, cookie_chunks do
           local chunk = var["cookie_" .. cookie_name .. i]
           if not chunk then
             return nil, errmsg(err, "missing session cookie chunk")
           end
 
-          PAYLOAD_BUFFER:put(chunk)
+          DATA_BUFFER:put(chunk)
         end
 
-        ciphertext = PAYLOAD_BUFFER:get()
+        ciphertext = DATA_BUFFER:get()
       end
 
     else
@@ -768,7 +744,7 @@ function metatable:open(ngx_var)
     return nil, errmsg(err, "unable to decrypt session data")
   end
 
-  local data, audience_count, audience_index do
+  local data do
     if band(options, OPTION_DEFLATE) ~= 0 then
       plaintext, err = inflate(plaintext)
       if not plaintext then
@@ -785,42 +761,31 @@ function metatable:open(ngx_var)
     if not data then
       return nil, errmsg(err, "unable to decode session data")
     end
-
-    audience_count = #data
-    local current_audience = self:get_audience()
-    for i = 1, audience_count do
-      if data[i][AUDIENCE_IDX] == current_audience then
-        audience_index = i
-        break
-      end
-    end
   end
 
-  self[META_KEY] = {
-    [OPTIONS_IDX]        = options,
-    [SID_IDX]            = sid,
-    [CREATED_AT_IDX]     = created_at,
-    [ROLLING_OFFSET_IDX] = rolling_offset,
-    [DATA_SIZE_IDX]      = data_size,
-    [TAG_IDX]            = tag,
-    [IDLING_OFFSET_IDX]  = idling_offset,
-    [MAC_IDX]            = mac,
-    [IKM_IDX]            = ikm,
-    [HEADER_IDX]         = header,
-    [INITIAL_CHUNK_IDX]  = initial_chunk,
+  self.meta = {
+    options        = options,
+    sid            = sid,
+    created_at     = created_at,
+    rolling_offset = rolling_offset,
+    data_size      = data_size,
+    tag            = tag,
+    idling_offset  = idling_offset,
+    mac            = mac,
+    ikm            = ikm,
+    header         = header,
+    initial_chunk  = initial_chunk,
   }
 
-  if not audience_index then
-    local current_data = self[DATA_KEY][self[AUDIENCE_KEY]]
-    self[STATE_KEY] = STATE_NEW
-    self[AUDIENCE_KEY] = audience_count + 1
-    data[self[AUDIENCE_KEY]] = current_data
-    return nil, "invalid session audience"
+  local audience = self.audience
+  if not data[audience] then
+    self.state = STATE_NEW
+    data[audience] = self.data[audience]
+    return nil, "missing session audience"
   end
 
-  self[STATE_KEY] = STATE_OPEN
-  self[AUDIENCE_KEY] = audience_index
-  self[DATA_KEY] = data
+  self.state = STATE_OPEN
+  self.data = data
 
   return true
 end
@@ -832,24 +797,24 @@ end
 
 
 function metatable:touch()
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to touch nonexistent or closed session")
+  assert(self.state == STATE_OPEN, "unable to touch nonexistent or closed session")
 
-  local meta = self[META_KEY]
-  local idling_offset = min(time() - meta[CREATED_AT_IDX] - meta[ROLLING_OFFSET_IDX], MAX_IDLING_TIMEOUT)
+  local meta = self.meta
+  local idling_offset = min(time() - meta.created_at - meta.rolling_offset, MAX_IDLING_TIMEOUT)
 
-  HEADER_BUFFER:reset():put(sub(meta[HEADER_IDX], 1, HEADER_SIZE - IDLING_OFFSET_SIZE - MAC_SIZE),
+  HEADER_BUFFER:reset():put(sub(meta.header, 1, HEADER_SIZE - IDLING_OFFSET_SIZE - MAC_SIZE),
                             bpack(IDLING_OFFSET_SIZE, idling_offset))
 
-  local mac, err = calculate_mac(meta[IKM_IDX], meta[SID_IDX], HEADER_BUFFER:tostring())
+  local mac, err = calculate_mac(meta.ikm, meta.sid, HEADER_BUFFER:tostring())
   if not mac then
     return nil, err
   end
 
   local payload_header = HEADER_BUFFER:put(mac):get()
 
-  meta[IDLING_OFFSET_IDX] = idling_offset
-  meta[MAC_IDX]           = mac
-  meta[HEADER_IDX]        = payload_header
+  meta.idling_offset = idling_offset
+  meta.mac           = mac
+  meta.header        = payload_header
 
   payload_header, err = encode_base64url(payload_header)
   if not payload_header then
@@ -859,8 +824,8 @@ function metatable:touch()
   local cookie_flags = self.cookie_flags
   local cookie_name = self.cookie_name
   local cookie_data
-  if band(meta[OPTIONS_IDX], OPTION_STATELESS) ~= 0 then
-    cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, meta[INITIAL_CHUNK_IDX], cookie_flags)
+  if band(meta.options, OPTION_STATELESS) ~= 0 then
+    cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, meta.initial_chunk, cookie_flags)
   else
     cookie_data = fmt("%s=%s%s", cookie_name, payload_header, cookie_flags)
   end
@@ -872,11 +837,11 @@ end
 
 
 function metatable:refresh()
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to refresh nonexistent or closed session")
+  assert(self.state == STATE_OPEN, "unable to refresh nonexistent or closed session")
 
-  local meta = self[META_KEY]
-  local created_at = meta[CREATED_AT_IDX]
-  local rolling_offset = meta[ROLLING_OFFSET_IDX]
+  local meta = self.meta
+  local created_at = meta.created_at
+  local rolling_offset = meta.rolling_offset
 
   local rolling_timeout = self.rolling_timeout
   if rolling_timeout == 0 then
@@ -898,31 +863,30 @@ end
 
 
 function metatable:logout()
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to logout nonexistent or closed session")
+  assert(self.state == STATE_OPEN, "unable to logout nonexistent or closed session")
 
-  if #self[DATA_KEY] == 1 then
+  local data = self.data
+  if nkeys(data) == 1 then
     return self:destroy()
   end
 
-  remove(self[DATA_KEY], self[AUDIENCE_KEY])
+  data[self.audience] = nil
 
   return save(self, STATE_CLOSED)
 end
 
 
 function metatable:destroy()
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to destroy nonexistent or closed session")
+  assert(self.state == STATE_OPEN, "unable to destroy nonexistent or closed session")
 
   local cookie_name = self.cookie_name
   local cookie_name_size = #cookie_name
 
-  local meta = self[META_KEY]
+  local meta = self.meta
   local stateless = band(self.options, OPTION_STATELESS) ~= 0
 
-  local cookie_flags = self.cookie_flags
-
   local cookie_chunks = 1
-  local data_size = meta[DATA_SIZE_IDX]
+  local data_size = meta.data_size
   if stateless and data_size then
     local err
     cookie_chunks, err = calculate_cookie_chunks(cookie_name_size, data_size)
@@ -931,6 +895,7 @@ function metatable:destroy()
     end
   end
 
+  local cookie_flags = self.cookie_flags
   local cookie_data = fmt("%s=%s%s", cookie_name, cookie_flags, COOKIE_EXPIRE_FLAGS)
   local cookies, err = merge_cookies(header["Set-Cookie"], cookie_name_size, cookie_name, cookie_data)
   if not cookies then
@@ -949,7 +914,7 @@ function metatable:destroy()
   end
 
   if not stateless then
-    local key, err = encode_base64url(meta[SID_IDX])
+    local key, err = encode_base64url(meta.sid)
     if not key then
       return nil, errmsg(err, "unable to base64url encode session id")
     end
@@ -962,20 +927,20 @@ function metatable:destroy()
 
   header["Set-Cookie"] = cookies
 
-  self[STATE_KEY] = STATE_CLOSED
+  self.state = STATE_CLOSED
 
   return true
 end
 
 
 function metatable:close()
-  self[STATE_KEY] = STATE_CLOSED
+  self.state = STATE_CLOSED
   return true
 end
 
 
 function metatable:hide(ngx_var)
-  assert(self[STATE_KEY] == STATE_OPEN, "unable to hide nonexistent session")
+  assert(self.state == STATE_OPEN, "unable to hide nonexistent session")
 
   local cookies = (ngx_var or var).http_cookie
   if not cookies or cookies == "" then
@@ -989,7 +954,7 @@ function metatable:hide(ngx_var)
 
   local cookie_chunks
   if stateless then
-    cookie_chunks = calculate_cookie_chunks(cookie_name_size, self[META_KEY][DATA_SIZE_IDX]) or 1
+    cookie_chunks = calculate_cookie_chunks(cookie_name_size, self.meta.data_size) or 1
   else
     cookie_chunks = 1
   end
@@ -1130,17 +1095,17 @@ function session.init(configuration)
       end
     end
 
-    DEFAULT_COOKIE_NAME       = configuration.cookie_name      or DEFAULT_COOKIE_NAME
-    DEFAULT_COOKIE_PATH       = configuration.cookie_path      or DEFAULT_COOKIE_PATH
-    DEFAULT_COOKIE_DOMAIN     = configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
-    DEFAULT_COOKIE_SAME_SITE  = configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
-    DEFAULT_COOKIE_PRIORITY   = configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
-    DEFAULT_COOKIE_PREFIX     = configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
-    DEFAULT_ABSOLUTE_TIMEOUT  = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
-    DEFAULT_ROLLING_TIMEOUT   = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
-    DEFAULT_IDLING_TIMEOUT    = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
-    DEFAULT_STALE_TTL         = configuration.stale_ttl        or DEFAULT_STALE_TTL
-    DEFAULT_STORAGE           = configuration.storage          or DEFAULT_STORAGE
+    DEFAULT_COOKIE_NAME      = configuration.cookie_name      or DEFAULT_COOKIE_NAME
+    DEFAULT_COOKIE_PATH      = configuration.cookie_path      or DEFAULT_COOKIE_PATH
+    DEFAULT_COOKIE_DOMAIN    = configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
+    DEFAULT_COOKIE_SAME_SITE = configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
+    DEFAULT_COOKIE_PRIORITY  = configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
+    DEFAULT_COOKIE_PREFIX    = configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
+    DEFAULT_ABSOLUTE_TIMEOUT = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
+    DEFAULT_ROLLING_TIMEOUT  = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
+    DEFAULT_IDLING_TIMEOUT   = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
+    DEFAULT_STALE_TTL        = configuration.stale_ttl        or DEFAULT_STALE_TTL
+    DEFAULT_STORAGE          = configuration.storage          or DEFAULT_STORAGE
 
     local cookie_http_only = configuration.cookie_http_only
     if cookie_http_only ~= nil then
@@ -1176,22 +1141,22 @@ end
 
 
 function session.new(configuration)
-  local cookie_name       = configuration and configuration.cookie_name      or DEFAULT_COOKIE_NAME
-  local cookie_path       = configuration and configuration.cookie_path      or DEFAULT_COOKIE_PATH
-  local cookie_domain     = configuration and configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
-  local cookie_same_site  = configuration and configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
-  local cookie_priority   = configuration and configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
-  local cookie_prefix     = configuration and configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
-  local audience          = configuration and configuration.audience         or DEFAULT_AUDIENCE
-  local subject           = configuration and configuration.subject          or DEFAULT_SUBJECT
-  local absolute_timeout  = configuration and configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
-  local rolling_timeout   = configuration and configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
-  local idling_timeout    = configuration and configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
-  local stale_ttl         = configuration and configuration.stale_ttl        or DEFAULT_STALE_TTL
-  local storage           = configuration and configuration.storage          or DEFAULT_STORAGE
-  local ikm               = configuration and configuration.ikm
-  local ikm_fallbacks     = configuration and configuration.ikm_fallbacks
-  local options           = configuration and configuration.options
+  local cookie_name      = configuration and configuration.cookie_name      or DEFAULT_COOKIE_NAME
+  local cookie_path      = configuration and configuration.cookie_path      or DEFAULT_COOKIE_PATH
+  local cookie_domain    = configuration and configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
+  local cookie_same_site = configuration and configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
+  local cookie_priority  = configuration and configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
+  local cookie_prefix    = configuration and configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
+  local audience         = configuration and configuration.audience         or DEFAULT_AUDIENCE
+  local subject          = configuration and configuration.subject          or DEFAULT_SUBJECT
+  local absolute_timeout = configuration and configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
+  local rolling_timeout  = configuration and configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
+  local idling_timeout   = configuration and configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
+  local stale_ttl        = configuration and configuration.stale_ttl        or DEFAULT_STALE_TTL
+  local storage          = configuration and configuration.storage          or DEFAULT_STORAGE
+  local ikm              = configuration and configuration.ikm
+  local ikm_fallbacks    = configuration and configuration.ikm_fallbacks
+  local options          = configuration and configuration.options
 
   local cookie_http_only = configuration and configuration.cookie_http_only
   if cookie_http_only == nil then
@@ -1313,24 +1278,23 @@ function session.new(configuration)
   end
 
   return setmetatable({
-    absolute_timeout    = absolute_timeout,
-    rolling_timeout     = rolling_timeout,
-    idling_timeout      = idling_timeout,
-    stale_ttl           = stale_ttl,
-    cookie_name         = cookie_name,
-    cookie_flags        = cookie_flags,
-    options             = opts,
-    storage             = storage,
-    [IKM_KEY]           = ikm,
-    [IKM_FALLBACKS_KEY] = ikm_fallbacks,
-    [STATE_KEY]         = STATE_NEW,
-    [AUDIENCE_KEY]      = 1,
-    [META_KEY]          = DEFAULT_META,
-    [DATA_KEY]          = {
-      {
-        [AUDIENCE_IDX]  = audience,
-        [SUBJECT_IDX]   = subject,
-        [DATA_IDX]      = {},
+    absolute_timeout = absolute_timeout,
+    rolling_timeout  = rolling_timeout,
+    idling_timeout   = idling_timeout,
+    stale_ttl        = stale_ttl,
+    cookie_name      = cookie_name,
+    cookie_flags     = cookie_flags,
+    options          = opts,
+    storage          = storage,
+    ikm              = ikm,
+    ikm_fallbacks    = ikm_fallbacks,
+    state            = STATE_NEW,
+    audience         = audience,
+    meta             = DEFAULT_META,
+    data             = {
+      [audience]     = {
+        subject      = subject,
+        data         = {},
       },
     },
   }, metatable)
