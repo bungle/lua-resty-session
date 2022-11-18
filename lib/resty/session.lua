@@ -130,9 +130,22 @@ local SUBJECT_IDX  = 2
 local DATA_IDX     = 3
 
 
-local STATE_NEW    = 0
-local STATE_OPEN   = 1
-local STATE_CLOSED = 2
+local OPTIONS_IDX        = 1
+local SID_IDX            = 2
+local CREATED_AT_IDX     = 3
+local ROLLING_OFFSET_IDX = 4
+local DATA_SIZE_IDX      = 5
+local TAG_IDX            = 6
+local IDLING_OFFSET_IDX  = 7
+local MAC_IDX            = 8
+local IKM_IDX            = 9
+local HEADER_IDX         = 10
+local INITIAL_CHUNK_IDX  = 11
+
+
+local STATE_NEW    = 1
+local STATE_OPEN   = 2
+local STATE_CLOSED = 3
 
 
 local EQUALS_BYTE    = byte("=")
@@ -235,7 +248,7 @@ local function save(self, state)
 
   local meta = self[META_KEY]
   local current_time = time()
-  local created_at = meta.created_at
+  local created_at = meta[CREATED_AT_IDX]
   local rolling_offset
   if created_at then
     rolling_offset = current_time - created_at
@@ -303,7 +316,8 @@ local function save(self, state)
   HEADER_BUFFER:reset()
   HEADER_BUFFER:put(COOKIE_TYPE, packed_options, sid, packed_created_at, packed_rolling_offset, packed_data_size)
 
-  local key, err, iv = derive_aes_gcm_256_key_and_iv(self[IKM_KEY], sid)
+  local ikm = self[IKM_KEY]
+  local key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
   if not key then
     return nil, errmsg(err, "unable to derive session encryption key")
   end
@@ -373,7 +387,7 @@ local function save(self, state)
   end
 
   if stateless then
-    local old_data_size = meta.size
+    local old_data_size = meta[DATA_SIZE_IDX]
     if old_data_size then
       local old_cookie_chunks = calculate_cookie_chunks(cookie_name_size, old_data_size)
       if old_cookie_chunks and old_cookie_chunks > cookie_chunks then
@@ -400,7 +414,7 @@ local function save(self, state)
       return nil, errmsg(err, "unable to store session data")
     end
 
-    local old_sid = meta.id
+    local old_sid = meta[SID_IDX]
     if old_sid and storage.expire then
       key, err = encode_base64url(old_sid)
       if not key then
@@ -431,16 +445,17 @@ local function save(self, state)
 
   self[STATE_KEY] = state or STATE_OPEN
   self[META_KEY] = {
-    id = sid,
-    size = data_size,
-    options = options,
-    created_at = created_at,
-    rolling_offset = rolling_offset,
-    tag = tag,
-    idling_offset = idling_offset,
-    mac = mac,
-    header = header,
-    initial_chunk = initial_chunk,
+    [OPTIONS_IDX]        = options,
+    [SID_IDX]            = sid,
+    [CREATED_AT_IDX]     = created_at,
+    [ROLLING_OFFSET_IDX] = rolling_offset,
+    [DATA_SIZE_IDX]      = data_size,
+    [TAG_IDX]            = tag,
+    [IDLING_OFFSET_IDX]  = idling_offset,
+    [MAC_IDX]            = mac,
+    [IKM_IDX]            = ikm,
+    [HEADER_IDX]         = header,
+    [INITIAL_CHUNK_IDX]  = initial_chunk,
   }
 
   return true
@@ -496,43 +511,43 @@ end
 
 function metatable:get_id()
   assert(self[STATE_KEY] == STATE_OPEN, "unable to get session id on nonexistent or closed session")
-  return self[META_KEY].id
+  return self[META_KEY][SID_IDX]
 end
 
 
 function metatable:get_size()
   assert(self[STATE_KEY] == STATE_OPEN, "unable to get session data size on nonexistent or closed session")
-  return self[META_KEY].size
+  return self[META_KEY][DATA_SIZE_IDX]
 end
 
 
 function metatable:get_created_at()
   assert(self[STATE_KEY] == STATE_OPEN, "unable to get session creation time on nonexistent or closed session")
-  return self[META_KEY].created_at
+  return self[META_KEY][CREATED_AT_IDX]
 end
 
 
 function metatable:get_rolling_offset()
   assert(self[STATE_KEY] == STATE_OPEN, "unable to get session rolling offset on nonexistent or closed session")
-  return self[META_KEY].rolling_offset
+  return self[META_KEY][ROLLING_OFFSET_IDX]
 end
 
 
 function metatable:get_tag()
   assert(self[STATE_KEY] == STATE_OPEN, "unable to get session tag on nonexistent or closed session")
-  return self[META_KEY].tag
+  return self[META_KEY][TAG_IDX]
 end
 
 
 function metatable:get_idling_offset()
   assert(self[STATE_KEY] == STATE_OPEN, "unable to get session idling offset on nonexistent or closed session")
-  return self[META_KEY].idling_offset
+  return self[META_KEY][IDLING_OFFSET_IDX]
 end
 
 
 function metatable:get_mac()
   assert(self[STATE_KEY] == STATE_OPEN, "unable to get session mac on nonexistent or closed session")
-  return self[META_KEY].mac
+  return self[META_KEY][MAC_IDX]
 end
 
 
@@ -624,13 +639,13 @@ function metatable:open(ngx_var)
     end
   end
 
-  local payload_size do
-    payload_size = HEADER_BUFFER:get(DATA_SIZE)
-    if #payload_size ~= DATA_SIZE then
+  local data_size do
+    data_size = HEADER_BUFFER:get(DATA_SIZE)
+    if #data_size ~= DATA_SIZE then
       return nil, "invalid session data size"
     end
 
-    payload_size = bunpack(DATA_SIZE, payload_size)
+    data_size = bunpack(DATA_SIZE, data_size)
   end
 
   local tag do
@@ -695,13 +710,13 @@ function metatable:open(ngx_var)
 
   local initial_chunk, ciphertext do
     if stateless then
-      local cookie_chunks, err = calculate_cookie_chunks(#cookie_name, payload_size)
+      local cookie_chunks, err = calculate_cookie_chunks(#cookie_name, data_size)
       if not cookie_chunks then
         return nil, err
       end
 
       if cookie_chunks == 1 then
-        initial_chunk = sub(cookie, -payload_size)
+        initial_chunk = sub(cookie, -data_size)
         ciphertext = initial_chunk
 
       else
@@ -731,7 +746,7 @@ function metatable:open(ngx_var)
       end
     end
 
-    if #ciphertext ~= payload_size then
+    if #ciphertext ~= data_size then
       return nil, "invalid session payload"
     end
 
@@ -782,17 +797,17 @@ function metatable:open(ngx_var)
   end
 
   self[META_KEY] = {
-    id = sid,
-    size = payload_size,
-    options = options,
-    created_at = created_at,
-    rolling_offset = rolling_offset,
-    tag = tag,
-    idling_offset = idling_offset,
-    mac = mac,
-    header = header,
-    initial_chunk = initial_chunk,
-    ikm = ikm,
+    [OPTIONS_IDX]        = options,
+    [SID_IDX]            = sid,
+    [CREATED_AT_IDX]     = created_at,
+    [ROLLING_OFFSET_IDX] = rolling_offset,
+    [DATA_SIZE_IDX]      = data_size,
+    [TAG_IDX]            = tag,
+    [IDLING_OFFSET_IDX]  = idling_offset,
+    [MAC_IDX]            = mac,
+    [IKM_IDX]            = ikm,
+    [HEADER_IDX]         = header,
+    [INITIAL_CHUNK_IDX]  = initial_chunk,
   }
 
   if not audience_index then
@@ -820,21 +835,21 @@ function metatable:touch()
   assert(self[STATE_KEY] == STATE_OPEN, "unable to touch nonexistent or closed session")
 
   local meta = self[META_KEY]
-  local idling_offset = min(time() - meta.created_at - meta.rolling_offset, MAX_IDLING_TIMEOUT)
+  local idling_offset = min(time() - meta[CREATED_AT_IDX] - meta[ROLLING_OFFSET_IDX], MAX_IDLING_TIMEOUT)
 
-  HEADER_BUFFER:reset():put(sub(meta.header, 1, HEADER_SIZE - IDLING_OFFSET_SIZE - MAC_SIZE),
+  HEADER_BUFFER:reset():put(sub(meta[HEADER_IDX], 1, HEADER_SIZE - IDLING_OFFSET_SIZE - MAC_SIZE),
                             bpack(IDLING_OFFSET_SIZE, idling_offset))
 
-  local mac, err = calculate_mac(meta.ikm, meta.id, HEADER_BUFFER:tostring())
+  local mac, err = calculate_mac(meta[IKM_IDX], meta[SID_IDX], HEADER_BUFFER:tostring())
   if not mac then
     return nil, err
   end
 
   local payload_header = HEADER_BUFFER:put(mac):get()
 
-  self[META_KEY].idling_offset = idling_offset
-  self[META_KEY].mac = mac
-  self[META_KEY].header = payload_header
+  meta[IDLING_OFFSET_IDX] = idling_offset
+  meta[MAC_IDX]           = mac
+  meta[HEADER_IDX]        = payload_header
 
   payload_header, err = encode_base64url(payload_header)
   if not payload_header then
@@ -844,8 +859,8 @@ function metatable:touch()
   local cookie_flags = self.cookie_flags
   local cookie_name = self.cookie_name
   local cookie_data
-  if band(meta.options, OPTION_STATELESS) ~= 0 then
-    cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, meta.initial_chunk, cookie_flags)
+  if band(meta[OPTIONS_IDX], OPTION_STATELESS) ~= 0 then
+    cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, meta[INITIAL_CHUNK_IDX], cookie_flags)
   else
     cookie_data = fmt("%s=%s%s", cookie_name, payload_header, cookie_flags)
   end
@@ -860,8 +875,8 @@ function metatable:refresh()
   assert(self[STATE_KEY] == STATE_OPEN, "unable to refresh nonexistent or closed session")
 
   local meta = self[META_KEY]
-  local created_at = meta.created_at
-  local rolling_offset = meta.rolling_offset
+  local created_at = meta[CREATED_AT_IDX]
+  local rolling_offset = meta[ROLLING_OFFSET_IDX]
 
   local rolling_timeout = self.rolling_timeout
   if rolling_timeout == 0 then
@@ -907,7 +922,7 @@ function metatable:destroy()
   local cookie_flags = self.cookie_flags
 
   local cookie_chunks = 1
-  local data_size = meta.size
+  local data_size = meta[DATA_SIZE_IDX]
   if stateless and data_size then
     local err
     cookie_chunks, err = calculate_cookie_chunks(cookie_name_size, data_size)
@@ -934,7 +949,7 @@ function metatable:destroy()
   end
 
   if not stateless then
-    local key, err = encode_base64url(meta.id)
+    local key, err = encode_base64url(meta[SID_IDX])
     if not key then
       return nil, errmsg(err, "unable to base64url encode session id")
     end
@@ -974,7 +989,7 @@ function metatable:hide(ngx_var)
 
   local cookie_chunks
   if stateless then
-    cookie_chunks = calculate_cookie_chunks(cookie_name_size, self[META_KEY].size) or 1
+    cookie_chunks = calculate_cookie_chunks(cookie_name_size, self[META_KEY][DATA_SIZE_IDX]) or 1
   else
     cookie_chunks = 1
   end
