@@ -49,7 +49,7 @@ local bpack = utils.bpack
 local trim = utils.trim
 
 
--- Type (1B) || Options (2B) || Session ID (32B) || Creation Time (8B) || Rolling Offset (4B) || Data Size (4B) || Tag (16B) || Idling Offset (2B) || Mac (6B) || [ Data (*B) ]
+-- Type (1B) || Options (2B) || Session ID (32B) || Creation Time (8B) || Rolling Offset (4B) || Data Size (4B) || Tag (16B) || Idling Offset (2B) || Mac (8B) || [ Data (*B) ]
 
 
 local COOKIE_TYPE_SIZE    = 1
@@ -60,7 +60,7 @@ local ROLLING_OFFSET_SIZE = 4
 local DATA_SIZE           = 4
 local TAG_SIZE            = 16
 local IDLING_OFFSET_SIZE  = 2
-local MAC_SIZE            = 6
+local MAC_SIZE            = 8
 
 local HEADER_SIZE = COOKIE_TYPE_SIZE + OPTIONS_SIZE + SID_SIZE + CREATED_AT_SIZE + ROLLING_OFFSET_SIZE +
                     DATA_SIZE + TAG_SIZE + IDLING_OFFSET_SIZE + MAC_SIZE
