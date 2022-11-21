@@ -2,9 +2,9 @@
 CREATE TABLE IF NOT EXISTS sessions (
   sid  CHAR(43) PRIMARY KEY,
   data TEXT,
-  exp  TIMESTAMP WITH TIME ZONE
+  ttl  TIMESTAMP WITH TIME ZONE
 );
-CREATE INDEX ON sessions (exp);
+CREATE INDEX ON sessions (ttl);
 ]]
 
 local pgmoon = require "pgmoon"
@@ -19,9 +19,9 @@ local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 5432
 
 
-local SET = "INSERT INTO %s (sid, data, exp) VALUES ('%s', '%s', TO_TIMESTAMP(%d) AT TIME ZONE 'UTC')"
-local GET = "SELECT data FROM %s WHERE sid = '%s' AND exp >= TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
-local EXPIRE = "UPDATE %s SET exp = TO_TIMESTAMP(%d) AT TIME ZONE 'UTC' WHERE sid = '%s' AND exp > TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
+local SET = "INSERT INTO %s (sid, data, ttl) VALUES ('%s', '%s', TO_TIMESTAMP(%d) AT TIME ZONE 'UTC')"
+local GET = "SELECT data FROM %s WHERE sid = '%s' AND ttl >= TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
+local EXPIRE = "UPDATE %s SET ttl = TO_TIMESTAMP(%d) AT TIME ZONE 'UTC' WHERE sid = '%s' AND ttl > TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
 local DELETE = "DELETE FROM %s WHERE sid = '%s'"
 
 
@@ -85,19 +85,19 @@ function metatable:get(key, current_time)
   end
   local row = res[1]
   if not row then
-    return nil, "session not found"
+    return nil
   end
   local data = row.data
   if not row.data then
-    return nil, "session not found"
+    return nil
   end
   return data
 end
 
 
 function metatable:expire(key, ttl, current_time)
-  local exp = ttl + current_time
-  return exec(self, fmt(EXPIRE, self.table, exp, key, exp))
+  ttl = ttl + current_time
+  return exec(self, fmt(EXPIRE, self.table, ttl, key, ttl))
 end
 
 

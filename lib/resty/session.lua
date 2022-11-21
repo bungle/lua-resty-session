@@ -32,8 +32,6 @@ local encrypt_aes_256_gcm = utils.encrypt_aes_256_gcm
 local decrypt_aes_256_gcm = utils.decrypt_aes_256_gcm
 local encode_base64url = utils.encode_base64url
 local decode_base64url = utils.decode_base64url
-local encode_buffer = utils.encode_buffer
-local decode_buffer = utils.encode_buffer
 local load_storage = utils.load_storage
 local encode_json = utils.encode_json
 local decode_json = utils.decode_json
@@ -79,18 +77,10 @@ local MAX_IDLING_TIMEOUT = 65535
 
 local OPTIONS_NONE         = 0x0000
 local OPTION_STATELESS     = 0x0001
-local OPTION_JSON          = 0x0010
-local OPTION_STRING_BUFFER = 0x0020
-local OPTION_DEFLATE       = 0x0100
-local OPTIONS = {
-  deflate           = OPTION_DEFLATE,
-  json              = OPTION_JSON,
-  ["string.buffer"] = OPTION_STRING_BUFFER,
-}
+local OPTION_DEFLATE       = 0x0010
 
 
 local DEFAULT_AUDIENCE = ""
-local DEFAULT_SUBJECT
 local DEFAULT_META = {}
 local DEFAULT_IKM
 local DEFAULT_IKM_FALLBACKS
@@ -233,19 +223,9 @@ local function save(self, state)
   end
 
   local data, data_size, cookie_chunks do
-    local err
-    if band(options, OPTION_STRING_BUFFER) ~= 0 then
-      data, err = encode_buffer(self.data)
-
-    else
-      data, err = encode_json(self.data)
-      if data then
-        options = bor(options, OPTION_JSON)
-      end
-    end
-
+    data, err = encode_json(self.data)
     if not data then
-      return nil, errmsg(err, "unable to encode session data")
+      return nil, errmsg(err, "unable to json encode session data")
     end
 
     data_size = #data
@@ -752,14 +732,9 @@ function metatable:open(ngx_var)
       end
     end
 
-    if band(options, OPTION_JSON) ~= 0 then
-      data, err = decode_json(plaintext)
-    elseif band(options, OPTION_STRING_BUFFER) ~= 0 then
-      data, err = decode_buffer(plaintext)
-    end
-
+    data, err = decode_json(plaintext)
     if not data then
-      return nil, errmsg(err, "unable to decode session data")
+      return nil, errmsg(err, "unable to json decode session data")
     end
   end
 
@@ -1148,7 +1123,7 @@ function session.new(configuration)
   local cookie_priority  = configuration and configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
   local cookie_prefix    = configuration and configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
   local audience         = configuration and configuration.audience         or DEFAULT_AUDIENCE
-  local subject          = configuration and configuration.subject          or DEFAULT_SUBJECT
+  local subject          = configuration and configuration.subject
   local absolute_timeout = configuration and configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
   local rolling_timeout  = configuration and configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
   local idling_timeout   = configuration and configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
@@ -1156,7 +1131,6 @@ function session.new(configuration)
   local storage          = configuration and configuration.storage          or DEFAULT_STORAGE
   local ikm              = configuration and configuration.ikm
   local ikm_fallbacks    = configuration and configuration.ikm_fallbacks
-  local options          = configuration and configuration.options
 
   local cookie_http_only = configuration and configuration.cookie_http_only
   if cookie_http_only == nil then
@@ -1257,24 +1231,14 @@ function session.new(configuration)
     end
   end
 
-  local opts = OPTIONS_NONE
-  if options then
-    local count = #options
-    for i = 1, count do
-      opts = bor(opts, assert(OPTIONS[options[i]]))
-    end
-  end
-
-  if band(opts, OPTION_JSON) == 0 and band(opts, OPTION_STRING_BUFFER) == 0 then
-    opts = bor(opts, OPTION_JSON)
-  end
-
-  if type(storage) == "string" then
+  local options = OPTIONS_NONE
+  local t = type(storage)
+  if t == "string" then
     storage = load_storage(storage, configuration)
 
-  elseif type(storage) ~= "table" then
+  elseif t ~= "table" then
     assert(storage == nil, "invalid session storage")
-    opts = bor(opts, OPTION_STATELESS)
+    options = bor(options, OPTION_STATELESS)
   end
 
   return setmetatable({
@@ -1284,7 +1248,7 @@ function session.new(configuration)
     stale_ttl        = stale_ttl,
     cookie_name      = cookie_name,
     cookie_flags     = cookie_flags,
-    options          = opts,
+    options          = options,
     storage          = storage,
     ikm              = ikm,
     ikm_fallbacks    = ikm_fallbacks,

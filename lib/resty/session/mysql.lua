@@ -2,8 +2,8 @@
 CREATE TABLE IF NOT EXISTS sessions (
   sid  CHAR(43) PRIMARY KEY,
   data LONGTEXT,
-  exp  DATETIME,
-  INDEX (exp)
+  ttl  DATETIME,
+  INDEX (ttl)
 ) CHARACTER SET ascii;
 ]]
 
@@ -19,9 +19,9 @@ local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 3306
 
 
-local SET = "INSERT INTO %s (sid, data, exp) VALUES ('%s', '%s', FROM_UNIXTIME(%d))"
-local GET = "SELECT data FROM %s WHERE sid = '%s' AND exp >= FROM_UNIXTIME(%d)"
-local EXPIRE = "UPDATE %s SET exp = FROM_UNIXTIME(%d) WHERE sid = '%s' AND exp > FROM_UNIXTIME(%d)"
+local SET = "INSERT INTO %s (sid, data, ttl) VALUES ('%s', '%s', FROM_UNIXTIME(%d))"
+local GET = "SELECT data FROM %s WHERE sid = '%s' AND ttl >= FROM_UNIXTIME(%d)"
+local EXPIRE = "UPDATE %s SET ttl = FROM_UNIXTIME(%d) WHERE sid = '%s' AND ttl > FROM_UNIXTIME(%d)"
 local DELETE = "DELETE FROM %s WHERE sid = '%s'"
 
 
@@ -88,8 +88,8 @@ end
 
 
 function metatable:expire(key, ttl, current_time)
-  local exp = ttl + current_time
-  return exec(self, fmt(EXPIRE, self.table, exp, key, exp))
+  ttl = ttl + current_time
+  return exec(self, fmt(EXPIRE, self.table, ttl, key, ttl))
 end
 
 

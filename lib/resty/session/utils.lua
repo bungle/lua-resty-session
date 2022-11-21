@@ -105,18 +105,6 @@ local trim do
 end
 
 
-local encode_buffer, decode_buffer do
-  local buf_enc = buffer.new(192)
-  local buf_dec = buffer.new(192)
-  encode_buffer = function(value)
-    return buf_enc:reset():encode(value):get()
-  end
-  decode_buffer = function(value)
-    return buf_dec:set(value):decode()
-  end
-end
-
-
 local encode_json, decode_json do
   local cjson
   encode_json = function(value)
@@ -469,8 +457,6 @@ return {
   bpack = bpack,
   bunpack = bunpack,
   trim = trim,
-  encode_buffer = encode_buffer,
-  decode_buffer = decode_buffer,
   encode_json = encode_json,
   decode_json = decode_json,
   encode_base64url = encode_base64url,
