@@ -19,7 +19,7 @@ local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 5432
 
 
-local SET = "INSERT INTO %s (sid, data, ttl) VALUES ('%s', '%s', TO_TIMESTAMP(%d) AT TIME ZONE 'UTC')"
+local SET = "INSERT INTO %s (sid, data, ttl) VALUES ('%s', '%s', TO_TIMESTAMP(%d) AT TIME ZONE 'UTC') ON CONFLICT (sid) DO UPDATE SET data = EXCLUDED.data"
 local GET = "SELECT data FROM %s WHERE sid = '%s' AND ttl >= TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
 local EXPIRE = "UPDATE %s SET ttl = TO_TIMESTAMP(%d) AT TIME ZONE 'UTC' WHERE sid = '%s' AND ttl > TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
 local DELETE = "DELETE FROM %s WHERE sid = '%s'"
