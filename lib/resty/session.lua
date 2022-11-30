@@ -4,6 +4,7 @@ local require = require
 local table_new = require "table.new"
 local buffer = require "string.buffer"
 local nkeys = require "table.nkeys"
+local isempty = require "table.isempty"
 local utils = require "resty.session.utils"
 local bit = require "bit"
 
@@ -23,6 +24,7 @@ local sub = string.sub
 local fmt = string.format
 local bor = bit.bor
 local var = ngx.var
+local log = ngx.log
 local max = math.max
 local min = math.min
 
@@ -46,6 +48,10 @@ local errmsg = utils.errmsg
 local sha256 = utils.sha256
 local bpack = utils.bpack
 local trim = utils.trim
+
+
+local NOTICE = ngx.NOTICE
+local WARN   = ngx.WARN
 
 
 -- Type (1B) || Options (2B) || Session ID (32B) || Creation Time (8B) || Rolling Offset (4B) || Data Size (4B) || Tag (16B) || Idling Offset (2B) || Mac (8B) || [ Data (*B) ]
@@ -129,6 +135,21 @@ local HIDE_BUFFER   = buffer.new(256)
 local DATA = table_new(2, 0)
 
 
+local function sha256_storage_key(sid)
+  local key, err = sha256(sid)
+  if not key then
+    return nil, errmsg(err, "unable to sha256 hash session id")
+  end
+
+  key, err = encode_base64url(key)
+  if not key then
+    return nil, errmsg(err, "unable to base64url encode session id")
+  end
+
+  return key
+end
+
+
 local info_mt = {}
 
 
@@ -137,6 +158,9 @@ info_mt.__index = info_mt
 
 function info_mt:set(key, value)
   local session = self.session
+
+  assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
+
   local audience = session.audience
   local data = self.data
   if data then
@@ -163,6 +187,9 @@ end
 
 function info_mt:get(key)
   local session = self.session
+
+  assert(session.state ~= STATE_CLOSED, "unable to get session info on closed session")
+
   local data = self.data
   if not data then
     return
@@ -187,10 +214,10 @@ function info_mt:save()
   end
 
   local meta = session.meta
-  local sid = meta.sid
-  local key, err = encode_base64url(sid)
+
+  local key, err = sha256_storage_key(meta.sid)
   if not key then
-    return nil, errmsg(err, "unable to base64url encode session id")
+    return nil, err
   end
 
   data, err = encode_json(data)
@@ -206,7 +233,10 @@ function info_mt:save()
   DATA[1] = meta.ciphertext
   DATA[2] = data
 
-  local data = encode_json(DATA)
+  data, err = encode_json(DATA)
+  if not data then
+    return nil, errmsg(err, "unable to json encode session data")
+  end
 
   local current_time = time()
   local ttl = max(meta.created_at + meta.rolling_offset - current_time, 1)
@@ -334,7 +364,8 @@ local function save(self, state)
     if data_size > COMPRESSION_THRESHOLD then
       local deflated_data, err = deflate(data)
       if not deflated_data then
-        -- TODO: log
+        log(NOTICE, "[session] unable to deflate session data (", err , ")")
+
       else
         if deflated_data then
           local deflated_size = #deflated_data
@@ -443,9 +474,9 @@ local function save(self, state)
   end
 
   if storage then
-    local key, err = encode_base64url(sid)
+    local key, err = sha256_storage_key(sid)
     if not key then
-      return nil, errmsg(err, "unable to base64url encode session id")
+      return nil, err
     end
 
     DATA[1] = payload
@@ -480,9 +511,9 @@ local function save(self, state)
 
     local old_sid = meta.sid
     if old_sid and storage.expire then
-      key, err = encode_base64url(old_sid)
+      key, err = sha256_storage_key(old_sid)
       if not key then
-        -- TODO: log or ignore?
+        log(WARN, "[session] ", err)
 
       else
         local stale_ttl = self.stale_ttl
@@ -491,14 +522,14 @@ local function save(self, state)
           if ttl and ttl > stale_ttl then
             local ok, err = storage:expire(key, stale_ttl, current_time)
             if not ok then
-              -- TODO: log or ignore?
+              log(WARN, "[session] unable expire session (", err , ")")
             end
           end
 
         else
           ok, err = storage:expire(key, stale_ttl, current_time)
           if not ok then
-            -- TODO: log or ignore?
+            log(WARN, "[session] unable expire session (", err , ")")
           end
         end
       end
@@ -589,48 +620,6 @@ end
 function metatable:get_audience()
   assert(self.state ~= STATE_CLOSED, "unable to get audience on closed session")
   return self.audience
-end
-
-
-function metatable:get_sid()
-  assert(self.state == STATE_OPEN, "unable to get session id on nonexistent or closed session")
-  return self.meta.sid
-end
-
-
-function metatable:get_data_size()
-  assert(self.state == STATE_OPEN, "unable to get session data size on nonexistent or closed session")
-  return self.meta.data_size
-end
-
-
-function metatable:get_created_at()
-  assert(self.state == STATE_OPEN, "unable to get session creation time on nonexistent or closed session")
-  return self.meta.created_at
-end
-
-
-function metatable:get_rolling_offset()
-  assert(self.state == STATE_OPEN, "unable to get session rolling offset on nonexistent or closed session")
-  return self.meta.rolling_offset
-end
-
-
-function metatable:get_tag()
-  assert(self.state == STATE_OPEN, "unable to get session tag on nonexistent or closed session")
-  return self.meta.tag
-end
-
-
-function metatable:get_idling_offset()
-  assert(self.state == STATE_OPEN, "unable to get session idling offset on nonexistent or closed session")
-  return self.meta.idling_offset
-end
-
-
-function metatable:get_mac()
-  assert(self.state == STATE_OPEN, "unable to get session mac on nonexistent or closed session")
-  return self.meta.mac
 end
 
 
@@ -791,13 +780,13 @@ function metatable:open(ngx_var)
     end
   end
 
+  local storage = self.storage
   local audience = self.audience
   local initial_chunk, ciphertext, ciphertext_encoded, info_data do
-    local storage = self.storage
     if storage then
-      local key, err = encode_base64url(sid)
+      local key, err = sha256_storage_key(sid)
       if not key then
-        return nil, errmsg(err, "unable to base64url encode session id")
+        return nil, err
       end
 
       local data, err = storage:get(key, current_time)
@@ -906,7 +895,7 @@ function metatable:open(ngx_var)
     ciphertext     = ciphertext_encoded,
   }
 
-  if self.info then
+  if storage then
     self.info.data = info_data
   end
 
@@ -1008,6 +997,9 @@ function metatable:logout()
   local info = self.info
   if info and info.data then
     info.data[audience] = nil
+    if isempty(info.data) then
+      info.data = nil
+    end
   end
 
   return save(self, STATE_CLOSED)
@@ -1052,14 +1044,14 @@ function metatable:destroy()
   end
 
   if storage then
-    local key, err = encode_base64url(meta.sid)
+    local key, err = sha256_storage_key(meta.sid)
     if not key then
-      return nil, errmsg(err, "unable to base64url encode session id")
+      return nil, err
     end
 
     local ok, err = storage:delete(key)
     if not ok then
-      -- TODO: log or return nil, err?
+      return nil, errmsg(err, "unable to destroy session")
     end
   end
 
@@ -1451,13 +1443,13 @@ function session.start(configuration)
 end
 
 
-function session.destroy(configuration)
+function session.logout(configuration)
   local self, err, exists = session.open(configuration)
   if not exists then
     return nil, err, exists
   end
 
-  local ok, err = self:destroy()
+  local ok, err = self:logout()
   if not ok then
     return nil, err, exists
   end
@@ -1466,13 +1458,13 @@ function session.destroy(configuration)
 end
 
 
-function session.logout(configuration)
+function session.destroy(configuration)
   local self, err, exists = session.open(configuration)
   if not exists then
     return nil, err, exists
   end
 
-  local ok, err = self:logout()
+  local ok, err = self:destroy()
   if not ok then
     return nil, err, exists
   end
