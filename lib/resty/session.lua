@@ -6,23 +6,21 @@ local buffer = require "string.buffer"
 local nkeys = require "table.nkeys"
 local isempty = require "table.isempty"
 local utils = require "resty.session.utils"
-local bit = require "bit"
 
 
 local setmetatable = setmetatable
 local clear_header = ngx.req.clear_header
 local set_header = ngx.req.set_header
+local http_time = ngx.http_time
 local tonumber = tonumber
 local assert = assert
 local header = ngx.header
 local error = error
 local time = ngx.time
-local band = bit.band
 local byte = string.byte
 local type = type
 local sub = string.sub
 local fmt = string.format
-local bor = bit.bor
 local var = ngx.var
 local log = ngx.log
 local max = math.max
@@ -41,6 +39,9 @@ local decode_json = utils.decode_json
 local base64_size = utils.base64_size
 local hmac_sha256 = utils.hmac_sha256
 local rand_bytes = utils.rand_bytes
+local unset_flag = utils.unset_flag
+local set_flag = utils.set_flag
+local has_flag = utils.has_flag
 local inflate = utils.inflate
 local deflate = utils.deflate
 local bunpack = utils.bunpack
@@ -65,15 +66,15 @@ local ROLLING_OFFSET_SIZE = 4
 local DATA_SIZE           = 4
 local TAG_SIZE            = 16
 local IDLING_OFFSET_SIZE  = 2
-local MAC_SIZE            = 8
+local MAC_SIZE            = 16
+
 
 local HEADER_SIZE = COOKIE_TYPE_SIZE + OPTIONS_SIZE + SID_SIZE + CREATED_AT_SIZE + ROLLING_OFFSET_SIZE +
                     DATA_SIZE + TAG_SIZE + IDLING_OFFSET_SIZE + MAC_SIZE
 local HEADER_ENCODED_SIZE = base64_size(HEADER_SIZE)
 
 
-local COMPRESSION_THRESHOLD = 1024 -- 1 kB
-local COOKIE_TYPE           = bpack(COOKIE_TYPE_SIZE, 1)
+local COOKIE_TYPE = bpack(COOKIE_TYPE_SIZE, 1)
 
 
 local MAX_COOKIE_SIZE    = 4096
@@ -82,13 +83,20 @@ local MAX_COOKIES_SIZE   = MAX_COOKIES * MAX_COOKIE_SIZE -- 36864 bytes
 local MAX_IDLING_TIMEOUT = 65535
 
 
-local OPTIONS_NONE         = 0x0000
-local OPTION_STATELESS     = 0x0001
-local OPTION_DEFLATE       = 0x0010
+local OPTIONS_NONE       = 0x0000
+local OPTION_STATELESS   = 0x0001
+local OPTION_NO_REMEMBER = 0x0002
+local OPTION_DEFLATE     = 0x0010
+
+
+
+local COMPRESSION_THRESHOLD = 1024 -- 1 kB
+local IDLING_THRESHOLD      = 60   -- 1 minute
 
 
 local DEFAULT_AUDIENCE = ""
 local DEFAULT_META = {}
+local DEFAULT_REMEMBER_META = false
 local DEFAULT_IKM
 local DEFAULT_IKM_FALLBACKS
 
@@ -105,10 +113,15 @@ local DEFAULT_COOKIE_DOMAIN
 local DEFAULT_COOKIE_SECURE
 
 
-local DEFAULT_IDLING_TIMEOUT   = 900   -- 15 minutes
-local DEFAULT_ROLLING_TIMEOUT  = 3600  -- 60 minutes
-local DEFAULT_ABSOLUTE_TIMEOUT = 86400 -- 24 hours
-local DEFAULT_STALE_TTL        = 10    -- 10 seconds
+local DEFAULT_REMEMBER_COOKIE_NAME = "remember"
+local DEFAULT_REMEMBER = false
+
+
+local DEFAULT_STALE_TTL        = 10     -- 10 seconds
+local DEFAULT_IDLING_TIMEOUT   = 900    -- 15 minutes
+local DEFAULT_ROLLING_TIMEOUT  = 3600   --  1 hour
+local DEFAULT_ABSOLUTE_TIMEOUT = 86400  --  1 day
+local DEFAULT_REMEMBER_TIMEOUT = 604800 --  1 week
 
 
 local DEFAULT_STORAGE
@@ -147,112 +160,6 @@ local function sha256_storage_key(sid)
   end
 
   return key
-end
-
-
-local info_mt = {}
-
-
-info_mt.__index = info_mt
-
-
-function info_mt:set(key, value)
-  local session = self.session
-
-  assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
-
-  local audience = session.audience
-  local data = self.data
-  if data then
-    if data[audience] then
-      data[audience][key] = value
-
-    else
-      data[audience] = {
-        [key] = value,
-      }
-    end
-
-  else
-    self.data = {
-      [audience] = {
-        [key] = value,
-      },
-    }
-  end
-
-  return true
-end
-
-
-function info_mt:get(key)
-  local session = self.session
-
-  assert(session.state ~= STATE_CLOSED, "unable to get session info on closed session")
-
-  local data = self.data
-  if not data then
-    return
-  end
-
-  data = self.data[session.audience]
-  if not data then
-    return
-  end
-
-  return data[key]
-end
-
-
-function info_mt:save()
-  local session = self.session
-  assert(session.state == STATE_OPEN, "unable to save session info on nonexistent or closed session")
-
-  local data = self.data
-  if not data then
-    return true
-  end
-
-  local meta = session.meta
-
-  local key, err = sha256_storage_key(meta.sid)
-  if not key then
-    return nil, err
-  end
-
-  data, err = encode_json(data)
-  if not data then
-    return nil, errmsg(err, "unable to json encode session info")
-  end
-
-  data, err = encode_base64url(data)
-  if not data then
-    return nil, errmsg(err, "unable to base64url encode session info")
-  end
-
-  DATA[1] = meta.ciphertext
-  DATA[2] = data
-
-  data, err = encode_json(DATA)
-  if not data then
-    return nil, errmsg(err, "unable to json encode session data")
-  end
-
-  local current_time = time()
-  local ttl = max(meta.created_at + meta.rolling_offset - current_time, 1)
-
-  session.storage:set(key, data, ttl, current_time)
-end
-
-
-local info = {}
-
-
-function info.new(session)
-  return setmetatable({
-    session = session,
-    data = false,
-  }, info_mt)
 end
 
 
@@ -330,321 +237,33 @@ local function merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data
 end
 
 
-local function save(self, state)
-  local cookie_name = self.cookie_name
-  local cookie_name_size = #cookie_name
-  local options = self.options
-  local storage = self.storage
-
-  local sid, err = rand_bytes(SID_SIZE)
-  if not sid then
-    return nil, errmsg(err, "unable to generate session id")
-  end
-
-  local meta = self.meta
+local function open(self, remember, meta_only)
   local current_time = time()
-  local created_at = meta.created_at
-  local rolling_offset
-  if created_at then
-    rolling_offset = current_time - created_at
-
+  local cookie_name
+  if remember then
+    cookie_name = self.remember_cookie_name
   else
-    created_at = current_time
-    rolling_offset = 0
+    cookie_name = self.cookie_name
   end
 
-  local data, data_size, cookie_chunks do
-    data, err = encode_json(self.data)
-    if not data then
-      return nil, errmsg(err, "unable to json encode session data")
-    end
-
-    data_size = #data
-
-    if data_size > COMPRESSION_THRESHOLD then
-      local deflated_data, err = deflate(data)
-      if not deflated_data then
-        log(NOTICE, "[session] unable to deflate session data (", err , ")")
-
-      else
-        if deflated_data then
-          local deflated_size = #deflated_data
-          if deflated_size < data_size then
-            options = bor(options, OPTION_DEFLATE)
-            data = deflated_data
-            data_size = deflated_size
-          end
-        end
-      end
-    end
-
-    data_size = base64_size(data_size)
-
-    if storage then
-      cookie_chunks = 1
-    else
-      cookie_chunks, err = calculate_cookie_chunks(cookie_name_size, data_size)
-      if not cookie_chunks then
-        return nil, err
-      end
-    end
-  end
-
-  local idling_offset = 0
-
-  local packed_options        = bpack(OPTIONS_SIZE, options)
-  local packed_data_size      = bpack(DATA_SIZE, data_size)
-  local packed_created_at     = bpack(CREATED_AT_SIZE, created_at)
-  local packed_rolling_offset = bpack(ROLLING_OFFSET_SIZE, rolling_offset)
-  local packed_idling_offset  = bpack(IDLING_OFFSET_SIZE, idling_offset)
-
-  HEADER_BUFFER:reset()
-  HEADER_BUFFER:put(COOKIE_TYPE, packed_options, sid, packed_created_at, packed_rolling_offset, packed_data_size)
-
-  local ikm = self.ikm
-  local key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
-  if not key then
-    return nil, errmsg(err, "unable to derive session encryption key")
-  end
-
-  local ciphertext, err, tag = encrypt_aes_256_gcm(key, iv, data, HEADER_BUFFER:tostring())
-  if not ciphertext then
-    return nil, errmsg(err, "unable to encrypt session data")
-  end
-
-  HEADER_BUFFER:put(tag, packed_idling_offset)
-
-  local mac, err = calculate_mac(ikm, sid, HEADER_BUFFER:tostring())
-  if not mac then
-    return nil, err
-  end
-
-  local payload_header = HEADER_BUFFER:put(sub(mac, 1, MAC_SIZE)):get()
-  payload_header, err = encode_base64url(payload_header)
-  if not payload_header then
-    return nil, errmsg(err, "unable to base64url encode session header")
-  end
-
-  local payload, err = encode_base64url(ciphertext)
-  if not payload then
-    return nil, errmsg(err, "unable to base64url encode session data")
-  end
-
-  local cookies = header["Set-Cookie"]
-  local cookie_flags = self.cookie_flags
-
-  local initial_chunk
-  local ciphertext_encoded
-  if cookie_chunks == 1 then
-    local cookie_data
-    if storage then
-      ciphertext_encoded = payload
-      cookie_data = fmt("%s=%s%s", cookie_name, payload_header, cookie_flags)
-
-    else
-      initial_chunk = payload
-      cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, payload, cookie_flags)
-    end
-
-    cookies, err = merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data)
-    if not cookies then
-      return nil, err
-    end
-
-  else
-    DATA_BUFFER:set(payload)
-
-    initial_chunk = DATA_BUFFER:get(MAX_COOKIE_SIZE - HEADER_ENCODED_SIZE - cookie_name_size - 1)
-
-    local cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, initial_chunk, cookie_flags)
-    cookies, err = merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data)
-    if not cookies then
-      return nil, err
-    end
-
-    for i = 2, cookie_chunks do
-      local name = fmt("%s%d", cookie_name, i)
-      cookie_data = DATA_BUFFER:get(MAX_COOKIE_SIZE - cookie_name_size - 2)
-      cookie_data = fmt("%s=%s%s", name, cookie_data, cookie_flags)
-      cookies, err = merge_cookies(cookies, cookie_name_size + 1, name, cookie_data)
-      if not cookies then
-        return nil, err
-      end
-    end
-  end
-
-  if storage then
-    local key, err = sha256_storage_key(sid)
-    if not key then
-      return nil, err
-    end
-
-    DATA[1] = payload
-
-    local info_data = self.info.data
-    if info_data then
-      info_data, err = encode_json(info_data)
-      if not info_data then
-        return nil, errmsg(err, "unable to json encode session info")
-      end
-
-      info_data, err = encode_base64url(info_data)
-      if not info_data then
-        return nil, errmsg(err, "unable to base64url encode session info")
-      end
-
-      DATA[2] = info_data
-
-    else
-      DATA[2] = nil
-    end
-
-    data, err = encode_json(DATA)
-    if not data then
-      return nil, errmsg(err, "unable to json encode session data")
-    end
-
-    local ok, err = storage:set(key, data, self.rolling_timeout, current_time)
-    if not ok then
-      return nil, errmsg(err, "unable to store session data")
-    end
-
-    local old_sid = meta.sid
-    if old_sid and storage.expire then
-      key, err = sha256_storage_key(old_sid)
-      if not key then
-        log(WARN, "[session] ", err)
-
-      else
-        local stale_ttl = self.stale_ttl
-        if storage.ttl then
-          local ttl = storage:ttl(key)
-          if ttl and ttl > stale_ttl then
-            local ok, err = storage:expire(key, stale_ttl, current_time)
-            if not ok then
-              log(WARN, "[session] unable expire session (", err , ")")
-            end
-          end
-
-        else
-          ok, err = storage:expire(key, stale_ttl, current_time)
-          if not ok then
-            log(WARN, "[session] unable expire session (", err , ")")
-          end
-        end
-      end
-    end
-
-  else
-    local old_data_size = meta.data_size
-    if old_data_size then
-      local old_cookie_chunks = calculate_cookie_chunks(cookie_name_size, old_data_size)
-      if old_cookie_chunks and old_cookie_chunks > cookie_chunks then
-        for i = cookie_chunks + 1, old_cookie_chunks do
-          local name = fmt("%s%d", cookie_name, i)
-          local cookie_data = fmt("%s=%s%s", name, cookie_flags, COOKIE_EXPIRE_FLAGS)
-          cookies, err = merge_cookies(cookies, cookie_name_size + 1, name, cookie_data)
-          if not cookies then
-            return nil, err
-          end
-        end
-      end
-    end
-  end
-
-  header["Set-Cookie"] = cookies
-
-  self.state = state or STATE_OPEN
-  self.meta = {
-    options        = options,
-    sid            = sid,
-    created_at     = created_at,
-    rolling_offset = rolling_offset,
-    data_size      = data_size,
-    tag            = tag,
-    idling_offset  = idling_offset,
-    mac            = mac,
-    ikm            = ikm,
-    header         = header,
-    initial_chunk  = initial_chunk,
-    ciphertext     = ciphertext_encoded,
-  }
-
-  return true
-end
-
-
-local metatable = {}
-
-
-metatable.__index = metatable
-
-
-function metatable.__newindex()
-  error("attempt to update a read-only table", 2)
-end
-
-
-function metatable:set(key, value)
-  assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
-  self.data[self.audience].data[key] = value
-end
-
-
-function metatable:get(key)
-  assert(self.state ~= STATE_CLOSED, "unable to get session data on closed session")
-  return self.data[self.audience].data[key]
-end
-
-
-function metatable:set_subject(subject)
-  assert(self.state ~= STATE_CLOSED, "unable to set subject on closed session")
-  self.data[self.audience].subject = subject
-end
-
-
-function metatable:get_subject()
-  assert(self.state ~= STATE_CLOSED, "unable to get subject on closed session")
-  return self.data[self.audience].subject
-end
-
-
-function metatable:set_audience(audience)
-  assert(self.state ~= STATE_CLOSED, "unable to set audience on closed session")
-  self.data[audience] = self.data[self.audience]
-  self.data[self.audience] = nil
-  self.audience = audience
-end
-
-
-function metatable:get_audience()
-  assert(self.state ~= STATE_CLOSED, "unable to get audience on closed session")
-  return self.audience
-end
-
-
-function metatable:open(ngx_var)
-  local current_time = time()
-  local cookie_name = self.cookie_name
-  local var = ngx_var or var
   local cookie = var["cookie_" .. cookie_name]
   if not cookie then
     return nil, "missing session cookie"
   end
 
-  local header do
-    header = sub(cookie, 1, HEADER_ENCODED_SIZE)
-    if #header ~= HEADER_ENCODED_SIZE then
+  local header_decoded do
+    header_decoded = sub(cookie, 1, HEADER_ENCODED_SIZE)
+    if #header_decoded ~= HEADER_ENCODED_SIZE then
       return nil, "invalid session header"
     end
     local err
-    header, err = decode_base64url(header)
-    if not header then
+    header_decoded, err = decode_base64url(header_decoded)
+    if not header_decoded then
       return nil, errmsg(err, "unable to base64url decode session header")
     end
   end
 
-  HEADER_BUFFER:set(header)
+  HEADER_BUFFER:set(header_decoded)
 
   local cookie_type do
     cookie_type = HEADER_BUFFER:get(COOKIE_TYPE_SIZE)
@@ -663,8 +282,8 @@ function metatable:open(ngx_var)
     end
 
     options = bunpack(OPTIONS_SIZE, options)
-    if band(self.options, OPTION_STATELESS) ~=
-            band(options, OPTION_STATELESS)
+    if has_flag(self.options, OPTION_STATELESS) ~=
+            has_flag(options, OPTION_STATELESS)
     then
       return nil, "invalid session options"
     end
@@ -685,11 +304,21 @@ function metatable:open(ngx_var)
 
     created_at = bunpack(CREATED_AT_SIZE, created_at)
 
-    local absolute_period = current_time - created_at
-    local absolute_timeout = self.absolute_timeout
-    if absolute_timeout ~= 0 then
-      if absolute_period > absolute_timeout then
-        return nil, "session absolute timeout exceeded"
+    local period = current_time - created_at
+    if remember then
+      local remember_timeout = self.remember_timeout
+      if remember_timeout ~= 0 then
+        if period > remember_timeout then
+          return nil, "session remember timeout exceeded"
+        end
+      end
+
+    else
+      local absolute_timeout = self.absolute_timeout
+      if absolute_timeout ~= 0 then
+        if period > absolute_timeout then
+          return nil, "session absolute timeout exceeded"
+        end
       end
     end
   end
@@ -702,11 +331,13 @@ function metatable:open(ngx_var)
 
     rolling_offset = bunpack(ROLLING_OFFSET_SIZE, rolling_offset)
 
-    local rolling_timeout = self.rolling_timeout
-    if rolling_timeout ~= 0 then
-      local rolling_period = current_time - created_at - rolling_offset
-      if rolling_period > rolling_timeout then
-        return nil, "session rolling timeout exceeded"
+    if not remember then
+      local rolling_timeout = self.rolling_timeout
+      if rolling_timeout ~= 0 then
+        local rolling_period = current_time - created_at - rolling_offset
+        if rolling_period > rolling_timeout then
+          return nil, "session rolling timeout exceeded"
+        end
       end
     end
   end
@@ -735,11 +366,18 @@ function metatable:open(ngx_var)
 
     idling_offset = bunpack(IDLING_OFFSET_SIZE, idling_offset)
 
-    local idling_timeout = self.idling_timeout
-    if idling_timeout ~= 0 then
-      local idling_period = current_time - created_at - rolling_offset - idling_offset
-      if idling_period > idling_timeout then
-        return nil, "session idling timeout exceeded"
+    if remember then
+      if idling_offset ~= 0 then
+        return nil, "invalid session idling offset"
+      end
+
+    else
+      local idling_timeout = self.idling_timeout
+      if idling_timeout ~= 0 then
+        local idling_period = current_time - created_at - rolling_offset - idling_offset
+        if idling_period > idling_timeout then
+          return nil, "session idling timeout exceeded"
+        end
       end
     end
   end
@@ -751,7 +389,7 @@ function metatable:open(ngx_var)
       return nil, "invalid session message authentication code"
     end
 
-    local msg = sub(header, 1, HEADER_SIZE - MAC_SIZE)
+    local msg = sub(header_decoded, 1, HEADER_SIZE - MAC_SIZE)
     local expected_mac, err = calculate_mac(ikm, sid, msg)
     if mac ~= expected_mac then
       local fallback_keys = self.ikm_fallbacks
@@ -789,7 +427,7 @@ function metatable:open(ngx_var)
         return nil, err
       end
 
-      local data, err = storage:get(key, current_time)
+      local data, err = storage:get(cookie_name, key, current_time)
       if not data then
         return nil, errmsg(err, "unable to load session")
       end
@@ -855,19 +493,56 @@ function metatable:open(ngx_var)
     end
   end
 
-  local key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
+  if remember then
+    self.remember_meta = {
+      options        = options,
+      sid            = sid,
+      created_at     = created_at,
+      rolling_offset = rolling_offset,
+      data_size      = data_size,
+      tag            = tag,
+      idling_offset  = idling_offset,
+      mac            = mac,
+      ikm            = ikm,
+      header         = header_decoded,
+      initial_chunk  = initial_chunk,
+      ciphertext     = ciphertext_encoded,
+    }
+
+  else
+    self.meta = {
+      options        = options,
+      sid            = sid,
+      created_at     = created_at,
+      rolling_offset = rolling_offset,
+      data_size      = data_size,
+      tag            = tag,
+      idling_offset  = idling_offset,
+      mac            = mac,
+      ikm            = ikm,
+      header         = header_decoded,
+      initial_chunk  = initial_chunk,
+      ciphertext     = ciphertext_encoded,
+    }
+  end
+
+  if meta_only then
+    return true
+  end
+
+  local key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, remember)
   if not key then
     return nil, errmsg(err, "unable to derive session decryption key")
   end
 
-  local aad = sub(header, 1, HEADER_SIZE - MAC_SIZE - TAG_SIZE - IDLING_OFFSET_SIZE)
+  local aad = sub(header_decoded, 1, HEADER_SIZE - MAC_SIZE - TAG_SIZE - IDLING_OFFSET_SIZE)
   local plaintext, err = decrypt_aes_256_gcm(key, iv, ciphertext, aad, tag)
   if not plaintext then
     return nil, errmsg(err, "unable to decrypt session data")
   end
 
   local data do
-    if band(options, OPTION_DEFLATE) ~= 0 then
+    if has_flag(options, OPTION_DEFLATE) then
       plaintext, err = inflate(plaintext)
       if not plaintext then
         return nil, errmsg(err, "unable to inflate session data")
@@ -879,21 +554,6 @@ function metatable:open(ngx_var)
       return nil, errmsg(err, "unable to json decode session data")
     end
   end
-
-  self.meta = {
-    options        = options,
-    sid            = sid,
-    created_at     = created_at,
-    rolling_offset = rolling_offset,
-    data_size      = data_size,
-    tag            = tag,
-    idling_offset  = idling_offset,
-    mac            = mac,
-    ikm            = ikm,
-    header         = header,
-    initial_chunk  = initial_chunk,
-    ciphertext     = ciphertext_encoded,
-  }
 
   if storage then
     self.info.data = info_data
@@ -913,107 +573,376 @@ function metatable:open(ngx_var)
 end
 
 
-function metatable:save()
-  return save(self)
-end
+local function save(self, state, remember)
+  local cookie_name
+  local meta
+  if remember then
+    cookie_name = self.remember_cookie_name
+    meta = self.remember_meta or {}
+  else
+    cookie_name = self.cookie_name
+    meta = self.meta
+  end
 
+  local cookie_name_size = #cookie_name
+  local options = self.options
+  local storage = self.storage
 
-function metatable:touch()
-  assert(self.state == STATE_OPEN, "unable to touch nonexistent or closed session")
+  local sid, err = rand_bytes(SID_SIZE)
+  if not sid then
+    return nil, errmsg(err, "unable to generate session id")
+  end
 
-  local meta = self.meta
-  local idling_offset = min(time() - meta.created_at - meta.rolling_offset, MAX_IDLING_TIMEOUT)
+  local current_time = time()
+  local rolling_offset
 
-  HEADER_BUFFER:reset():put(sub(meta.header, 1, HEADER_SIZE - IDLING_OFFSET_SIZE - MAC_SIZE),
-                            bpack(IDLING_OFFSET_SIZE, idling_offset))
+  local created_at = meta.created_at
+  if created_at then
+    rolling_offset = current_time - created_at
 
-  local mac, err = calculate_mac(meta.ikm, meta.sid, HEADER_BUFFER:tostring())
+  else
+    created_at = current_time
+    rolling_offset = 0
+  end
+
+  do
+    local meta_options = meta.options
+    if meta_options and has_flag(meta_options, OPTION_NO_REMEMBER) then
+      options = set_flag(options, OPTION_NO_REMEMBER)
+    end
+  end
+
+  local data, data_size, cookie_chunks do
+    data, err = encode_json(self.data)
+    if not data then
+      return nil, errmsg(err, "unable to json encode session data")
+    end
+
+    data_size = #data
+
+    if data_size > COMPRESSION_THRESHOLD then
+      local deflated_data, err = deflate(data)
+      if not deflated_data then
+        log(NOTICE, "[session] unable to deflate session data (", err , ")")
+
+      else
+        if deflated_data then
+          local deflated_size = #deflated_data
+          if deflated_size < data_size then
+            options = set_flag(options, OPTION_DEFLATE)
+            data = deflated_data
+            data_size = deflated_size
+          end
+        end
+      end
+    end
+
+    data_size = base64_size(data_size)
+
+    if storage then
+      cookie_chunks = 1
+    else
+      cookie_chunks, err = calculate_cookie_chunks(cookie_name_size, data_size)
+      if not cookie_chunks then
+        return nil, err
+      end
+    end
+  end
+
+  local idling_offset = 0
+
+  local packed_options        = bpack(OPTIONS_SIZE, options)
+  local packed_data_size      = bpack(DATA_SIZE, data_size)
+  local packed_created_at     = bpack(CREATED_AT_SIZE, created_at)
+  local packed_rolling_offset = bpack(ROLLING_OFFSET_SIZE, rolling_offset)
+  local packed_idling_offset  = bpack(IDLING_OFFSET_SIZE, idling_offset)
+
+  HEADER_BUFFER:reset()
+  HEADER_BUFFER:put(COOKIE_TYPE, packed_options, sid, packed_created_at, packed_rolling_offset, packed_data_size)
+
+  local ikm = self.ikm
+  local key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, remember)
+  if not key then
+    return nil, errmsg(err, "unable to derive session encryption key")
+  end
+
+  local ciphertext, err, tag = encrypt_aes_256_gcm(key, iv, data, HEADER_BUFFER:tostring())
+  if not ciphertext then
+    return nil, errmsg(err, "unable to encrypt session data")
+  end
+
+  HEADER_BUFFER:put(tag, packed_idling_offset)
+
+  local mac, err = calculate_mac(ikm, sid, HEADER_BUFFER:tostring())
   if not mac then
     return nil, err
   end
 
-  local payload_header = HEADER_BUFFER:put(mac):get()
-
-  meta.idling_offset = idling_offset
-  meta.mac           = mac
-  meta.header        = payload_header
-
-  payload_header, err = encode_base64url(payload_header)
-  if not payload_header then
+  local header_decoded = HEADER_BUFFER:put(sub(mac, 1, MAC_SIZE)):get()
+  local header_encoded, err = encode_base64url(header_decoded)
+  if not header_encoded then
     return nil, errmsg(err, "unable to base64url encode session header")
   end
 
-  local cookie_flags = self.cookie_flags
-  local cookie_name = self.cookie_name
-  local cookie_data
-  if band(meta.options, OPTION_STATELESS) ~= 0 then
-    cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, meta.initial_chunk, cookie_flags)
-  else
-    cookie_data = fmt("%s=%s%s", cookie_name, payload_header, cookie_flags)
+  local payload, err = encode_base64url(ciphertext)
+  if not payload then
+    return nil, errmsg(err, "unable to base64url encode session data")
   end
 
-  header["Set-Cookie"] = merge_cookies(header["Set-Cookie"], #cookie_name, cookie_name, cookie_data)
+  local cookies = header["Set-Cookie"]
+  local cookie_flags = self.cookie_flags
+
+  local initial_chunk
+  local ciphertext_encoded
+
+  local remember_flags
+  if remember then
+    local max_age = self.remember_timeout
+    local expires = http_time(created_at + max_age)
+    remember_flags = fmt("; Expires=%s; Max-Age=%d", expires, max_age)
+  end
+
+  if cookie_chunks == 1 then
+    local cookie_data
+    if storage then
+      ciphertext_encoded = payload
+      if remember then
+        cookie_data = fmt("%s=%s%s%s", cookie_name, header_encoded, cookie_flags, remember_flags)
+      else
+        cookie_data = fmt("%s=%s%s", cookie_name, header_encoded, cookie_flags)
+      end
+
+    else
+      initial_chunk = payload
+      if remember then
+        cookie_data = fmt("%s=%s%s%s%s", cookie_name, header_encoded, payload, cookie_flags, remember_flags)
+      else
+        cookie_data = fmt("%s=%s%s%s", cookie_name, header_encoded, payload, cookie_flags)
+      end
+    end
+
+    cookies, err = merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data)
+    if not cookies then
+      return nil, err
+    end
+
+  else
+    DATA_BUFFER:set(payload)
+
+    initial_chunk = DATA_BUFFER:get(MAX_COOKIE_SIZE - HEADER_ENCODED_SIZE - cookie_name_size - 1)
+
+    local cookie_data
+    if remember then
+      cookie_data = fmt("%s=%s%s%s%s", cookie_name, header_encoded, initial_chunk, cookie_flags, remember_flags)
+    else
+      cookie_data = fmt("%s=%s%s%s", cookie_name, header_encoded, initial_chunk, cookie_flags)
+    end
+
+    cookies, err = merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data)
+    if not cookies then
+      return nil, err
+    end
+
+    for i = 2, cookie_chunks do
+      local name = fmt("%s%d", cookie_name, i)
+      cookie_data = DATA_BUFFER:get(MAX_COOKIE_SIZE - cookie_name_size - 2)
+      if remember then
+        cookie_data = fmt("%s=%s%s%s", name, cookie_data, cookie_flags, remember_flags)
+      else
+        cookie_data = fmt("%s=%s%s", name, cookie_data, cookie_flags)
+      end
+      cookies, err = merge_cookies(cookies, cookie_name_size + 1, name, cookie_data)
+      if not cookies then
+        return nil, err
+      end
+    end
+  end
+
+  if storage then
+    local key, err = sha256_storage_key(sid)
+    if not key then
+      return nil, err
+    end
+
+    DATA[1] = payload
+
+    local info_data = self.info.data
+    if info_data then
+      info_data, err = encode_json(info_data)
+      if not info_data then
+        return nil, errmsg(err, "unable to json encode session info")
+      end
+
+      info_data, err = encode_base64url(info_data)
+      if not info_data then
+        return nil, errmsg(err, "unable to base64url encode session info")
+      end
+
+      DATA[2] = info_data
+
+    else
+      DATA[2] = nil
+    end
+
+    data, err = encode_json(DATA)
+    if not data then
+      return nil, errmsg(err, "unable to json encode session data")
+    end
+
+    local ok
+    if remember then
+      ok, err = storage:set(cookie_name, key, data, self.remember_timeout, current_time)
+    else
+      ok, err = storage:set(cookie_name, key, data, self.rolling_timeout, current_time)
+    end
+    if not ok then
+      return nil, errmsg(err, "unable to store session data")
+    end
+
+    local old_sid = meta.sid
+    if old_sid then
+      if remember then
+        key, err = sha256_storage_key(old_sid)
+        if key then
+          local ok, err = storage:delete(cookie_name, key)
+          if not ok then
+            log(WARN, "[session] unable to delete session (", err , ")")
+          end
+
+        else
+          log(WARN, "[session] ", err)
+        end
+
+      elseif storage.expire then
+        key, err = sha256_storage_key(old_sid)
+        if key then
+          local stale_ttl = self.stale_ttl
+          if storage.ttl then
+            local ttl = storage:ttl(cookie_name, key)
+            if ttl and ttl > stale_ttl then
+              local ok, err = storage:expire(cookie_name, key, stale_ttl, current_time)
+              if not ok then
+                log(WARN, "[session] unable to expire session (", err , ")")
+              end
+            end
+
+          else
+            ok, err = storage:expire(cookie_name, key, stale_ttl, current_time)
+            if not ok then
+              log(WARN, "[session] unable to expire session (", err , ")")
+            end
+          end
+
+        else
+          log(WARN, "[session] ", err)
+        end
+      end
+    end
+
+  else
+    local old_data_size = meta.data_size
+    if old_data_size then
+      local old_cookie_chunks = calculate_cookie_chunks(cookie_name_size, old_data_size)
+      if old_cookie_chunks and old_cookie_chunks > cookie_chunks then
+        for i = cookie_chunks + 1, old_cookie_chunks do
+          local name = fmt("%s%d", cookie_name, i)
+          local cookie_data = fmt("%s=%s%s", name, cookie_flags, COOKIE_EXPIRE_FLAGS)
+          cookies, err = merge_cookies(cookies, cookie_name_size + 1, name, cookie_data)
+          if not cookies then
+            return nil, err
+          end
+        end
+      end
+    end
+  end
+
+  header["Set-Cookie"] = cookies
+
+  if remember then
+    self.remember_meta = {
+      options        = options,
+      sid            = sid,
+      created_at     = created_at,
+      rolling_offset = rolling_offset,
+      data_size      = data_size,
+      tag            = tag,
+      idling_offset  = idling_offset,
+      mac            = mac,
+      ikm            = ikm,
+      header         = header_decoded,
+      initial_chunk  = initial_chunk,
+      ciphertext     = ciphertext_encoded,
+    }
+
+  else
+    self.state = state or STATE_OPEN
+    self.meta = {
+      options        = options,
+      sid            = sid,
+      created_at     = created_at,
+      rolling_offset = rolling_offset,
+      data_size      = data_size,
+      tag            = tag,
+      idling_offset  = idling_offset,
+      mac            = mac,
+      ikm            = ikm,
+      header         = header_decoded,
+      initial_chunk  = initial_chunk,
+      ciphertext     = ciphertext_encoded,
+    }
+  end
 
   return true
 end
 
 
-function metatable:refresh()
-  assert(self.state == STATE_OPEN, "unable to refresh nonexistent or closed session")
-
-  local meta = self.meta
-  local created_at = meta.created_at
-  local rolling_offset = meta.rolling_offset
-
-  local rolling_timeout = self.rolling_timeout
-  if rolling_timeout == 0 then
-    rolling_timeout = DEFAULT_ROLLING_TIMEOUT
+local function save_info(self, data, remember)
+  local cookie_name
+  local meta
+  if remember then
+    cookie_name = self.remember_cookie_name
+    meta = self.remember_meta or {}
+  else
+    cookie_name = self.cookie_name
+    meta = self.meta
   end
 
-  local idling_timeout = self.idling_timeout
-  if idling_timeout == 0 then
-    idling_timeout = DEFAULT_IDLING_TIMEOUT
+  local key, err = sha256_storage_key(meta.sid)
+  if not key then
+    return nil, err
   end
 
-  local time_to_rolling_expiry = rolling_timeout - (time() - created_at - rolling_offset)
-  if time_to_rolling_expiry > idling_timeout then
-    return self:touch()
+  DATA[1] = meta.ciphertext
+  DATA[2] = data
+
+  data, err = encode_json(DATA)
+  if not data then
+    return nil, errmsg(err, "unable to json encode session data")
   end
 
-  return self:save()
+  local current_time = time()
+
+  local ttl = max(self.rolling_timeout - (current_time - meta.created_at -  meta.rolling_offset), 1)
+  local ok, err = self.storage:set(cookie_name, key, data, ttl, current_time)
+  if not ok then
+    return nil, errmsg(err, "unable to store session info")
+  end
 end
 
 
-function metatable:logout()
-  assert(self.state == STATE_OPEN, "unable to logout nonexistent or closed session")
-
-  local data = self.data
-  if nkeys(data) == 1 then
-    return self:destroy()
+local function destroy(self, remember)
+  local cookie_name
+  local meta
+  if remember then
+    cookie_name = self.remember_cookie_name
+    meta = self.remember_meta or {}
+  else
+    cookie_name = self.cookie_name
+    meta = self.meta
   end
 
-  local audience = self.audience
-  data[audience] = nil
-  local info = self.info
-  if info and info.data then
-    info.data[audience] = nil
-    if isempty(info.data) then
-      info.data = nil
-    end
-  end
-
-  return save(self, STATE_CLOSED)
-end
-
-
-function metatable:destroy()
-  assert(self.state == STATE_OPEN, "unable to destroy nonexistent or closed session")
-
-  local cookie_name = self.cookie_name
   local cookie_name_size = #cookie_name
-
   local storage = self.storage
-  local meta = self.meta
 
   local cookie_chunks = 1
   local data_size = meta.data_size
@@ -1044,14 +973,17 @@ function metatable:destroy()
   end
 
   if storage then
-    local key, err = sha256_storage_key(meta.sid)
-    if not key then
-      return nil, err
-    end
+    local sid = meta.sid
+    if sid then
+      local key, err = sha256_storage_key(sid)
+      if not key then
+        return nil, err
+      end
 
-    local ok, err = storage:delete(key)
-    if not ok then
-      return nil, errmsg(err, "unable to destroy session")
+      local ok, err = storage:delete(cookie_name, key)
+      if not ok then
+        return nil, errmsg(err, "unable to destroy session")
+      end
     end
   end
 
@@ -1063,28 +995,29 @@ function metatable:destroy()
 end
 
 
-function metatable:close()
-  self.state = STATE_CLOSED
-  return true
-end
-
-
-function metatable:hide(ngx_var)
+local function hide(remember)
   assert(self.state == STATE_OPEN, "unable to hide nonexistent session")
 
-  local cookies = (ngx_var or var).http_cookie
+  local cookies = var.http_cookie
   if not cookies or cookies == "" then
     return
   end
 
-  local cookie_name = self.cookie_name
+  local cookie_name
+  if remember then
+    cookie_name = self.remember_cookie_name
+  else
+    cookie_name = self.cookie_name
+  end
+
   local cookie_name_size = #cookie_name
 
   local cookie_chunks
   if self.storage then
     cookie_chunks = 1
   else
-    cookie_chunks = calculate_cookie_chunks(cookie_name_size, self.meta.data_size) or 1
+    local data_size = remember and self.remember_meta.data_size or self.meta.data_size
+    cookie_chunks = calculate_cookie_chunks(cookie_name_size, data_size) or 1
   end
 
   HIDE_BUFFER:reset()
@@ -1184,6 +1117,409 @@ function metatable:hide(ngx_var)
 end
 
 
+local info_mt = {}
+
+
+info_mt.__index = info_mt
+
+
+function info_mt:set(key, value)
+  local session = self.session
+
+  assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
+
+  local audience = session.audience
+  local data = self.data
+  if data then
+    if data[audience] then
+      data[audience][key] = value
+
+    else
+      data[audience] = {
+        [key] = value,
+      }
+    end
+
+  else
+    self.data = {
+      [audience] = {
+        [key] = value,
+      },
+    }
+  end
+
+  return true
+end
+
+
+function info_mt:get(key)
+  local session = self.session
+
+  assert(session.state ~= STATE_CLOSED, "unable to get session info on closed session")
+
+  local data = self.data
+  if not data then
+    return
+  end
+
+  data = self.data[session.audience]
+  if not data then
+    return
+  end
+
+  return data[key]
+end
+
+
+function info_mt:save()
+  local session = self.session
+  assert(session.state == STATE_OPEN, "unable to save session info on nonexistent or closed session")
+
+  local data = self.data
+  if not data then
+    return true
+  end
+
+  local err
+  data, err = encode_json(data)
+  if not data then
+    return nil, errmsg(err, "unable to json encode session info")
+  end
+
+  data, err = encode_base64url(data)
+  if not data then
+    return nil, errmsg(err, "unable to base64url encode session info")
+  end
+
+  local ok, err = save_info(session, data)
+  if not ok then
+    return nil, err
+  end
+
+  if session.remember then
+    if not session.remember_meta then
+      local remembered = open(self, true, true)
+      if not remembered then
+        return save(session, nil, true)
+      end
+    end
+
+    return save_info(session, data, true)
+  end
+
+  return true
+end
+
+
+local info = {}
+
+
+function info.new(session)
+  return setmetatable({
+    session = session,
+    data = false,
+  }, info_mt)
+end
+
+
+local metatable = {}
+
+
+metatable.__index = metatable
+
+
+function metatable.__newindex()
+  error("attempt to update a read-only table", 2)
+end
+
+
+function metatable:set(key, value)
+  assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
+  self.data[self.audience].data[key] = value
+end
+
+
+function metatable:get(key)
+  assert(self.state ~= STATE_CLOSED, "unable to get session data on closed session")
+  return self.data[self.audience].data[key]
+end
+
+
+function metatable:set_subject(subject)
+  assert(self.state ~= STATE_CLOSED, "unable to set subject on closed session")
+  self.data[self.audience].subject = subject
+end
+
+
+function metatable:get_subject()
+  assert(self.state ~= STATE_CLOSED, "unable to get subject on closed session")
+  return self.data[self.audience].subject
+end
+
+
+function metatable:set_audience(audience)
+  assert(self.state ~= STATE_CLOSED, "unable to set audience on closed session")
+  self.data[audience] = self.data[self.audience]
+  self.data[self.audience] = nil
+  self.audience = audience
+end
+
+
+function metatable:get_audience()
+  assert(self.state ~= STATE_CLOSED, "unable to get audience on closed session")
+  return self.audience
+end
+
+
+function metatable:set_remember(value)
+  assert(self.state ~= STATE_CLOSED, "unable to set remember on closed session")
+  assert(type(value) == "boolean", "invalid remember value")
+  if value == false then
+    set_flag(self.options, OPTION_NO_REMEMBER)
+  else
+    unset_flag(self.options, OPTION_NO_REMEMBER)
+  end
+
+  self.remember = value
+end
+
+
+function metatable:get_remember()
+  assert(self.state ~= STATE_CLOSED, "unable to set remember on closed session")
+  local options = self.meta.options
+  if options and has_flag(options, OPTION_NO_REMEMBER) then
+    return false
+  end
+
+  if has_flag(self.options, OPTION_NO_REMEMBER) then
+    return false
+  end
+
+  return self.remember
+end
+
+
+function metatable:open()
+  local exists, err = open(self)
+  if exists then
+    return true
+  end
+
+  if self.remember then
+    return nil, err
+  end
+
+  local remembered, err2 = open(self, true)
+  if not remembered then
+    return nil, errmsg(err2, err)
+  end
+
+  local ok, err = save(self, nil, true)
+  if not ok then
+    return nil, err
+  end
+
+  self.state = STATE_NEW
+  self.meta = DEFAULT_META
+
+  local ok, err = save(self, STATE_OPEN)
+  if not ok then
+    return nil, err
+  end
+
+  return true
+end
+
+
+function metatable:save()
+  assert(self.state ~= STATE_CLOSED, "unable to save closed session")
+
+  local ok, err = save(self)
+  if not ok then
+    return nil, err
+  end
+
+  if self:get_remember() then
+    if not self.remember_meta then
+      open(self, true, true)
+    end
+
+    local ok, err = save(self, nil, true)
+    if not ok then
+      log(WARN, "[session] ", err)
+    end
+  end
+
+  return true
+end
+
+
+function metatable:touch()
+  assert(self.state == STATE_OPEN, "unable to touch nonexistent or closed session")
+
+  local meta = self.meta
+  local idling_offset = min(time() - meta.created_at - meta.rolling_offset, MAX_IDLING_TIMEOUT)
+
+  HEADER_BUFFER:reset():put(sub(meta.header, 1, HEADER_SIZE - IDLING_OFFSET_SIZE - MAC_SIZE),
+                            bpack(IDLING_OFFSET_SIZE, idling_offset))
+
+  local mac, err = calculate_mac(meta.ikm, meta.sid, HEADER_BUFFER:tostring())
+  if not mac then
+    return nil, err
+  end
+
+  local payload_header = HEADER_BUFFER:put(mac):get()
+
+  meta.idling_offset = idling_offset
+  meta.mac           = mac
+  meta.header        = payload_header
+
+  payload_header, err = encode_base64url(payload_header)
+  if not payload_header then
+    return nil, errmsg(err, "unable to base64url encode session header")
+  end
+
+  local cookie_flags = self.cookie_flags
+  local cookie_name = self.cookie_name
+  local cookie_data
+  if has_flag(meta.options, OPTION_STATELESS) then
+    cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, meta.initial_chunk, cookie_flags)
+  else
+    cookie_data = fmt("%s=%s%s", cookie_name, payload_header, cookie_flags)
+  end
+
+  header["Set-Cookie"] = merge_cookies(header["Set-Cookie"], #cookie_name, cookie_name, cookie_data)
+
+  return true
+end
+
+
+function metatable:refresh()
+  assert(self.state == STATE_OPEN, "unable to refresh nonexistent or closed session")
+
+  local meta = self.meta
+  local created_at = meta.created_at
+  local rolling_offset = meta.rolling_offset
+
+  local rolling_timeout = self.rolling_timeout
+  if rolling_timeout == 0 then
+    rolling_timeout = DEFAULT_ROLLING_TIMEOUT
+  end
+
+  local idling_timeout = self.idling_timeout
+  if idling_timeout == 0 then
+    idling_timeout = DEFAULT_IDLING_TIMEOUT
+  end
+
+  local time_passed_after_previous_save = time() - created_at - rolling_offset
+  local time_to_rolling_expiry = rolling_timeout - time_passed_after_previous_save
+  if time_to_rolling_expiry > idling_timeout then
+    local idling_offset = meta.idling_offset
+    if idling_offset then
+      local time_passed_after_previous_touch = time_passed_after_previous_save - idling_offset
+      if time_passed_after_previous_touch > IDLING_THRESHOLD then
+        return self:touch()
+
+      else
+        return false
+      end
+
+    else
+      return self:touch()
+    end
+  end
+
+  return save(self)
+end
+
+
+function metatable:logout()
+  assert(self.state == STATE_OPEN, "unable to logout nonexistent or closed session")
+
+  local data = self.data
+  if nkeys(data) == 1 then
+    return self:destroy()
+  end
+
+  local audience = self.audience
+  data[audience] = nil
+  local info = self.info
+  if info and info.data then
+    info.data[audience] = nil
+    if isempty(info.data) then
+      info.data = nil
+    end
+  end
+
+  local ok, err = save(self, STATE_CLOSED)
+  if not ok then
+    return nil, err
+  end
+
+  if self:get_remember() then
+    if not self.remember_meta then
+      open(self, true, true)
+    end
+    local ok, err = save(self, nil, true)
+    if not ok then
+      log(WARN, "[session] ", err)
+    end
+  end
+
+  return true
+end
+
+
+function metatable:destroy()
+  assert(self.state == STATE_OPEN, "unable to destroy nonexistent or closed session")
+
+  local ok, err = destroy(self)
+  if not ok then
+    return nil, err
+  end
+
+  if self:get_remember() then
+    if not self.remember_meta then
+      local remembered = open(self, true, true)
+      if not remembered then
+        return true
+      end
+    end
+
+    ok, err = destroy(self, true)
+    if not ok then
+      return nil, err
+    end
+  end
+
+  return true
+end
+
+
+function metatable:close()
+  self.state = STATE_CLOSED
+  return true
+end
+
+
+function metatable:hide()
+  local ok = hide(self)
+  if not ok then
+    log(NOTICE, "[session] unable to hide session")
+  end
+
+  if self:get_remember() then
+    local ok2 = hide(self, true)
+    if not ok2 then
+      log(NOTICE, "[session] unable to hide persistent session")
+      return false
+    end
+  end
+
+  return ok
+end
+
+
 local session = {
   _VERSION = "4.0.0",
   metatable = metatable,
@@ -1229,10 +1565,12 @@ function session.init(configuration)
     DEFAULT_COOKIE_SAME_SITE = configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
     DEFAULT_COOKIE_PRIORITY  = configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
     DEFAULT_COOKIE_PREFIX    = configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
-    DEFAULT_ABSOLUTE_TIMEOUT = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
-    DEFAULT_ROLLING_TIMEOUT  = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
-    DEFAULT_IDLING_TIMEOUT   = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
+    DEFAULT_REMEMBER         = configuration.remember         or DEFAULT_REMEMBER
     DEFAULT_STALE_TTL        = configuration.stale_ttl        or DEFAULT_STALE_TTL
+    DEFAULT_IDLING_TIMEOUT   = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
+    DEFAULT_ROLLING_TIMEOUT  = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
+    DEFAULT_ABSOLUTE_TIMEOUT = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
+    DEFAULT_REMEMBER_TIMEOUT = configuration.remember_timeout or DEFAULT_REMEMBER_TIMEOUT
     DEFAULT_STORAGE          = configuration.storage          or DEFAULT_STORAGE
 
     local cookie_http_only = configuration.cookie_http_only
@@ -1269,21 +1607,24 @@ end
 
 
 function session.new(configuration)
-  local cookie_name      = configuration and configuration.cookie_name      or DEFAULT_COOKIE_NAME
-  local cookie_path      = configuration and configuration.cookie_path      or DEFAULT_COOKIE_PATH
-  local cookie_domain    = configuration and configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
-  local cookie_same_site = configuration and configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
-  local cookie_priority  = configuration and configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
-  local cookie_prefix    = configuration and configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
-  local audience         = configuration and configuration.audience         or DEFAULT_AUDIENCE
-  local subject          = configuration and configuration.subject
-  local absolute_timeout = configuration and configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
-  local rolling_timeout  = configuration and configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
-  local idling_timeout   = configuration and configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
-  local stale_ttl        = configuration and configuration.stale_ttl        or DEFAULT_STALE_TTL
-  local storage          = configuration and configuration.storage          or DEFAULT_STORAGE
-  local ikm              = configuration and configuration.ikm
-  local ikm_fallbacks    = configuration and configuration.ikm_fallbacks
+  local cookie_name          = configuration and configuration.cookie_name          or DEFAULT_COOKIE_NAME
+  local cookie_path          = configuration and configuration.cookie_path          or DEFAULT_COOKIE_PATH
+  local cookie_domain        = configuration and configuration.cookie_domain        or DEFAULT_COOKIE_DOMAIN
+  local cookie_same_site     = configuration and configuration.cookie_same_site     or DEFAULT_COOKIE_SAME_SITE
+  local cookie_priority      = configuration and configuration.cookie_priority      or DEFAULT_COOKIE_PRIORITY
+  local cookie_prefix        = configuration and configuration.cookie_prefix        or DEFAULT_COOKIE_PREFIX
+  local audience             = configuration and configuration.audience             or DEFAULT_AUDIENCE
+  local subject              = configuration and configuration.subject
+  local remember_cookie_name = configuration and configuration.remember_cookie_name or DEFAULT_REMEMBER_COOKIE_NAME
+  local remember             = configuration and configuration.remember             or DEFAULT_REMEMBER
+  local stale_ttl            = configuration and configuration.stale_ttl            or DEFAULT_STALE_TTL
+  local idling_timeout       = configuration and configuration.idling_timeout       or DEFAULT_IDLING_TIMEOUT
+  local rolling_timeout      = configuration and configuration.rolling_timeout      or DEFAULT_ROLLING_TIMEOUT
+  local absolute_timeout     = configuration and configuration.absolute_timeout     or DEFAULT_ABSOLUTE_TIMEOUT
+  local remember_timeout     = configuration and configuration.remember_timeout     or DEFAULT_REMEMBER_TIMEOUT
+  local storage              = configuration and configuration.storage              or DEFAULT_STORAGE
+  local ikm                  = configuration and configuration.ikm
+  local ikm_fallbacks        = configuration and configuration.ikm_fallbacks
 
   local cookie_http_only = configuration and configuration.cookie_http_only
   if cookie_http_only == nil then
@@ -1306,14 +1647,16 @@ function session.new(configuration)
   end
 
   if cookie_prefix == "__Host-" then
-    cookie_name   = cookie_prefix .. cookie_name
-    cookie_path   = DEFAULT_COOKIE_PATH
-    cookie_domain = nil
-    cookie_secure = true
+    cookie_name          = cookie_prefix .. cookie_name
+    remember_cookie_name = cookie_prefix .. remember_cookie_name
+    cookie_path          = DEFAULT_COOKIE_PATH
+    cookie_domain        = nil
+    cookie_secure        = true
 
   elseif cookie_prefix == "__Secure-" then
-    cookie_name   = cookie_prefix .. cookie_name
-    cookie_secure = true
+    cookie_name          = cookie_prefix .. cookie_name
+    remember_cookie_name = cookie_prefix .. remember_cookie_name
+    cookie_secure        = true
 
   elseif cookie_same_site == "None" then
     cookie_secure = true
@@ -1391,28 +1734,32 @@ function session.new(configuration)
 
   elseif t ~= "table" then
     assert(storage == nil, "invalid session storage")
-    options = bor(options, OPTION_STATELESS)
+    options = set_flag(options, OPTION_STATELESS)
   end
 
   local self = setmetatable({
-    absolute_timeout = absolute_timeout,
-    rolling_timeout  = rolling_timeout,
-    idling_timeout   = idling_timeout,
-    stale_ttl        = stale_ttl,
-    cookie_name      = cookie_name,
-    cookie_flags     = cookie_flags,
-    options          = options,
-    storage          = storage,
-    ikm              = ikm,
-    ikm_fallbacks    = ikm_fallbacks,
-    state            = STATE_NEW,
-    audience         = audience,
-    meta             = DEFAULT_META,
-    info             = storage and info or nil,
-    data             = {
-      [audience]     = {
-        subject      = subject,
-        data         = {},
+    stale_ttl            = stale_ttl,
+    idling_timeout       = idling_timeout,
+    rolling_timeout      = rolling_timeout,
+    absolute_timeout     = absolute_timeout,
+    remember_timeout     = remember_timeout,
+    cookie_name          = cookie_name,
+    cookie_flags         = cookie_flags,
+    remember_cookie_name = remember_cookie_name,
+    remember             = remember,
+    options              = options,
+    storage              = storage,
+    ikm                  = ikm,
+    ikm_fallbacks        = ikm_fallbacks,
+    state                = STATE_NEW,
+    audience             = audience,
+    meta                 = DEFAULT_META,
+    remember_meta        = DEFAULT_REMEMBER_META,
+    info                 = storage and info or nil,
+    data                 = {
+      [audience]         = {
+        subject          = subject,
+        data             = {},
       },
     },
   }, metatable)
@@ -1470,6 +1817,31 @@ function session.destroy(configuration)
   end
 
   return true, nil, exists
+end
+
+
+function session.__set_ngx_log(ngx_log)
+  log = ngx_log
+end
+
+
+function session.__set_ngx_var(ngx_var)
+  var = ngx_var
+end
+
+
+function session.__set_ngx_header(ngx_header)
+  header = ngx_header
+end
+
+
+function session.__set_ngx_req_clear_header(ngx_clear_header)
+  clear_header = ngx_clear_header
+end
+
+
+function session.__set_ngx_req_set_header(ngx_set_header)
+  set_header = ngx_set_header
 end
 
 

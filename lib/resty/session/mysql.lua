@@ -1,6 +1,7 @@
 --[[
 CREATE TABLE IF NOT EXISTS sessions (
   sid  CHAR(43) PRIMARY KEY,
+  name TINYTEXT,
   data LONGTEXT,
   ttl  DATETIME,
   INDEX (ttl)
@@ -19,10 +20,10 @@ local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 3306
 
 
-local SET = "INSERT INTO %s (sid, data, ttl) VALUES ('%s', '%s', FROM_UNIXTIME(%d)) ON DUPLICATE KEY UPDATE data = new.data"
-local GET = "SELECT data FROM %s WHERE sid = '%s' AND ttl >= FROM_UNIXTIME(%d)"
-local EXPIRE = "UPDATE %s SET ttl = FROM_UNIXTIME(%d) WHERE sid = '%s' AND ttl > FROM_UNIXTIME(%d)"
-local DELETE = "DELETE FROM %s WHERE sid = '%s'"
+local SET = "INSERT INTO %s (sid, name, data, ttl) VALUES ('%s', '%s', '%s', FROM_UNIXTIME(%d)) ON DUPLICATE KEY UPDATE data = new.data"
+local GET = "SELECT name, data FROM %s WHERE sid = '%s' AND name = '%s' AND ttl >= FROM_UNIXTIME(%d)"
+local EXPIRE = "UPDATE %s SET ttl = FROM_UNIXTIME(%d) WHERE sid = '%s' AND name = '%s' AND ttl > FROM_UNIXTIME(%d)"
+local DELETE = "DELETE FROM %s WHERE sid = '%s' AND name = '%s'"
 
 
 local function exec(self, query)
@@ -65,13 +66,13 @@ function metatable.__newindex()
 end
 
 
-function metatable:set(key, value, ttl, current_time)
-  return exec(self, fmt(SET, self.table, key, value, ttl + current_time))
+function metatable:set(name, key, value, ttl, current_time)
+  return exec(self, fmt(SET, self.table, key, name, value, ttl + current_time))
 end
 
 
-function metatable:get(key, current_time)
-  local res, err = exec(self, fmt(GET, self.table, key, current_time))
+function metatable:get(name, key, current_time)
+  local res, err = exec(self, fmt(GET, self.table, key, name, current_time))
   if not res then
     return nil, err
   end
@@ -87,14 +88,14 @@ function metatable:get(key, current_time)
 end
 
 
-function metatable:expire(key, ttl, current_time)
+function metatable:expire(name, key, ttl, current_time)
   ttl = ttl + current_time
-  return exec(self, fmt(EXPIRE, self.table, ttl, key, ttl))
+  return exec(self, fmt(EXPIRE, self.table, ttl, key, name, ttl))
 end
 
 
-function metatable:delete(key)
-  return exec(self, fmt(DELETE, self.table, key))
+function metatable:delete(name, key)
+  return exec(self, fmt(DELETE, self.table, key, name))
 end
 
 

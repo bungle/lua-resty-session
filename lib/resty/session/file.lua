@@ -1,6 +1,7 @@
 local setmetatable = setmetatable
 local error = error
 local byte = string.byte
+local fmt = string.format
 
 
 local SLASH_BYTE = byte("/")
@@ -33,17 +34,18 @@ local run_worker_thread do
 end
 
 
-local function get_path(self, key)
+local function get_path(self, name, key)
+  local path = self.path
   local prefix = self.prefix
   local suffix = self.suffix
   if prefix and suffix then
-    return self.path .. prefix .. key .. suffix
+    return fmt("%s%s_%s_%s.%s", path, prefix, name, key, suffix)
   elseif prefix then
-    return self.path .. prefix .. key
+    return fmt("%s%s_%s_%s", path, prefix, name, key)
   elseif suffix then
-    return self.path .. key .. suffix
+    return fmt("%s%s_%s.%s", path, name, key, suffix)
   else
-    return self.path .. key
+    return fmt("%s%s_%s", path, name, key)
   end
 end
 
@@ -59,18 +61,18 @@ function metatable.__newindex()
 end
 
 
-function metatable:set(key, value)
-  return run_worker_thread(self.pool, "resty.session.file-thread", "set", get_path(self, key), value)
+function metatable:set(name, key, value)
+  return run_worker_thread(self.pool, "resty.session.file-thread", "set", get_path(self, name, key), value)
 end
 
 
-function metatable:get(key)
-  return run_worker_thread(self.pool, "resty.session.file-thread", "get", get_path(self, key))
+function metatable:get(name, key)
+  return run_worker_thread(self.pool, "resty.session.file-thread", "get", get_path(self, name, key))
 end
 
 
-function metatable:delete(key)
-  return run_worker_thread(self.pool, "resty.session.file-thread", "delete", get_path(self, key))
+function metatable:delete(name, key)
+  return run_worker_thread(self.pool, "resty.session.file-thread", "delete", get_path(self, name, key))
 end
 
 

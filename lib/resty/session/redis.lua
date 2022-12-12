@@ -1,4 +1,5 @@
 local redis = require "resty.redis"
+local get_name = require "resty.session.utils".get_name
 
 
 local setmetatable = setmetatable
@@ -17,22 +18,7 @@ local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 6379
 
 
-local function get_name(self, key)
-  local prefix = self.prefix
-  local suffix = self.suffix
-  if prefix and suffix then
-    return prefix .. key .. suffix
-  elseif prefix then
-    return prefix .. key
-  elseif suffix then
-    return key .. suffix
-  else
-    return key
-  end
-end
-
-
-local function exec(self, func, key, ...)
+local function exec(self, func, name, key, ...)
   local red = redis:new()
 
   local connect_timeout = self.connect_timeout
@@ -79,7 +65,7 @@ local function exec(self, func, key, ...)
     end
   end
 
-  ok, err = func(red, get_name(self, key), ...)
+  ok, err = func(red, get_name(self, name, key), ...)
   if err then
     red:close()
     return nil, err
@@ -108,28 +94,28 @@ function metatable.__newindex()
 end
 
 
-function metatable:set(key, value, ttl)
-  return exec(self, SET, key, value, "EX", ttl)
+function metatable:set(name, key, value, ttl)
+  return exec(self, SET, name, key, value, "EX", ttl)
 end
 
 
-function metatable:get(key)
-  return exec(self, GET, key)
+function metatable:get(name, key)
+  return exec(self, GET, name, key)
 end
 
 
-function metatable:ttl(key)
-  return exec(self, TTL, key)
+function metatable:ttl(name, key)
+  return exec(self, TTL, name, key)
 end
 
 
-function metatable:expire(key, ttl)
-  return exec(self, EXPIRE, key, ttl)
+function metatable:expire(name, key, ttl)
+  return exec(self, EXPIRE, name, key, ttl)
 end
 
 
-function metatable:delete(key)
-  return exec(self, UNLINK, key)
+function metatable:delete(name, key)
+  return exec(self, UNLINK, name, key)
 end
 
 

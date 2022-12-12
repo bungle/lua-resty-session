@@ -2,11 +2,15 @@ local require = require
 
 
 local buffer = require "string.buffer"
+local bit = require "bit"
 
 
 local select = select
 local ceil = math.ceil
 local byte = string.byte
+local band = bit.band
+local bnot = bit.bnot
+local bor = bit.bor
 local fmt = string.format
 local sub = string.sub
 
@@ -304,7 +308,7 @@ local derive_hkdf_sha256 do
       }
       HKDF_SHA256_EXPAND_OPTS = {
         type = kdf.HKDF,
-        outlen = 0,
+        outlen = 44,
         md = "sha256",
         salt = "",
         hkdf_key = "",
@@ -319,8 +323,51 @@ local derive_hkdf_sha256 do
 end
 
 
-local function derive_aes_gcm_256_key_and_iv(ikm, nonce)
-  local bytes, err = derive_hkdf_sha256(ikm, nonce, "encryption", 44)
+local derive_pbkdf2_hmac_sha256  do
+  local kdf_derive
+
+  local PBKDF2_SHA256_OPTS
+
+  local function derive_pbkdf2_hmac_sha256_real(ikm, nonce, usage, size)
+    PBKDF2_SHA256_OPTS.pass = ikm
+    PBKDF2_SHA256_OPTS.salt = usage .. ":" .. nonce
+    PBKDF2_SHA256_OPTS.outlen = size
+    local key, err = kdf_derive(PBKDF2_SHA256_OPTS)
+    if not key then
+      return nil, err
+    end
+
+    return key
+  end
+
+  derive_pbkdf2_hmac_sha256 = function(ikm, nonce, usage, size)
+    if not kdf_derive then
+      local kdf = require "resty.openssl.kdf"
+      PBKDF2_SHA256_OPTS = {
+        type = kdf.PBKDF2,
+        outlen = 44,
+        md = "sha256",
+        pass = "",
+        salt = "",
+        -- https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
+        pbkdf2_iter = 310000,
+      }
+      kdf_derive = kdf.derive
+    end
+    derive_pbkdf2_hmac_sha256 = derive_pbkdf2_hmac_sha256_real
+    return derive_pbkdf2_hmac_sha256(ikm, nonce, usage, size)
+  end
+end
+
+
+local function derive_aes_gcm_256_key_and_iv(ikm, nonce, slow)
+  local bytes, err
+  if slow then
+    bytes, err = derive_pbkdf2_hmac_sha256(ikm, nonce, "encryption", 44)
+  else
+    bytes, err = derive_hkdf_sha256(ikm, nonce, "encryption", 44)
+  end
+
   if not bytes then
     return nil, err
   end
@@ -453,6 +500,36 @@ local function errmsg(err, msg, ...)
 end
 
 
+local function get_name(self, name, key)
+  local prefix = self.prefix
+  local suffix = self.suffix
+  if prefix and suffix then
+    return fmt("%s:%s:%s:%s", prefix, name, key, suffix)
+  elseif prefix then
+    return fmt("%s:%s:%s", prefix, name, key)
+  elseif suffix then
+    return fmt("%s:%s:%s", name, key, suffix)
+  else
+    return fmt("%s:%s", name, key)
+  end
+end
+
+
+local function set_flag(options, flag)
+  return bor(options, flag)
+end
+
+
+local function unset_flag(options, flag)
+  return band(options, bnot(flag))
+end
+
+
+local function has_flag(options, flag)
+  return band(options, flag) ~= 0
+end
+
+
 return {
   bpack = bpack,
   bunpack = bunpack,
@@ -467,6 +544,7 @@ return {
   rand_bytes = rand_bytes,
   sha256 = sha256,
   derive_hkdf_sha256 = derive_hkdf_sha256,
+  derive_pbkdf2_hmac_sha256 = derive_pbkdf2_hmac_sha256,
   derive_aes_gcm_256_key_and_iv = derive_aes_gcm_256_key_and_iv,
   derive_hmac_sha256_key = derive_hmac_sha256_key,
   encrypt_aes_256_gcm = encrypt_aes_256_gcm,
@@ -474,4 +552,8 @@ return {
   hmac_sha256 = hmac_sha256,
   load_storage = load_storage,
   errmsg = errmsg,
+  get_name = get_name,
+  set_flag = set_flag,
+  unset_flag = unset_flag,
+  has_flag = has_flag,
 }

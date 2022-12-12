@@ -1,4 +1,5 @@
 local memcached = require "resty.memcached"
+local get_name = require "resty.session.utils".get_name
 
 
 local setmetatable = setmetatable
@@ -16,22 +17,7 @@ local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 11211
 
 
-local function get_name(self, key)
-  local prefix = self.prefix
-  local suffix = self.suffix
-  if prefix and suffix then
-    return prefix .. key .. suffix
-  elseif prefix then
-    return prefix .. key
-  elseif suffix then
-    return key .. suffix
-  else
-    return key
-  end
-end
-
-
-local function exec(self, func, key, ...)
+local function exec(self, func, name, key, ...)
   local memc = memcached:new()
 
   local connect_timeout = self.connect_timeout
@@ -61,7 +47,7 @@ local function exec(self, func, key, ...)
     end
   end
 
-  key = get_name(self, key)
+  key = get_name(self, name, key)
 
   if func == memc.get then
     local _
@@ -98,23 +84,23 @@ function metatable.__newindex()
 end
 
 
-function metatable:set(key, value, ttl)
-  return exec(self, SET, key, value, ttl)
+function metatable:set(name, key, value, ttl)
+  return exec(self, SET, name, key, value, ttl)
 end
 
 
-function metatable:get(key)
-  return exec(self, GET, key)
+function metatable:get(name, key)
+  return exec(self, GET, name, key)
 end
 
 
-function metatable:expire(key, ttl)
-  return exec(self, TOUCH, key, ttl)
+function metatable:expire(name, key, ttl)
+  return exec(self, TOUCH, name, key, ttl)
 end
 
 
-function metatable:delete(key)
-  return exec(self, DELETE, key)
+function metatable:delete(name, key)
+  return exec(self, DELETE, name, key)
 end
 
 

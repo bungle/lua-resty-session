@@ -1,3 +1,6 @@
+local get_name = require "resty.session.utils".get_name
+
+
 local setmetatable = setmetatable
 local shared = ngx.shared
 local assert = assert
@@ -5,21 +8,6 @@ local error = error
 
 
 local DEFAULT_ZONE = "sessions"
-
-
-local function get_name(self, key)
-  local prefix = self.prefix
-  local suffix = self.suffix
-  if prefix and suffix then
-    return prefix .. key .. suffix
-  elseif prefix then
-    return prefix .. key
-  elseif suffix then
-    return key .. suffix
-  else
-    return key
-  end
-end
 
 
 local metatable = {}
@@ -33,8 +21,8 @@ function metatable.__newindex()
 end
 
 
-function metatable:set(key, value, ttl)
-  local ok, err = self.dict:set(get_name(self, key), value, ttl)
+function metatable:set(name, key, value, ttl)
+  local ok, err = self.dict:set(get_name(self, name, key), value, ttl)
   if not ok then
     return nil, err
   end
@@ -42,8 +30,8 @@ function metatable:set(key, value, ttl)
 end
 
 
-function metatable:get(key)
-  local value, err = self.dict:get(get_name(self, key))
+function metatable:get(name, key)
+  local value, err = self.dict:get(get_name(self, name, key))
   if not value then
     return nil, err
   end
@@ -51,8 +39,8 @@ function metatable:get(key)
 end
 
 
-function metatable:ttl(key)
-  local ttl, err = self.dict:ttl(get_name(self, key))
+function metatable:ttl(name, key)
+  local ttl, err = self.dict:ttl(get_name(self, name, key))
   if not ttl then
     return nil, err
   end
@@ -60,8 +48,8 @@ function metatable:ttl(key)
 end
 
 
-function metatable:expire(key, ttl)
-  local ok, err = self.dict:expire(get_name(self, key), ttl)
+function metatable:expire(name, key, ttl)
+  local ok, err = self.dict:expire(get_name(self, name, key), ttl)
   if not ok then
     return nil, err
   end
@@ -69,8 +57,8 @@ function metatable:expire(key, ttl)
 end
 
 
-function metatable:delete(key)
-  self.dict:delete(get_name(self, key))
+function metatable:delete(name, key)
+  self.dict:delete(get_name(self, name, key))
   return true
 end
 
