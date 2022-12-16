@@ -1991,7 +1991,7 @@ end
 -- @function module.open
 -- @tparam[opt]  table   configuration  session @{configuration} overrides
 -- @treturn      table                  session instance
--- @treturn      string                 information why session could not be opened
+-- @treturn      string                 error message
 -- @treturn      boolean                `true`, if session existed, otherwise `false`
 --
 -- @usage
@@ -2021,7 +2021,7 @@ end
 -- @function module.start
 -- @tparam[opt]  table   configuration  session @{configuration} overrides
 -- @treturn      table                  session instance
--- @treturn      string                 information why session could not be logged out
+-- @treturn      string                 error message
 -- @treturn      boolean                `true`, if session existed, otherwise `false`
 -- @treturn      boolean                `true`, if session was refreshed, otherwise `false`
 --
@@ -2065,7 +2065,7 @@ end
 -- @function module.logout
 -- @tparam[opt]  table    configuration  session @{configuration} overrides
 -- @treturn      boolean                 `true` session exists for an audience and was logged out successfully, otherwise `false`
--- @treturn      string                  information why the session could not be logged out
+-- @treturn      string                  error message
 -- @treturn      boolean                 `true` if session existed, otherwise `false`
 -- @treturn      boolean                 `true` if session was logged out, otherwise `false`
 --
@@ -2097,7 +2097,7 @@ end
 -- @function module.destroy
 -- @tparam[opt]  table    configuration  session @{configuration} overrides
 -- @treturn      boolean                 `true` session exists and was destroyed successfully, otherwise `nil`
--- @treturn      string                  information why session could not be destroyed
+-- @treturn      string                  error message
 -- @treturn      boolean                 `true` if session existed, otherwise `false`
 -- @treturn      boolean                 `true` if session was destroyed, otherwise `false`
 --
