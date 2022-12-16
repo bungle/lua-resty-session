@@ -1,3 +1,8 @@
+---
+-- Redis backend for session library
+-- @module resty.session.redis
+
+
 local redis = require "resty.redis"
 local get_name = require "resty.session.utils".get_name
 

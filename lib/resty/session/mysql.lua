@@ -1,3 +1,8 @@
+---
+-- MySQL / MariaDB backend for session library
+-- @module resty.session.mysql
+
+
 --[[
 CREATE TABLE IF NOT EXISTS sessions (
   sid  CHAR(43) PRIMARY KEY,
@@ -7,6 +12,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   INDEX (ttl)
 ) CHARACTER SET ascii;
 ]]
+
 
 local mysql = require "resty.mysql"
 

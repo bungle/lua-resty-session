@@ -1,3 +1,8 @@
+---
+-- Postgres backend for session library
+-- @module resty.session.postgres
+
+
 --[[
 CREATE TABLE IF NOT EXISTS sessions (
   sid  CHAR(43) PRIMARY KEY,
@@ -7,6 +12,7 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX ON sessions (ttl);
 ]]
+
 
 local pgmoon = require "pgmoon"
 

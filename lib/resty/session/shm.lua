@@ -1,3 +1,8 @@
+---
+-- Shared Memory (SHM) backend for session library
+-- @module resty.session.shm
+
+
 local get_name = require "resty.session.utils".get_name
 
 

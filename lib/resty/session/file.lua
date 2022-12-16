@@ -1,3 +1,8 @@
+---
+-- File storage backend for session library
+-- @module resty.session.file
+
+
 local setmetatable = setmetatable
 local error = error
 local byte = string.byte
@@ -50,6 +55,10 @@ local function get_path(self, name, key)
 end
 
 
+--- File Storage Instance
+-- @section file
+
+
 local metatable = {}
 
 
@@ -61,24 +70,68 @@ function metatable.__newindex()
 end
 
 
+---
+-- Store session data.
+--
+-- @function file:set
+-- @tparam  string   name  ...
+-- @tparam  string   key   ...
+-- @tparam  string   value ...
+-- @treturn true|nil       ok
+-- @treturn string         error message
 function metatable:set(name, key, value)
   return run_worker_thread(self.pool, "resty.session.file-thread", "set", get_path(self, name, key), value)
 end
 
-
+---
+-- Retrieve session data.
+--
+-- @function file:get
+-- @tparam  string     name ...
+-- @tparam  string     key  ...
+-- @treturn string|nil      session data
+-- @treturn string          error message
 function metatable:get(name, key)
   return run_worker_thread(self.pool, "resty.session.file-thread", "get", get_path(self, name, key))
 end
 
 
+---
+-- Delete session data.
+--
+-- @function file:delete
+-- @tparam  string      name ...
+-- @tparam  string      key  ...
+-- @treturn boolean|nil      session data
+-- @treturn string           error message
 function metatable:delete(name, key)
   return run_worker_thread(self.pool, "resty.session.file-thread", "delete", get_path(self, name, key))
 end
 
 
+--- File Storage Module
+-- @section file
+
 local storage = {}
 
 
+---
+-- File storage backend configuration
+-- @field prefix File prefix for session file
+-- @field suffix File suffix (or extension without `.`) for session file
+-- @field pool Name of the thread pool under which file writing happens (available on Linux only)
+-- @field path Path (or directory) under which session files are created
+-- @table configuration
+
+
+---
+-- Create a file storage.
+--
+-- This creates a new file storage instance.
+--
+-- @function file.new
+-- @tparam[opt]  table   configuration  session @{configuration} overrides
+-- @treturn      table                  file storage instance
 function storage.new(configuration)
   local prefix = configuration and configuration.prefix
   local suffix = configuration and configuration.suffix

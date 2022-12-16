@@ -1,3 +1,9 @@
+---
+-- Session library provides HTTP session management capabilities for OpenResty based
+-- applications, libraries and proxies.
+-- @module resty.session
+
+
 local require = require
 
 
@@ -89,16 +95,13 @@ local OPTION_NO_REMEMBER = 0x0002
 local OPTION_DEFLATE     = 0x0010
 
 
-
-local COMPRESSION_THRESHOLD = 1024 -- 1 kB
-local IDLING_THRESHOLD      = 60   -- 1 minute
-
-
-local DEFAULT_AUDIENCE = ""
+local DEFAULT_AUDIENCE = "default"
 local DEFAULT_META = {}
 local DEFAULT_REMEMBER_META = false
 local DEFAULT_IKM
 local DEFAULT_IKM_FALLBACKS
+local DEFAULT_TOUCH_THRESHOLD = 60 -- 1 minute
+local DEFAULT_COMPRESSION_THRESHOLD = 1024 -- 1 kB
 
 
 local DEFAULT_COOKIE_NAME = "session"
@@ -620,7 +623,7 @@ local function save(self, state, remember)
 
     data_size = #data
 
-    if data_size > COMPRESSION_THRESHOLD then
+    if data_size > self.compression_threshold then
       local deflated_data, err = deflate(data)
       if not deflated_data then
         log(NOTICE, "[session] unable to deflate session data (", err , ")")
@@ -1117,12 +1120,39 @@ local function hide(remember)
 end
 
 
+
+local function get_remember(self)
+  local options = self.meta.options
+  if options and has_flag(options, OPTION_NO_REMEMBER) then
+    return false
+  end
+
+  if has_flag(self.options, OPTION_NO_REMEMBER) then
+    return false
+  end
+
+  return self.remember
+end
+
+
+
+--- Session Information Store
+-- @section info
 local info_mt = {}
 
 
 info_mt.__index = info_mt
 
 
+---
+-- Open a session.
+--
+-- This can be used to open a session. It will either return an existing
+-- session or a new session.
+--
+-- @function session:open
+-- @treturn true|nil ok
+-- @treturn string   error message
 function info_mt:set(key, value)
   local session = self.session
 
@@ -1222,6 +1252,8 @@ function info.new(session)
 end
 
 
+--- Session Instance
+-- @section session
 local metatable = {}
 
 
@@ -1285,27 +1317,27 @@ end
 
 
 function metatable:get_remember()
-  assert(self.state ~= STATE_CLOSED, "unable to set remember on closed session")
-  local options = self.meta.options
-  if options and has_flag(options, OPTION_NO_REMEMBER) then
-    return false
-  end
-
-  if has_flag(self.options, OPTION_NO_REMEMBER) then
-    return false
-  end
-
-  return self.remember
+  assert(self.state ~= STATE_CLOSED, "unable to get remember on closed session")
+  return get_remember(self)
 end
 
 
+---
+-- Open a session.
+--
+-- This can be used to open a session. It will either return an existing
+-- session or a new session.
+--
+-- @function session:open
+-- @treturn true|nil ok
+-- @treturn string   error message
 function metatable:open()
   local exists, err = open(self)
   if exists then
     return true
   end
 
-  if self.remember then
+  if not self.remember then
     return nil, err
   end
 
@@ -1331,6 +1363,16 @@ function metatable:open()
 end
 
 
+---
+-- Save the session.
+--
+-- Saves the session data and issues a new session cookie with a new session id.
+-- When `remember`  is enabled, it will also issue a new persistent cookie and
+-- possibly save the data in backend store.
+--
+-- @function session:save
+-- @treturn true|nil ok
+-- @treturn string   error message
 function metatable:save()
   assert(self.state ~= STATE_CLOSED, "unable to save closed session")
 
@@ -1339,7 +1381,7 @@ function metatable:save()
     return nil, err
   end
 
-  if self:get_remember() then
+  if get_remember(self) then
     if not self.remember_meta then
       open(self, true, true)
     end
@@ -1354,6 +1396,16 @@ function metatable:save()
 end
 
 
+---
+-- Touch the session.
+--
+-- Updates idling offset of the session by sending an updated session cookie.
+-- It only sends the client cookie and never calls any backend session store
+-- APIs. Normally the `session:refresh` is used to call this indirectly.
+--
+-- @function session:touch
+-- @treturn true|nil ok
+-- @treturn string   error message
 function metatable:touch()
   assert(self.state == STATE_OPEN, "unable to touch nonexistent or closed session")
 
@@ -1394,6 +1446,16 @@ function metatable:touch()
 end
 
 
+---
+-- Refresh the session.
+--
+-- Either saves the session (creating a new session id) or touches the session
+-- depending on whether the rolling timeout is getting closer. The touch has
+-- a threshold, by default one minute, so it may be skipped in some cases.
+--
+-- @function session:refresh
+-- @treturn true|nil ok
+-- @treturn string   error message
 function metatable:refresh()
   assert(self.state == STATE_OPEN, "unable to refresh nonexistent or closed session")
 
@@ -1417,7 +1479,7 @@ function metatable:refresh()
     local idling_offset = meta.idling_offset
     if idling_offset then
       local time_passed_after_previous_touch = time_passed_after_previous_save - idling_offset
-      if time_passed_after_previous_touch > IDLING_THRESHOLD then
+      if time_passed_after_previous_touch > self.touch_threshold then
         return self:touch()
 
       else
@@ -1433,6 +1495,15 @@ function metatable:refresh()
 end
 
 
+---
+-- Logout the session.
+--
+-- Logout either destroys the session or just clears the data for the current audience,
+-- and saves it (logging out from the current audience).
+--
+-- @function session:logout
+-- @treturn true|nil ok
+-- @treturn string   error message
 function metatable:logout()
   assert(self.state == STATE_OPEN, "unable to logout nonexistent or closed session")
 
@@ -1456,7 +1527,7 @@ function metatable:logout()
     return nil, err
   end
 
-  if self:get_remember() then
+  if get_remember(self) then
     if not self.remember_meta then
       open(self, true, true)
     end
@@ -1470,6 +1541,14 @@ function metatable:logout()
 end
 
 
+---
+-- Destroy the session.
+--
+-- Destroy the session and clear the cookies.
+--
+-- @function session:destroy
+-- @treturn true|nil ok
+-- @treturn string   error message
 function metatable:destroy()
   assert(self.state == STATE_OPEN, "unable to destroy nonexistent or closed session")
 
@@ -1478,7 +1557,7 @@ function metatable:destroy()
     return nil, err
   end
 
-  if self:get_remember() then
+  if get_remember(self) then
     if not self.remember_meta then
       local remembered = open(self, true, true)
       if not remembered then
@@ -1496,19 +1575,37 @@ function metatable:destroy()
 end
 
 
+---
+-- Close the session.
+--
+-- Just closes the session instance so that it cannot be used anymore.
+--
+-- @function session:close
+-- @treturn true|nil ok
+-- @treturn string   error message
 function metatable:close()
   self.state = STATE_CLOSED
   return true
 end
 
 
+---
+-- Hide the session.
+--
+-- Modifies the request headers by removing the session related
+-- cookies. This is useful when you use the session library on
+-- a proxy server and don't want the session cookies to be forwarded
+-- to the upstream service.
+--
+-- @function session:hide
+-- @treturn true|nil ok
 function metatable:hide()
   local ok = hide(self)
   if not ok then
     log(NOTICE, "[session] unable to hide session")
   end
 
-  if self:get_remember() then
+  if get_remember(self) then
     local ok2 = hide(self, true)
     if not ok2 then
       log(NOTICE, "[session] unable to hide persistent session")
@@ -1520,12 +1617,67 @@ function metatable:hide()
 end
 
 
+--- Session Module
+-- @section session
 local session = {
   _VERSION = "4.0.0",
   metatable = metatable,
 }
 
 
+---
+-- Session configuration.
+-- @field secret Secret used for the key derivation. The secret is hashed with SHA-256 before using it. E.g. `"RaJKp8UQW1"`.
+-- @field secret_fallbacks Array of secrets that can be used as alternative secrets (when doing key rotation), E.g. `{ "6RfrAYYzYq", "MkbTkkyF9C" }`.
+-- @field ikm Initial key material (or ikm) can be specified directly (without using a secret) with exactly 32 bytes of data, e.g. `"5ixIW4QVMk0dPtoIhn41Eh1I9enP2060"`
+-- @field ikm_fallbacks Array of initial key materials that can be used as alternative keys (when doing key rotation), E.g. `{ "QvPtlPKxOKdP5MCu1oI3lOEXIVuDckp7" }`.
+-- @field cookie_prefix Cookie prefix, use `nil`, `"__Host-"` or `"__Secure-"` (defaults to `nil`)
+-- @field cookie_name Session cookie name, e.g. `"session"` (defaults to `"session"`)
+-- @field cookie_path Cookie path, e.g. `"/"` (defaults to `"/"`)
+-- @field cookie_domain Cookie domain, e.g. `"example.com"` (defaults to `nil`)
+-- @field cookie_http_only Mark cookie HTTP only, use `true` or `false` (defaults to `true`)
+-- @field cookie_secure Mark cookie secure, use `nil`, `true` or `false` (defaults to `nil`)
+-- @field cookie_priority Cookie priority, use `nil`, `"Low"`, `"Medium"`, or `"High"` (defaults to `nil`)
+-- @field cookie_same_site Cookie same-site policy, use `nil`, `"Lax"`, `"Strict"`, or `"None"` (defaults to `"Lax"`)
+-- @field cookie_same_party Mark cookie with same party flag, use `nil`, `true`, or `false` (default: `nil`)
+-- @field cookie_partitioned Mark cookie with partitioned flag, use `nil`, `true`, or `false` (default: `nil`)
+-- @field remember Enable or disable persistent sessions, use `nil`, `true`, or `false` (defaults to `false`)
+-- @field remember_cookie_name Persistent session cookie name, e.g. `"remember"` (defaults to `"remember"`)
+-- @field audience Session audience, e.g. `"my-application"` (defaults to `"default"`)
+-- @field subject Session subject, e.g. `"john.doe@example.com"` (defaults to `nil`)
+-- @field stale_ttl When session is saved a new session is created, stale ttl specifies how long the old one can still be used, e.g. `10` (defaults to `10`) (in seconds)
+-- @field idling_timeout Idling timeout specifies how long the session can be inactive until it is considered invalid, e.g. `900` (defaults to `900`, or 15 minutes) (in seconds)
+-- @field rolling_timeout Rolling timeout specifies how long the session can be used until it needs to be renewed, e.g. `3600` (defaults to `3600`, or an hour) (in seconds)
+-- @field absolute_timeout Absolute timeout limits how long the session can be renewed, until re-authentication is required, e.g. `86400` (defaults to `86400`, or a day) (in seconds)
+-- @field remember_timeout Remember timeout specifies how long the persistent session is considered valid, e.g. `604800` (defaults to `604800`, or a week) (in seconds)
+-- @field touch_threshold Touch threshold controls how frequently or infrequently the `session:refresh` touches the cookie, e.g. `60` (defaults to `60`, or a minute) (in seconds)
+-- @field compression_threshold Compression threshold controls when the data is deflated, e.g. `1024` (defaults to `1024`, or a kilobyte) (in bytes)
+-- @field storage Storage is responsible of storing session data, use `nil` (data is stored in cookie), `dshm`, `file`, `memcached`, `mysql`, `postgres`, `redis`, `redis-cluster`, `redis-sentinel`, or `shm`, or give a name of custom module (`"custom.session.storage"`), or a `table` that implements session storage interface (defaults to `nil`)
+-- @field dshm Configuration for dshm storage, e.g. `{ prefix = "sessions" }`
+-- @field file Configuration for file storage, e.g. `{ path = "/tmp", suffix = "session" }`
+-- @field memcached Configuration for memcached storage, e.g. `{ prefix = "sessions" }`
+-- @field mysql Configuration for MySQL / MariaDB storage, e.g. `{ database = "sessions" }`
+-- @field postgres Configuration for Postgres storage, e.g. `{ database = "sessions" }`
+-- @field redis Configuration for Redis / Redis Sentinel / Redis Cluster storages, e.g. `{ prefix = "sessions" }`
+-- @field shm Configuration for shared memory storage, e.g. `{ zone = "sessions" }`
+-- @field ["resty.session.custom-storage"] sssadws
+-- @table configuration
+
+
+---
+-- Initialize the session library.
+--
+-- This function can be called on `init` or `init_worker` phases on OpenResty
+-- to set global default configuration to all session instances created by this
+-- library.
+--
+-- @function session.init
+-- @tparam[opt] table configuration  session @{configuration} overrides
+--
+-- @usage
+-- require "resty.session".init({
+--   audience = "my-application",
+-- })
 function session.init(configuration)
   if configuration then
     local ikm = configuration.ikm
@@ -1559,19 +1711,23 @@ function session.init(configuration)
       end
     end
 
-    DEFAULT_COOKIE_NAME      = configuration.cookie_name      or DEFAULT_COOKIE_NAME
-    DEFAULT_COOKIE_PATH      = configuration.cookie_path      or DEFAULT_COOKIE_PATH
-    DEFAULT_COOKIE_DOMAIN    = configuration.cookie_domain    or DEFAULT_COOKIE_DOMAIN
-    DEFAULT_COOKIE_SAME_SITE = configuration.cookie_same_site or DEFAULT_COOKIE_SAME_SITE
-    DEFAULT_COOKIE_PRIORITY  = configuration.cookie_priority  or DEFAULT_COOKIE_PRIORITY
-    DEFAULT_COOKIE_PREFIX    = configuration.cookie_prefix    or DEFAULT_COOKIE_PREFIX
-    DEFAULT_REMEMBER         = configuration.remember         or DEFAULT_REMEMBER
-    DEFAULT_STALE_TTL        = configuration.stale_ttl        or DEFAULT_STALE_TTL
-    DEFAULT_IDLING_TIMEOUT   = configuration.idling_timeout   or DEFAULT_IDLING_TIMEOUT
-    DEFAULT_ROLLING_TIMEOUT  = configuration.rolling_timeout  or DEFAULT_ROLLING_TIMEOUT
-    DEFAULT_ABSOLUTE_TIMEOUT = configuration.absolute_timeout or DEFAULT_ABSOLUTE_TIMEOUT
-    DEFAULT_REMEMBER_TIMEOUT = configuration.remember_timeout or DEFAULT_REMEMBER_TIMEOUT
-    DEFAULT_STORAGE          = configuration.storage          or DEFAULT_STORAGE
+    DEFAULT_COOKIE_NAME           = configuration.cookie_name           or DEFAULT_COOKIE_NAME
+    DEFAULT_COOKIE_PATH           = configuration.cookie_path           or DEFAULT_COOKIE_PATH
+    DEFAULT_COOKIE_DOMAIN         = configuration.cookie_domain         or DEFAULT_COOKIE_DOMAIN
+    DEFAULT_COOKIE_SAME_SITE      = configuration.cookie_same_site      or DEFAULT_COOKIE_SAME_SITE
+    DEFAULT_COOKIE_PRIORITY       = configuration.cookie_priority       or DEFAULT_COOKIE_PRIORITY
+    DEFAULT_COOKIE_PREFIX         = configuration.cookie_prefix         or DEFAULT_COOKIE_PREFIX
+    DEFAULT_REMEMBER              = configuration.remember              or DEFAULT_REMEMBER
+    DEFAULT_REMEMBER_COOKIE_NAME  = configuration.remember_cookie_name  or DEFAULT_REMEMBER_COOKIE_NAME
+    DEFAULT_AUDIENCE              = configuration.audience              or DEFAULT_AUDIENCE
+    DEFAULT_STALE_TTL             = configuration.stale_ttl             or DEFAULT_STALE_TTL
+    DEFAULT_IDLING_TIMEOUT        = configuration.idling_timeout        or DEFAULT_IDLING_TIMEOUT
+    DEFAULT_ROLLING_TIMEOUT       = configuration.rolling_timeout       or DEFAULT_ROLLING_TIMEOUT
+    DEFAULT_ABSOLUTE_TIMEOUT      = configuration.absolute_timeout      or DEFAULT_ABSOLUTE_TIMEOUT
+    DEFAULT_REMEMBER_TIMEOUT      = configuration.remember_timeout      or DEFAULT_REMEMBER_TIMEOUT
+    DEFAULT_TOUCH_THRESHOLD       = configuration.touch_threshold       or DEFAULT_TOUCH_THRESHOLD
+    DEFAULT_COMPRESSION_THRESHOLD = configuration.compression_threshold or DEFAULT_COMPRESSION_THRESHOLD
+    DEFAULT_STORAGE               = configuration.storage               or DEFAULT_STORAGE
 
     local cookie_http_only = configuration.cookie_http_only
     if cookie_http_only ~= nil then
@@ -1601,30 +1757,45 @@ function session.init(configuration)
   if type(DEFAULT_STORAGE) == "string" then
     DEFAULT_STORAGE = load_storage(DEFAULT_STORAGE, configuration)
   end
-
-  return true
 end
 
 
+---
+-- Create a new session.
+--
+-- This creates a new session instance.
+--
+-- @function session.new
+-- @tparam[opt]  table   configuration  session @{configuration} overrides
+-- @treturn      table                  session instance
+--
+-- @usage
+-- local session = require "resty.session".new()
+-- -- OR
+-- local session = require "resty.session".new({
+--   audience = "my-application",
+-- })
 function session.new(configuration)
-  local cookie_name          = configuration and configuration.cookie_name          or DEFAULT_COOKIE_NAME
-  local cookie_path          = configuration and configuration.cookie_path          or DEFAULT_COOKIE_PATH
-  local cookie_domain        = configuration and configuration.cookie_domain        or DEFAULT_COOKIE_DOMAIN
-  local cookie_same_site     = configuration and configuration.cookie_same_site     or DEFAULT_COOKIE_SAME_SITE
-  local cookie_priority      = configuration and configuration.cookie_priority      or DEFAULT_COOKIE_PRIORITY
-  local cookie_prefix        = configuration and configuration.cookie_prefix        or DEFAULT_COOKIE_PREFIX
-  local audience             = configuration and configuration.audience             or DEFAULT_AUDIENCE
-  local subject              = configuration and configuration.subject
-  local remember_cookie_name = configuration and configuration.remember_cookie_name or DEFAULT_REMEMBER_COOKIE_NAME
-  local remember             = configuration and configuration.remember             or DEFAULT_REMEMBER
-  local stale_ttl            = configuration and configuration.stale_ttl            or DEFAULT_STALE_TTL
-  local idling_timeout       = configuration and configuration.idling_timeout       or DEFAULT_IDLING_TIMEOUT
-  local rolling_timeout      = configuration and configuration.rolling_timeout      or DEFAULT_ROLLING_TIMEOUT
-  local absolute_timeout     = configuration and configuration.absolute_timeout     or DEFAULT_ABSOLUTE_TIMEOUT
-  local remember_timeout     = configuration and configuration.remember_timeout     or DEFAULT_REMEMBER_TIMEOUT
-  local storage              = configuration and configuration.storage              or DEFAULT_STORAGE
-  local ikm                  = configuration and configuration.ikm
-  local ikm_fallbacks        = configuration and configuration.ikm_fallbacks
+  local cookie_name           = configuration and configuration.cookie_name           or DEFAULT_COOKIE_NAME
+  local cookie_path           = configuration and configuration.cookie_path           or DEFAULT_COOKIE_PATH
+  local cookie_domain         = configuration and configuration.cookie_domain         or DEFAULT_COOKIE_DOMAIN
+  local cookie_same_site      = configuration and configuration.cookie_same_site      or DEFAULT_COOKIE_SAME_SITE
+  local cookie_priority       = configuration and configuration.cookie_priority       or DEFAULT_COOKIE_PRIORITY
+  local cookie_prefix         = configuration and configuration.cookie_prefix         or DEFAULT_COOKIE_PREFIX
+  local remember              = configuration and configuration.remember              or DEFAULT_REMEMBER
+  local remember_cookie_name  = configuration and configuration.remember_cookie_name  or DEFAULT_REMEMBER_COOKIE_NAME
+  local audience              = configuration and configuration.audience              or DEFAULT_AUDIENCE
+  local subject               = configuration and configuration.subject
+  local stale_ttl             = configuration and configuration.stale_ttl             or DEFAULT_STALE_TTL
+  local idling_timeout        = configuration and configuration.idling_timeout        or DEFAULT_IDLING_TIMEOUT
+  local rolling_timeout       = configuration and configuration.rolling_timeout       or DEFAULT_ROLLING_TIMEOUT
+  local absolute_timeout      = configuration and configuration.absolute_timeout      or DEFAULT_ABSOLUTE_TIMEOUT
+  local remember_timeout      = configuration and configuration.remember_timeout      or DEFAULT_REMEMBER_TIMEOUT
+  local touch_threshold       = configuration and configuration.touch_threshold       or DEFAULT_TOUCH_THRESHOLD
+  local compression_threshold = configuration and configuration.compression_threshold or DEFAULT_COMPRESSION_THRESHOLD
+  local storage               = configuration and configuration.storage               or DEFAULT_STORAGE
+  local ikm                   = configuration and configuration.ikm
+  local ikm_fallbacks         = configuration and configuration.ikm_fallbacks
 
   local cookie_http_only = configuration and configuration.cookie_http_only
   if cookie_http_only == nil then
@@ -1738,28 +1909,30 @@ function session.new(configuration)
   end
 
   local self = setmetatable({
-    stale_ttl            = stale_ttl,
-    idling_timeout       = idling_timeout,
-    rolling_timeout      = rolling_timeout,
-    absolute_timeout     = absolute_timeout,
-    remember_timeout     = remember_timeout,
-    cookie_name          = cookie_name,
-    cookie_flags         = cookie_flags,
-    remember_cookie_name = remember_cookie_name,
-    remember             = remember,
-    options              = options,
-    storage              = storage,
-    ikm                  = ikm,
-    ikm_fallbacks        = ikm_fallbacks,
-    state                = STATE_NEW,
-    audience             = audience,
-    meta                 = DEFAULT_META,
-    remember_meta        = DEFAULT_REMEMBER_META,
-    info                 = storage and info or nil,
-    data                 = {
-      [audience]         = {
-        subject          = subject,
-        data             = {},
+    stale_ttl             = stale_ttl,
+    idling_timeout        = idling_timeout,
+    rolling_timeout       = rolling_timeout,
+    absolute_timeout      = absolute_timeout,
+    remember_timeout      = remember_timeout,
+    touch_threshold       = touch_threshold,
+    compression_threshold = compression_threshold,
+    cookie_name           = cookie_name,
+    cookie_flags          = cookie_flags,
+    remember_cookie_name  = remember_cookie_name,
+    remember              = remember,
+    options               = options,
+    storage               = storage,
+    ikm                   = ikm,
+    ikm_fallbacks         = ikm_fallbacks,
+    state                 = STATE_NEW,
+    audience              = audience,
+    meta                  = DEFAULT_META,
+    remember_meta         = DEFAULT_REMEMBER_META,
+    info                  = storage and info or nil,
+    data                  = {
+      [audience]          = {
+        subject           = subject,
+        data              = {},
       },
     },
   }, metatable)
@@ -1772,51 +1945,143 @@ function session.new(configuration)
 end
 
 
+---
+-- Open a session.
+--
+-- This can be used to open a session, and it will either return an existing
+-- session or a new session.
+--
+-- @function session.open
+-- @tparam[opt]  table   configuration  session @{configuration} overrides
+-- @treturn      table                  session instance
+-- @treturn      string                 information why session could not be opened
+-- @treturn      boolean                `true`, if session existed, otherwise `false`
+--
+-- @usage
+-- local session = require "resty.session".open()
+-- -- OR
+-- local session, err, exists = require "resty.session".open({
+--   audience = "my-application",
+-- })
 function session.open(configuration)
   local self = session.new(configuration)
   local exists, err = self:open()
-  return self, err, exists
-end
-
-
-function session.start(configuration)
-  local self, err, exists = session.open(configuration)
-  if exists then
-    local refreshed, err = self:refresh()
-    return self, err, exists, refreshed
+  if not exists then
+    return self, err, false
   end
 
-  return self, err, exists
+  return self, err, true
 end
 
 
+---
+-- Start a session and refresh it as needed.
+--
+-- This can be used to start a session, and it will either return an existing
+-- session or a new session. In case there is an existing session, the
+-- session will be refreshed as well (as needed).
+--
+-- @function session.start
+-- @tparam[opt]  table   configuration  session @{configuration} overrides
+-- @treturn      table                  session instance
+-- @treturn      string                 information why session could not be logged out
+-- @treturn      boolean                `true`, if session existed, otherwise `false`
+-- @treturn      boolean                `true`, if session was refreshed, otherwise `false`
+--
+-- @usage
+-- local session = require "resty.session".start()
+-- -- OR
+-- local session, err, exists, refreshed = require "resty.session".start()
+--   audience = "my-application",
+-- })
+function session.start(configuration)
+  local self, err, exists = session.open(configuration)
+  if not exists then
+    return self, err, false, false
+  end
+
+  local refreshed, err = self:refresh()
+  if not refreshed then
+    return self, err, true, false
+  end
+
+  return self, nil, true, true
+end
+
+
+---
+-- Logout a session.
+--
+-- It logouts from a specific audience.
+--
+-- A single session cookie may be shared between multiple audiences
+-- (or applications), thus there is a need to be able to logout from
+-- just a single audience while keeping the session for the other
+-- audiences.
+--
+-- When there is only a single audience, then this can be considered
+-- equal to `session.destroy`.
+--
+-- When the last audience is logged out, the cookie will be destroyed
+-- as well and invalidated on a client.
+--
+-- @function session.logout
+-- @tparam[opt]  table    configuration  session @{configuration} overrides
+-- @treturn      boolean                 `true` session exists for an audience and was logged out successfully, otherwise `false`
+-- @treturn      string                  information why the session could not be logged out
+-- @treturn      boolean                 `true` if session existed, otherwise `false`
+-- @treturn      boolean                 `true` if session was logged out, otherwise `false`
+--
+-- @usage
+-- require "resty.session".logout()
+-- -- OR
+-- local ok, err, exists, logged_out = require "resty.session".logout({
+--   audience = "my-application",
+-- })
 function session.logout(configuration)
   local self, err, exists = session.open(configuration)
   if not exists then
-    return nil, err, exists
+    return nil, err, false, false
   end
 
   local ok, err = self:logout()
   if not ok then
-    return nil, err, exists
+    return nil, err, true, false
   end
 
-  return true, nil, exists
+  return true, nil, true, true
 end
 
-
+---
+-- Destroy a session.
+--
+-- It destroys the whole session and clears the cookies.
+--
+-- @function session.destroy
+-- @tparam[opt]  table    configuration  session @{configuration} overrides
+-- @treturn      boolean                 `true` session exists and was destroyed successfully, otherwise `nil`
+-- @treturn      string                  information why session could not be destroyed
+-- @treturn      boolean                 `true` if session existed, otherwise `false`
+-- @treturn      boolean                 `true` if session was destroyed, otherwise `false`
+--
+-- @usage
+-- require "resty.session".destroy()
+-- -- OR
+-- local ok, err, exists = require "resty.session".destroy({
+--   cookie_name = "auth",
+-- })
 function session.destroy(configuration)
   local self, err, exists = session.open(configuration)
   if not exists then
-    return nil, err, exists
+    return nil, err, false, false
   end
 
   local ok, err = self:destroy()
   if not ok then
-    return nil, err, exists
+    return nil, err, true, false
   end
 
-  return true, nil, exists
+  return true, nil, true, true
 end
 
 

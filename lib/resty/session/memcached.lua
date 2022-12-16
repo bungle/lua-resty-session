@@ -1,3 +1,8 @@
+---
+-- Memcached backend for session library
+-- @module resty.session.memcached
+
+
 local memcached = require "resty.memcached"
 local get_name = require "resty.session.utils".get_name
 

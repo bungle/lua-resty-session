@@ -1,3 +1,8 @@
+---
+-- Redis Sentinel backend for session library
+-- @module resty.session.redis-sentinel
+
+
 local redis = require "resty.redis.connector"
 local get_name = require "resty.session.utils".get_name
 

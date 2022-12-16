@@ -2,6 +2,40 @@
 
 **lua-resty-session** is a secure, and flexible session library for OpenResty.
 
+## API
+
+### Static Methods
+
+- session.init
+- session.new
+- session.open
+- session.start
+- session.logout
+- session.destroy
+
+### Instance Methods
+
+- session:open
+- session:restore
+- session:persist
+- session:set
+- session:get
+- session:set_subject
+- session:get_subject
+- session:set_audience
+- session:get_audience
+- session.info:set
+- session.info:get
+- session.info:save
+- session:save
+- session:touch
+- session:refresh
+- session:logout
+- session:destroy
+- session:close
+- session:hide
+
+
 ## License
 
 `lua-resty-session` uses two clause BSD license.

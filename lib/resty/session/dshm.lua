@@ -1,3 +1,8 @@
+---
+-- Distributed Shared Memory (DSHM) backend for session library
+-- @module resty.session.dshm
+
+
 local dshm = require "resty.dshm"
 local get_name = require "resty.session.utils".get_name
 
