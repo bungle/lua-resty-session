@@ -103,6 +103,7 @@ local DEFAULT_META = {}
 local DEFAULT_REMEMBER_META = false
 local DEFAULT_IKM
 local DEFAULT_IKM_FALLBACKS
+local DEFAULT_HASH_STORAGE_KEY = true
 local DEFAULT_TOUCH_THRESHOLD = 60 -- 1 minute
 local DEFAULT_COMPRESSION_THRESHOLD = 1024 -- 1 kB
 
@@ -152,6 +153,11 @@ local HIDE_BUFFER   = buffer.new(256)
 
 
 local DATA = table_new(2, 0)
+
+
+local function storage_key(sid)
+  return sid
+end
 
 
 local function sha256_storage_key(sid)
@@ -428,7 +434,7 @@ local function open(self, remember, meta_only)
   local audience = self.audience
   local initial_chunk, ciphertext, ciphertext_encoded, info_data do
     if storage then
-      local key, err = sha256_storage_key(sid)
+      local key, err = self.storage_key(sid)
       if not key then
         return nil, err
       end
@@ -765,7 +771,7 @@ local function save(self, state, remember)
   end
 
   if storage then
-    local key, err = sha256_storage_key(sid)
+    local key, err = self.storage_key(sid)
     if not key then
       return nil, err
     end
@@ -808,7 +814,7 @@ local function save(self, state, remember)
     local old_sid = meta.sid
     if old_sid then
       if remember then
-        key, err = sha256_storage_key(old_sid)
+        key, err = self.storage_key(old_sid)
         if key then
           local ok, err = storage:delete(cookie_name, key)
           if not ok then
@@ -820,7 +826,7 @@ local function save(self, state, remember)
         end
 
       elseif storage.expire then
-        key, err = sha256_storage_key(old_sid)
+        key, err = self.storage_key(old_sid)
         if key then
           local stale_ttl = self.stale_ttl
           if storage.ttl then
@@ -913,7 +919,7 @@ local function save_info(self, data, remember)
     meta = self.meta
   end
 
-  local key, err = sha256_storage_key(meta.sid)
+  local key, err = self.storage_key(meta.sid)
   if not key then
     return nil, err
   end
@@ -981,7 +987,7 @@ local function destroy(self, remember)
   if storage then
     local sid = meta.sid
     if sid then
-      local key, err = sha256_storage_key(sid)
+      local key, err = self.storage_key(sid)
       if not key then
         return nil, err
       end
@@ -1747,7 +1753,6 @@ function session.init(configuration)
     DEFAULT_COOKIE_SAME_SITE      = configuration.cookie_same_site      or DEFAULT_COOKIE_SAME_SITE
     DEFAULT_COOKIE_PRIORITY       = configuration.cookie_priority       or DEFAULT_COOKIE_PRIORITY
     DEFAULT_COOKIE_PREFIX         = configuration.cookie_prefix         or DEFAULT_COOKIE_PREFIX
-    DEFAULT_REMEMBER              = configuration.remember              or DEFAULT_REMEMBER
     DEFAULT_REMEMBER_COOKIE_NAME  = configuration.remember_cookie_name  or DEFAULT_REMEMBER_COOKIE_NAME
     DEFAULT_AUDIENCE              = configuration.audience              or DEFAULT_AUDIENCE
     DEFAULT_STALE_TTL             = configuration.stale_ttl             or DEFAULT_STALE_TTL
@@ -1777,6 +1782,16 @@ function session.init(configuration)
     local cookie_secure = configuration.cookie_secure
     if cookie_secure ~= nil then
       DEFAULT_COOKIE_SECURE = cookie_secure
+    end
+
+    local remember = configuration.remember
+    if remember ~= nil then
+      DEFAULT_REMEMBER = remember
+    end
+
+    local hash_storage_key = configuration.hash_storage_key
+    if hash_storage_key ~= nil then
+      DEFAULT_HASH_STORAGE_KEY = hash_storage_key
     end
   end
 
@@ -1815,7 +1830,6 @@ function session.new(configuration)
   local cookie_same_site      = configuration and configuration.cookie_same_site      or DEFAULT_COOKIE_SAME_SITE
   local cookie_priority       = configuration and configuration.cookie_priority       or DEFAULT_COOKIE_PRIORITY
   local cookie_prefix         = configuration and configuration.cookie_prefix         or DEFAULT_COOKIE_PREFIX
-  local remember              = configuration and configuration.remember              or DEFAULT_REMEMBER
   local remember_cookie_name  = configuration and configuration.remember_cookie_name  or DEFAULT_REMEMBER_COOKIE_NAME
   local audience              = configuration and configuration.audience              or DEFAULT_AUDIENCE
   local subject               = configuration and configuration.subject
@@ -1848,6 +1862,16 @@ function session.new(configuration)
   local cookie_partitioned = configuration and configuration.cookie_partitioned
   if cookie_partitioned == nil then
     cookie_partitioned = DEFAULT_COOKIE_PARTITIONED
+  end
+
+  local remember = configuration and configuration.remember
+  if remember == nil then
+    remember = DEFAULT_REMEMBER
+  end
+
+  local hash_storage_key = configuration and configuration.hash_storage_key
+  if hash_storage_key == nil then
+    hash_storage_key = DEFAULT_HASH_STORAGE_KEY
   end
 
   if cookie_prefix == "__Host-" then
@@ -1949,6 +1973,7 @@ function session.new(configuration)
     remember_timeout      = remember_timeout,
     touch_threshold       = touch_threshold,
     compression_threshold = compression_threshold,
+    storage_key           = hash_storage_key and sha256_storage_key or storage_key,
     cookie_name           = cookie_name,
     cookie_flags          = cookie_flags,
     remember_cookie_name  = remember_cookie_name,
