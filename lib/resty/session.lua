@@ -1,6 +1,9 @@
 ---
+-- Session library.
+--
 -- Session library provides HTTP session management capabilities for OpenResty based
 -- applications, libraries and proxies.
+--
 -- @module resty.session
 
 
@@ -1135,9 +1138,10 @@ local function get_remember(self)
 end
 
 
+--- Session
+-- @section instance
 
---- Session Information Store
--- @section info
+
 local info_mt = {}
 
 
@@ -1145,14 +1149,11 @@ info_mt.__index = info_mt
 
 
 ---
--- Open a session.
+-- Set a value in session information store.
 --
--- This can be used to open a session. It will either return an existing
--- session or a new session.
---
--- @function session:open
--- @treturn true|nil ok
--- @treturn string   error message
+-- @function instance.info:set
+-- @tparam string key   key
+-- @tparam string value value
 function info_mt:set(key, value)
   local session = self.session
 
@@ -1177,11 +1178,15 @@ function info_mt:set(key, value)
       },
     }
   end
-
-  return true
 end
 
 
+---
+-- Get a value from session information store.
+--
+-- @function instance.info:get
+-- @tparam string key key
+-- @return value
 function info_mt:get(key)
   local session = self.session
 
@@ -1201,6 +1206,14 @@ function info_mt:get(key)
 end
 
 
+---
+-- Save information.
+--
+-- Only updates backend storage. Does not send a new cookie.
+--
+-- @function instance.info:save
+-- @treturn true|nil ok
+-- @treturn string   error message
 function info_mt:save()
   local session = self.session
   assert(session.state == STATE_OPEN, "unable to save session info on nonexistent or closed session")
@@ -1252,8 +1265,6 @@ function info.new(session)
 end
 
 
---- Session Instance
--- @section session
 local metatable = {}
 
 
@@ -1265,12 +1276,24 @@ function metatable.__newindex()
 end
 
 
+---
+-- Set a value in session.
+--
+-- @function instance:set
+-- @tparam string key   key
+-- @tparam string value value
 function metatable:set(key, value)
   assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
   self.data[self.audience].data[key] = value
 end
 
 
+---
+-- Get a value from session.
+--
+-- @function instance:get
+-- @tparam string key key
+-- @return value
 function metatable:get(key)
   assert(self.state ~= STATE_CLOSED, "unable to get session data on closed session")
   return self.data[self.audience].data[key]
@@ -1328,7 +1351,7 @@ end
 -- This can be used to open a session. It will either return an existing
 -- session or a new session.
 --
--- @function session:open
+-- @function instance:open
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:open()
@@ -1370,7 +1393,7 @@ end
 -- When `remember`  is enabled, it will also issue a new persistent cookie and
 -- possibly save the data in backend store.
 --
--- @function session:save
+-- @function instance:save
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:save()
@@ -1403,7 +1426,7 @@ end
 -- It only sends the client cookie and never calls any backend session store
 -- APIs. Normally the `session:refresh` is used to call this indirectly.
 --
--- @function session:touch
+-- @function instance:touch
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:touch()
@@ -1453,7 +1476,7 @@ end
 -- depending on whether the rolling timeout is getting closer. The touch has
 -- a threshold, by default one minute, so it may be skipped in some cases.
 --
--- @function session:refresh
+-- @function instance:refresh
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:refresh()
@@ -1501,7 +1524,7 @@ end
 -- Logout either destroys the session or just clears the data for the current audience,
 -- and saves it (logging out from the current audience).
 --
--- @function session:logout
+-- @function instance:logout
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:logout()
@@ -1546,7 +1569,7 @@ end
 --
 -- Destroy the session and clear the cookies.
 --
--- @function session:destroy
+-- @function instance:destroy
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:destroy()
@@ -1580,7 +1603,7 @@ end
 --
 -- Just closes the session instance so that it cannot be used anymore.
 --
--- @function session:close
+-- @function instance:close
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:close()
@@ -1597,7 +1620,7 @@ end
 -- a proxy server and don't want the session cookies to be forwarded
 -- to the upstream service.
 --
--- @function session:hide
+-- @function instance:hide
 -- @treturn true|nil ok
 function metatable:hide()
   local ok = hide(self)
@@ -1617,12 +1640,15 @@ function metatable:hide()
 end
 
 
---- Session Module
--- @section session
+
 local session = {
   _VERSION = "4.0.0",
   metatable = metatable,
 }
+
+
+--- Configuration
+-- @section configuration
 
 
 ---
@@ -1664,6 +1690,10 @@ local session = {
 -- @table configuration
 
 
+--- Initialization
+-- @section initialization
+
+
 ---
 -- Initialize the session library.
 --
@@ -1671,7 +1701,7 @@ local session = {
 -- to set global default configuration to all session instances created by this
 -- library.
 --
--- @function session.init
+-- @function module.init
 -- @tparam[opt] table configuration  session @{configuration} overrides
 --
 -- @usage
@@ -1760,12 +1790,15 @@ function session.init(configuration)
 end
 
 
+--- Constructors
+-- @section constructors
+
 ---
 -- Create a new session.
 --
 -- This creates a new session instance.
 --
--- @function session.new
+-- @function module.new
 -- @tparam[opt]  table   configuration  session @{configuration} overrides
 -- @treturn      table                  session instance
 --
@@ -1945,13 +1978,17 @@ function session.new(configuration)
 end
 
 
+--- Helpers
+-- @section helpers
+
+
 ---
 -- Open a session.
 --
 -- This can be used to open a session, and it will either return an existing
 -- session or a new session.
 --
--- @function session.open
+-- @function module.open
 -- @tparam[opt]  table   configuration  session @{configuration} overrides
 -- @treturn      table                  session instance
 -- @treturn      string                 information why session could not be opened
@@ -1981,7 +2018,7 @@ end
 -- session or a new session. In case there is an existing session, the
 -- session will be refreshed as well (as needed).
 --
--- @function session.start
+-- @function module.start
 -- @tparam[opt]  table   configuration  session @{configuration} overrides
 -- @treturn      table                  session instance
 -- @treturn      string                 information why session could not be logged out
@@ -2025,7 +2062,7 @@ end
 -- When the last audience is logged out, the cookie will be destroyed
 -- as well and invalidated on a client.
 --
--- @function session.logout
+-- @function module.logout
 -- @tparam[opt]  table    configuration  session @{configuration} overrides
 -- @treturn      boolean                 `true` session exists for an audience and was logged out successfully, otherwise `false`
 -- @treturn      string                  information why the session could not be logged out
@@ -2057,7 +2094,7 @@ end
 --
 -- It destroys the whole session and clears the cookies.
 --
--- @function session.destroy
+-- @function module.destroy
 -- @tparam[opt]  table    configuration  session @{configuration} overrides
 -- @treturn      boolean                 `true` session exists and was destroyed successfully, otherwise `nil`
 -- @treturn      string                  information why session could not be destroyed
