@@ -1682,6 +1682,7 @@ local session = {
 -- @field rolling_timeout Rolling timeout specifies how long the session can be used until it needs to be renewed, e.g. `3600` (defaults to `3600`, or an hour) (in seconds)
 -- @field absolute_timeout Absolute timeout limits how long the session can be renewed, until re-authentication is required, e.g. `86400` (defaults to `86400`, or a day) (in seconds)
 -- @field remember_timeout Remember timeout specifies how long the persistent session is considered valid, e.g. `604800` (defaults to `604800`, or a week) (in seconds)
+-- @field hash_storage_key Whether to hash or not the storage key. When hashed, the encryption key nonce can only be found on a cookie which makes it impossible to decrypt data stored on server (defaults to `true`).
 -- @field touch_threshold Touch threshold controls how frequently or infrequently the `session:refresh` touches the cookie, e.g. `60` (defaults to `60`, or a minute) (in seconds)
 -- @field compression_threshold Compression threshold controls when the data is deflated, e.g. `1024` (defaults to `1024`, or a kilobyte) (in bytes)
 -- @field storage Storage is responsible of storing session data, use `nil` (data is stored in cookie), `dshm`, `file`, `memcached`, `mysql`, `postgres`, `redis`, `redis-cluster`, `redis-sentinel`, or `shm`, or give a name of custom module (`"custom.session.storage"`), or a `table` that implements session storage interface (defaults to `nil`)
