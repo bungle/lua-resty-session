@@ -1,0 +1,7 @@
+return {
+  default = {
+    lua     = "resty --shdict 'sessions 1m'",
+    verbose = true,
+    output  = "gtest",
+  }
+}
