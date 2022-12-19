@@ -64,7 +64,7 @@ local NOTICE = ngx.NOTICE
 local WARN   = ngx.WARN
 
 
--- Type (1B) || Options (2B) || Session ID (32B) || Creation Time (8B) || Rolling Offset (4B) || Data Size (4B) || Tag (16B) || Idling Offset (2B) || Mac (8B) || [ Data (*B) ]
+-- Type (1B) || Options (2B) || Session ID (32B) || Creation Time (8B) || Rolling Offset (4B) || Data Size (4B) || Tag (16B) || Idling Offset (2B) || Mac (16B) || [ Data (*B) ]
 
 
 local COOKIE_TYPE_SIZE    = 1
