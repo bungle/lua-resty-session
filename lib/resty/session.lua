@@ -1258,7 +1258,7 @@ function info_mt:save()
     return nil, err
   end
 
-  if session.remember then
+  if get_remember(session) then
     if not session.remember_meta then
       local remembered = open(self, true, true)
       if not remembered then
