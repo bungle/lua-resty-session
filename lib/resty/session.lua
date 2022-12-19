@@ -1719,6 +1719,7 @@ function session.init(configuration)
   if configuration then
     local ikm = configuration.ikm
     if ikm then
+      assert(#ikm == 32, "ikm field has invalid size, must be 32 bytes")
       DEFAULT_IKM = ikm
 
     else
@@ -1730,6 +1731,9 @@ function session.init(configuration)
 
     local ikm_fallbacks = configuration.ikm_fallbacks
     if ikm_fallbacks then
+      for _, i in ipairs(ikm_fallbacks) do
+        assert(#i == 32, "ikm_fallbacks field has invalid size, each ikm must be 32 bytes")
+      end
       DEFAULT_IKM_FALLBACKS = ikm_fallbacks
 
     else
@@ -1940,6 +1944,8 @@ function session.new(configuration)
     end
   end
 
+  assert(#ikm == 32, "ikm field has invalid size, must be 32 bytes")
+
   if not ikm_fallbacks then
     local secret_fallbacks = configuration and configuration.secret_fallbacks
     if secret_fallbacks then
@@ -1953,6 +1959,12 @@ function session.new(configuration)
 
     else
       ikm_fallbacks = ikm_fallbacks or DEFAULT_IKM_FALLBACKS
+    end
+  end
+
+  if ikm_fallbacks then
+    for _, i in ipairs(ikm_fallbacks) do
+      assert(#i == 32, "ikm_fallbacks field has invalid size, each ikm must be 32 bytes")
     end
   end
 
