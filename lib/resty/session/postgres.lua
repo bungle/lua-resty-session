@@ -11,6 +11,13 @@ CREATE TABLE IF NOT EXISTS sessions (
   ttl  TIMESTAMP WITH TIME ZONE
 );
 CREATE INDEX ON sessions (ttl);
+
+CREATE TABLE IF NOT EXISTS sessions_meta (
+  sid CHAR(43) REFERENCES sessions (sid) ON DELETE CASCADE ON UPDATE CASCADE,
+  aud TEXT,
+  sub TEXT,
+  PRIMARY KEY (sid, aud, sub)
+);
 ]]
 
 
