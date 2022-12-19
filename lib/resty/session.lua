@@ -1020,7 +1020,7 @@ local function destroy(self, remember)
 end
 
 
-local function hide(remember)
+local function hide(self, remember)
   assert(self.state == STATE_OPEN, "unable to hide nonexistent session")
 
   local cookies = var.http_cookie
