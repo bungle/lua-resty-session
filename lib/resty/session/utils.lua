@@ -333,10 +333,11 @@ local derive_pbkdf2_hmac_sha256  do
 
   local PBKDF2_SHA256_OPTS
 
-  local function derive_pbkdf2_hmac_sha256_real(ikm, nonce, usage, size)
+  local function derive_pbkdf2_hmac_sha256_real(ikm, nonce, usage, size, iterations)
     PBKDF2_SHA256_OPTS.pass = ikm
     PBKDF2_SHA256_OPTS.salt = usage .. ":" .. nonce
     PBKDF2_SHA256_OPTS.outlen = size
+    PBKDF2_SHA256_OPTS.pbkdf2_iter = iterations
     local key, err = kdf_derive(PBKDF2_SHA256_OPTS)
     if not key then
       return nil, err
@@ -345,7 +346,7 @@ local derive_pbkdf2_hmac_sha256  do
     return key
   end
 
-  derive_pbkdf2_hmac_sha256 = function(ikm, nonce, usage, size)
+  derive_pbkdf2_hmac_sha256 = function(ikm, nonce, usage, size, iterations)
     if not kdf_derive then
       local kdf = require "resty.openssl.kdf"
       PBKDF2_SHA256_OPTS = {
@@ -354,21 +355,28 @@ local derive_pbkdf2_hmac_sha256  do
         md = "sha256",
         pass = "",
         salt = "",
-        -- https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html
-        pbkdf2_iter = 310000,
+
+        pbkdf2_iter = 10000,
       }
       kdf_derive = kdf.derive
     end
     derive_pbkdf2_hmac_sha256 = derive_pbkdf2_hmac_sha256_real
-    return derive_pbkdf2_hmac_sha256(ikm, nonce, usage, size)
+    return derive_pbkdf2_hmac_sha256(ikm, nonce, usage, size, iterations)
   end
 end
 
 
-local function derive_aes_gcm_256_key_and_iv(ikm, nonce, slow)
+local function derive_aes_gcm_256_key_and_iv(ikm, nonce, safety)
   local bytes, err
-  if slow then
-    bytes, err = derive_pbkdf2_hmac_sha256(ikm, nonce, "encryption", 44)
+  if safety and safety ~= "None" then
+    if safety == "High" then
+      bytes, err = derive_pbkdf2_hmac_sha256(ikm, nonce, "encryption", 44, 100000)
+    elseif safety == "Low" then
+      bytes, err = derive_pbkdf2_hmac_sha256(ikm, nonce, "encryption", 44, 1000)
+    else
+      bytes, err = derive_pbkdf2_hmac_sha256(ikm, nonce, "encryption", 44, 10000)
+    end
+
   else
     bytes, err = derive_hkdf_sha256(ikm, nonce, "encryption", 44)
   end

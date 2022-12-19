@@ -100,7 +100,6 @@ local OPTION_DEFLATE     = 0x0010
 
 local DEFAULT_AUDIENCE = "default"
 local DEFAULT_META = {}
-local DEFAULT_REMEMBER_META = false
 local DEFAULT_IKM
 local DEFAULT_IKM_FALLBACKS
 local DEFAULT_HASH_STORAGE_KEY = true
@@ -121,6 +120,8 @@ local DEFAULT_COOKIE_SECURE
 
 
 local DEFAULT_REMEMBER_COOKIE_NAME = "remember"
+local DEFAULT_REMEMBER_SAFETY = "Medium"
+local DEFAULT_REMEMBER_META = false
 local DEFAULT_REMEMBER = false
 
 
@@ -542,7 +543,13 @@ local function open(self, remember, meta_only)
     return true
   end
 
-  local key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, remember)
+  local key, err, iv
+  if remember then
+    key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
+  else
+    key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
+  end
+
   if not key then
     return nil, errmsg(err, "unable to derive session decryption key")
   end
@@ -673,7 +680,13 @@ local function save(self, state, remember)
   HEADER_BUFFER:put(COOKIE_TYPE, packed_options, sid, packed_created_at, packed_rolling_offset, packed_data_size)
 
   local ikm = self.ikm
-  local key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, remember)
+  local key, iv
+  if remember then
+    key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
+  else
+    key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
+  end
+
   if not key then
     return nil, errmsg(err, "unable to derive session encryption key")
   end
@@ -1674,6 +1687,7 @@ local session = {
 -- @field cookie_same_party Mark cookie with same party flag, use `nil`, `true`, or `false` (default: `nil`)
 -- @field cookie_partitioned Mark cookie with partitioned flag, use `nil`, `true`, or `false` (default: `nil`)
 -- @field remember Enable or disable persistent sessions, use `nil`, `true`, or `false` (defaults to `false`)
+-- @field remember_safety Remember cookie key derivation complexity, use `nil`, `"Low"` (fast), `"Medium"`, or `"High"` (slow) (defaults to `"Medium"`)
 -- @field remember_cookie_name Persistent session cookie name, e.g. `"remember"` (defaults to `"remember"`)
 -- @field audience Session audience, e.g. `"my-application"` (defaults to `"default"`)
 -- @field subject Session subject, e.g. `"john.doe@example.com"` (defaults to `nil`)
@@ -1682,7 +1696,7 @@ local session = {
 -- @field rolling_timeout Rolling timeout specifies how long the session can be used until it needs to be renewed, e.g. `3600` (defaults to `3600`, or an hour) (in seconds)
 -- @field absolute_timeout Absolute timeout limits how long the session can be renewed, until re-authentication is required, e.g. `86400` (defaults to `86400`, or a day) (in seconds)
 -- @field remember_timeout Remember timeout specifies how long the persistent session is considered valid, e.g. `604800` (defaults to `604800`, or a week) (in seconds)
--- @field hash_storage_key Whether to hash or not the storage key. When hashed, the encryption key nonce can only be found on a cookie which makes it impossible to decrypt data stored on server (defaults to `true`).
+-- @field hash_storage_key Whether to hash or not the storage key. With storage key hashed it is impossible to decrypt data on server side without having a cookie too (defaults to `true`).
 -- @field touch_threshold Touch threshold controls how frequently or infrequently the `session:refresh` touches the cookie, e.g. `60` (defaults to `60`, or a minute) (in seconds)
 -- @field compression_threshold Compression threshold controls when the data is deflated, e.g. `1024` (defaults to `1024`, or a kilobyte) (in bytes)
 -- @field storage Storage is responsible of storing session data, use `nil` (data is stored in cookie), `dshm`, `file`, `memcached`, `mysql`, `postgres`, `redis`, `redis-cluster`, `redis-sentinel`, or `shm`, or give a name of custom module (`"custom.session.storage"`), or a `table` that implements session storage interface (defaults to `nil`)
@@ -1754,6 +1768,7 @@ function session.init(configuration)
     DEFAULT_COOKIE_SAME_SITE      = configuration.cookie_same_site      or DEFAULT_COOKIE_SAME_SITE
     DEFAULT_COOKIE_PRIORITY       = configuration.cookie_priority       or DEFAULT_COOKIE_PRIORITY
     DEFAULT_COOKIE_PREFIX         = configuration.cookie_prefix         or DEFAULT_COOKIE_PREFIX
+    DEFAULT_REMEMBER_SAFETY       = configuration.remember_safety       or DEFAULT_REMEMBER_SAFETY
     DEFAULT_REMEMBER_COOKIE_NAME  = configuration.remember_cookie_name  or DEFAULT_REMEMBER_COOKIE_NAME
     DEFAULT_AUDIENCE              = configuration.audience              or DEFAULT_AUDIENCE
     DEFAULT_STALE_TTL             = configuration.stale_ttl             or DEFAULT_STALE_TTL
@@ -1831,6 +1846,7 @@ function session.new(configuration)
   local cookie_same_site      = configuration and configuration.cookie_same_site      or DEFAULT_COOKIE_SAME_SITE
   local cookie_priority       = configuration and configuration.cookie_priority       or DEFAULT_COOKIE_PRIORITY
   local cookie_prefix         = configuration and configuration.cookie_prefix         or DEFAULT_COOKIE_PREFIX
+  local remember_safety       = configuration and configuration.remember_safety       or DEFAULT_REMEMBER_SAFETY
   local remember_cookie_name  = configuration and configuration.remember_cookie_name  or DEFAULT_REMEMBER_COOKIE_NAME
   local audience              = configuration and configuration.audience              or DEFAULT_AUDIENCE
   local subject               = configuration and configuration.subject
@@ -1978,6 +1994,7 @@ function session.new(configuration)
     cookie_name           = cookie_name,
     cookie_flags          = cookie_flags,
     remember_cookie_name  = remember_cookie_name,
+    remember_safety       = remember_safety,
     remember              = remember,
     options               = options,
     storage               = storage,
