@@ -1373,25 +1373,60 @@ end
 --
 -- @function instance:get
 -- @tparam string key key
--- @return value
+-- @return value value
+--
+-- @usage
+-- local session, err, exists = require "resty.session".open()
+-- if exists then
+--   local access_token = session:get("access-token")
+--   ngx.req.set_header("Authorization", "Bearer " .. access_token)
+-- end
 function metatable:get(key)
   assert(self.state ~= STATE_CLOSED, "unable to get session data on closed session")
   return self.data[self.data_index][1][key]
 end
 
 
+---
+-- Set session subject.
+--
+-- @function instance:set_subject
+-- @tparam string subject subject
+--
+-- @usage
+-- local session = require "resty.session".new()
+-- session.set_subject("john@doe.com")
 function metatable:set_subject(subject)
   assert(self.state ~= STATE_CLOSED, "unable to set subject on closed session")
   self.data[self.data_index][3] = subject
 end
 
-
+---
+-- Get session subject.
+--
+-- @function instance:get_subject
+-- @treturn string subject
+--
+-- @usage
+-- local session, err, exists = require "resty.session".open()
+-- if exists then
+--   local subject = session.get_subject()
+-- end
 function metatable:get_subject()
   assert(self.state ~= STATE_CLOSED, "unable to get subject on closed session")
   return self.data[self.data_index][3]
 end
 
 
+---
+-- Set session audience.
+--
+-- @function instance:set_audience
+-- @tparam string audience audience
+--
+-- @usage
+-- local session = require "resty.session".new()
+-- session.set_audience("my-service")
 function metatable:set_audience(audience)
   assert(self.state ~= STATE_CLOSED, "unable to set audience on closed session")
 
@@ -1436,12 +1471,25 @@ function metatable:set_audience(audience)
 end
 
 
+---
+-- Get session audience.
+--
+-- @function instance:get_audience
+-- @treturn string audience
 function metatable:get_audience()
   assert(self.state ~= STATE_CLOSED, "unable to get audience on closed session")
   return self.data[self.data_index][2]
 end
 
 
+---
+-- Set persistent sessions on/off.
+--
+-- In many login forms user is given an option for "remember me".
+-- You can call this function based on what user selected.
+--
+-- @function instance:set_remember
+-- @tparam boolean value `true` to enable persistent session, `false` to disable them
 function metatable:set_remember(value)
   assert(self.state ~= STATE_CLOSED, "unable to set remember on closed session")
   assert(type(value) == "boolean", "invalid remember value")
@@ -1455,6 +1503,11 @@ function metatable:set_remember(value)
 end
 
 
+---
+-- Get state of persistent sessions.
+--
+-- @function instance:get_remember
+-- @treturn boolean `true` when persistent sessions are enabled, otherwise `false`
 function metatable:get_remember()
   assert(self.state ~= STATE_CLOSED, "unable to get remember on closed session")
   return get_remember(self)
@@ -1829,6 +1882,11 @@ local session = {
 -- @usage
 -- require "resty.session".init({
 --   audience = "my-application",
+--   storage = "redis",
+--   redis = {
+--     username = "session",
+--     password = "storage",
+--   },
 -- })
 function session.init(configuration)
   if configuration then
