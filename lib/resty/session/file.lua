@@ -1,5 +1,5 @@
 ---
--- File storage backend for session library
+-- File storage backend for session library.
 -- @module resty.session.file
 
 
@@ -55,8 +55,9 @@ local function get_path(self, name, key)
 end
 
 
---- File Storage Instance
--- @section file
+---
+-- Storage
+-- @section instance
 
 
 local metatable = {}
@@ -73,10 +74,10 @@ end
 ---
 -- Store session data.
 --
--- @function file:set
--- @tparam  string   name  ...
--- @tparam  string   key   ...
--- @tparam  string   value ...
+-- @function instance:set
+-- @tparam  string   name  cookie name
+-- @tparam  string   key   session key
+-- @tparam  string   value session value
 -- @treturn true|nil       ok
 -- @treturn string         error message
 function metatable:set(name, key, value)
@@ -86,9 +87,9 @@ end
 ---
 -- Retrieve session data.
 --
--- @function file:get
--- @tparam  string     name ...
--- @tparam  string     key  ...
+-- @function instance:get
+-- @tparam  string     name cookie name
+-- @tparam  string     key  session key
 -- @treturn string|nil      session data
 -- @treturn string          error message
 function metatable:get(name, key)
@@ -99,9 +100,9 @@ end
 ---
 -- Delete session data.
 --
--- @function file:delete
--- @tparam  string      name ...
--- @tparam  string      key  ...
+-- @function instance:delete
+-- @tparam  string      name cookie name
+-- @tparam  string      key  session key
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
 function metatable:delete(name, key)
@@ -109,10 +110,12 @@ function metatable:delete(name, key)
 end
 
 
---- File Storage Module
--- @section file
-
 local storage = {}
+
+
+---
+-- Configuration
+-- @section configuration
 
 
 ---
@@ -125,12 +128,17 @@ local storage = {}
 
 
 ---
+-- Constructors
+-- @section constructors
+
+
+---
 -- Create a file storage.
 --
 -- This creates a new file storage instance.
 --
--- @function file.new
--- @tparam[opt]  table   configuration  session @{configuration} overrides
+-- @function module.new
+-- @tparam[opt]  table   configuration  file storage @{configuration}
 -- @treturn      table                  file storage instance
 function storage.new(configuration)
   local prefix = configuration and configuration.prefix

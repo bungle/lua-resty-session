@@ -1,30 +1,44 @@
 ---
--- Postgres backend for session library
+-- Postgres backend for session library.
+--
 -- @module resty.session.postgres
 
 
---[[
--- create a table for session data:
+---
+-- Database
+-- @section database
 
-CREATE TABLE IF NOT EXISTS sessions (
-  sid  CHAR(43) PRIMARY KEY,
-  name TEXT,
-  data TEXT,
-  ttl  TIMESTAMP WITH TIME ZONE
-);
-CREATE INDEX ON sessions (ttl);
 
--- when collecting information about subjects, also create:
+---
+-- Sessions table.
+--
+-- Database table that stores session data.
+--
+-- @usage
+-- CREATE TABLE IF NOT EXISTS sessions (
+--   sid  CHAR(43) PRIMARY KEY,
+--   name TEXT,
+--   data TEXT,
+--   ttl  TIMESTAMP WITH TIME ZONE
+-- );
+-- CREATE INDEX ON sessions (ttl);
+-- @table sessions
 
-CREATE TABLE IF NOT EXISTS sessions_meta (
-  aud TEXT,
-  sub TEXT,
-  sid CHAR(43) REFERENCES sessions (sid) ON DELETE CASCADE ON UPDATE CASCADE,
-  PRIMARY KEY (aud, sub, sid)
-);
-CREATE INDEX ON sessions_meta (ttl);
-]]
 
+---
+-- Sessions metadata table.
+--
+-- This is only needed if you want to store session metadata.
+--
+-- @usage
+-- CREATE TABLE IF NOT EXISTS sessions_meta (
+--   aud TEXT,
+--   sub TEXT,
+--   sid CHAR(43) REFERENCES sessions (sid) ON DELETE CASCADE ON UPDATE CASCADE,
+--   PRIMARY KEY (aud, sub, sid)
+-- );
+-- CREATE INDEX ON sessions_meta (ttl);
+-- @table metadata
 
 local buffer = require "string.buffer"
 local pgmoon = require "pgmoon"
@@ -83,6 +97,11 @@ local function exec(self, query)
 end
 
 
+---
+-- Storage
+-- @section instance
+
+
 local metatable = {}
 
 
@@ -94,6 +113,21 @@ function metatable.__newindex()
 end
 
 
+---
+-- Store session data.
+--
+-- @function instance:set
+-- @tparam  string   name  cookie name
+-- @tparam  string   key   session key
+-- @tparam  string   value session value
+-- @tparam  number   ttl   session ttl
+-- @tparam  number   current_time  current time
+-- @tparam  string   old_key  old session id
+-- @tparam  string   stale_ttl  stale ttl
+-- @tparam  table    metadata  table of metadata
+-- @tparam  table    remember  whether storing persistent session or not
+-- @treturn true|nil       ok
+-- @treturn string         error message
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
   local table = self.table
   local exp = ttl + current_time
@@ -134,7 +168,14 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
   return exec(self, SQL:tostring())
 end
 
-
+---
+-- Retrieve session data.
+--
+-- @function instance:get
+-- @tparam  string     name cookie name
+-- @tparam  string     key  session key
+-- @treturn string|nil      session data
+-- @treturn string          error message
 function metatable:get(_, key, current_time)
   local res, err = exec(self, fmt(GET, self.table, key, current_time))
   if not res then
@@ -152,6 +193,14 @@ function metatable:get(_, key, current_time)
 end
 
 
+---
+-- Delete session data.
+--
+-- @function instance:delete
+-- @tparam  string      name cookie name
+-- @tparam  string      key  session key
+-- @treturn boolean|nil      session data
+-- @treturn string           error message
 function metatable:delete(_, key)
   return exec(self, fmt(DELETE, self.table, key))
 end
@@ -160,6 +209,46 @@ end
 local storage = {}
 
 
+---
+-- Configuration
+-- @section configuration
+
+
+---
+-- Postgres storage backend configuration
+-- @field host ...
+-- @field port ...
+-- @field application ...
+-- @field username ...
+-- @field password ...
+-- @field table_name ...
+-- @field table_name_meta ...
+-- @field connect_timeout ...
+-- @field send_timeout ...
+-- @field read_timeout ...
+-- @field keepalive_timeout ...
+-- @field pool ...
+-- @field pool_size ...
+-- @field backlog ...
+-- @field ssl ...
+-- @field ssl_verify ...
+-- @field ssl_required ...
+-- @table configuration
+
+
+---
+-- Constructors
+-- @section constructors
+
+
+---
+-- Create a Postgres storage.
+--
+-- This creates a new Postgres storage instance.
+--
+-- @function module.new
+-- @tparam[opt]  table   configuration  postgres storage @{configuration}
+-- @treturn      table                  postgres storage instance
 function storage.new(configuration)
   local host              = configuration and configuration.host or DEFAULT_HOST
   local port              = configuration and configuration.port or DEFAULT_PORT

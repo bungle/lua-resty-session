@@ -1184,7 +1184,8 @@ local function get_remember(self)
 end
 
 
---- Session
+---
+-- Session
 -- @section instance
 
 
@@ -1819,7 +1820,8 @@ local session = {
 }
 
 
---- Configuration
+---
+-- Configuration
 -- @section configuration
 
 
@@ -1865,7 +1867,8 @@ local session = {
 -- @table configuration
 
 
---- Initialization
+---
+-- Initialization
 -- @section initialization
 
 
@@ -1991,7 +1994,8 @@ function session.init(configuration)
 end
 
 
---- Constructors
+---
+-- Constructors
 -- @section constructors
 
 ---
@@ -2210,7 +2214,8 @@ function session.new(configuration)
 end
 
 
---- Helpers
+---
+-- Helpers
 -- @section helpers
 
 
