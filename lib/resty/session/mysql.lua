@@ -4,6 +4,8 @@
 
 
 --[[
+-- create a table for session data:
+
 CREATE TABLE IF NOT EXISTS sessions (
   sid  CHAR(43) PRIMARY KEY,
   name TINYTEXT,

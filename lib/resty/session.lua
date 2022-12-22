@@ -12,7 +12,6 @@ local require = require
 
 local table_new = require "table.new"
 local buffer = require "string.buffer"
-local nkeys = require "table.nkeys"
 local isempty = require "table.isempty"
 local utils = require "resty.session.utils"
 
@@ -23,6 +22,7 @@ local set_header = ngx.req.set_header
 local http_time = ngx.http_time
 local tonumber = tonumber
 local assert = assert
+local remove = table.remove
 local header = ngx.header
 local error = error
 local time = ngx.time
@@ -103,6 +103,7 @@ local DEFAULT_META = {}
 local DEFAULT_IKM
 local DEFAULT_IKM_FALLBACKS
 local DEFAULT_HASH_STORAGE_KEY = true
+local DEFAULT_STORE_METADATA = false
 local DEFAULT_TOUCH_THRESHOLD = 60 -- 1 minute
 local DEFAULT_COMPRESSION_THRESHOLD = 1024 -- 1 kB
 
@@ -247,6 +248,53 @@ local function merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data
       return cookies
     end
   end
+end
+
+
+local function get_metadata(self)
+  if not self.store_metadata then
+    return
+  end
+
+  local data = self.data
+  local count = #data
+  if count == 1 then
+    local sub = data[1][3]
+    if sub then
+      return {
+        audiences = { data[1][2] },
+        subjects  = { sub },
+      }
+    end
+
+    return
+  end
+
+  local audiences
+  local subjects
+  local index = 0
+  for i = 1, count do
+    local sub = data[i][3]
+    if sub then
+      if not audiences then
+        audiences = table_new(count, 0)
+        subjects  = table_new(count, 0)
+      end
+
+      index = index + 1
+      subjects[index]  = sub
+      audiences[index] = data[i][2]
+    end
+  end
+
+  if not audiences then
+    return
+  end
+
+  return {
+    audiences = audiences,
+    subjects  = subjects,
+  }
 end
 
 
@@ -432,7 +480,8 @@ local function open(self, remember, meta_only)
   end
 
   local storage = self.storage
-  local audience = self.audience
+  local data_index = self.data_index
+  local audience = self.data[data_index][2]
   local initial_chunk, ciphertext, ciphertext_encoded, info_data do
     if storage then
       local key, err = self.storage_key(sid)
@@ -578,15 +627,26 @@ local function open(self, remember, meta_only)
     self.info.data = info_data
   end
 
-  if data[audience] == nil then
-    data[audience] = self.data[audience]
+  local audience_index
+  local count = #data
+  for i = 1, count do
+    if data[i][2] == audience then
+      audience_index = i
+      break
+    end
+  end
+
+  if not audience_index then
+    data[count + 1] = self.data[data_index]
     self.state = STATE_NEW
     self.data = data
+    self.data_index = count + 1
     return nil, "missing session audience"
   end
 
   self.state = STATE_OPEN
   self.data = data
+  self.data_index = audience_index
 
   return true
 end
@@ -814,54 +874,21 @@ local function save(self, state, remember)
       return nil, errmsg(err, "unable to json encode session data")
     end
 
-    local ok
-    if remember then
-      ok, err = storage:set(cookie_name, key, data, self.remember_timeout, current_time)
-    else
-      ok, err = storage:set(cookie_name, key, data, self.rolling_timeout, current_time)
-    end
-    if not ok then
-      return nil, errmsg(err, "unable to store session data")
-    end
+    local metadata = get_metadata(self)
 
     local old_sid = meta.sid
+    local old_key
     if old_sid then
-      if remember then
-        key, err = self.storage_key(old_sid)
-        if key then
-          local ok, err = storage:delete(cookie_name, key)
-          if not ok then
-            log(WARN, "[session] unable to delete session (", err , ")")
-          end
-
-        else
-          log(WARN, "[session] ", err)
-        end
-
-      elseif storage.expire then
-        key, err = self.storage_key(old_sid)
-        if key then
-          local stale_ttl = self.stale_ttl
-          if storage.ttl then
-            local ttl = storage:ttl(cookie_name, key)
-            if ttl and ttl > stale_ttl then
-              local ok, err = storage:expire(cookie_name, key, stale_ttl, current_time)
-              if not ok then
-                log(WARN, "[session] unable to expire session (", err , ")")
-              end
-            end
-
-          else
-            ok, err = storage:expire(cookie_name, key, stale_ttl, current_time)
-            if not ok then
-              log(WARN, "[session] unable to expire session (", err , ")")
-            end
-          end
-
-        else
-          log(WARN, "[session] ", err)
-        end
+      old_key, err = self.storage_key(old_sid)
+      if not old_key then
+        log(WARN, "[session] ", err)
       end
+    end
+
+    local ttl = remember and self.remember_timeout or self.rolling_timeout
+    local ok, err = storage:set(cookie_name, key, data, ttl, current_time, old_key, self.stale_ttl, metadata, remember)
+    if not ok then
+      return nil, errmsg(err, "unable to store session data")
     end
 
   else
@@ -1005,7 +1032,7 @@ local function destroy(self, remember)
         return nil, err
       end
 
-      local ok, err = storage:delete(cookie_name, key)
+      local ok, err = storage:delete(cookie_name, key, get_metadata(self))
       if not ok then
         return nil, errmsg(err, "unable to destroy session")
       end
@@ -1178,7 +1205,7 @@ function info_mt:set(key, value)
 
   assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
 
-  local audience = session.audience
+  local audience = session.data[session.data_index][2]
   local data = self.data
   if data then
     if data[audience] then
@@ -1216,7 +1243,8 @@ function info_mt:get(key)
     return
   end
 
-  data = self.data[session.audience]
+  local audience = session.data[session.data_index][2]
+  data = self.data[audience]
   if not data then
     return
   end
@@ -1235,6 +1263,7 @@ end
 -- @treturn string   error message
 function info_mt:save()
   local session = self.session
+
   assert(session.state == STATE_OPEN, "unable to save session info on nonexistent or closed session")
 
   local data = self.data
@@ -1303,7 +1332,7 @@ end
 -- @tparam string value value
 function metatable:set(key, value)
   assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
-  self.data[self.audience].data[key] = value
+  self.data[self.data_index][1][key] = value
 end
 
 
@@ -1315,33 +1344,69 @@ end
 -- @return value
 function metatable:get(key)
   assert(self.state ~= STATE_CLOSED, "unable to get session data on closed session")
-  return self.data[self.audience].data[key]
+  return self.data[self.data_index][1][key]
 end
 
 
 function metatable:set_subject(subject)
   assert(self.state ~= STATE_CLOSED, "unable to set subject on closed session")
-  self.data[self.audience].subject = subject
+  self.data[self.data_index][3] = subject
 end
 
 
 function metatable:get_subject()
   assert(self.state ~= STATE_CLOSED, "unable to get subject on closed session")
-  return self.data[self.audience].subject
+  return self.data[self.data_index][3]
 end
 
 
 function metatable:set_audience(audience)
   assert(self.state ~= STATE_CLOSED, "unable to set audience on closed session")
-  self.data[audience] = self.data[self.audience]
-  self.data[self.audience] = nil
-  self.audience = audience
+
+  local data = self.data
+  local data_index = self.data_index
+  local current_audience = data[data_index][2]
+  if audience == current_audience then
+    return
+  end
+
+  local info_data = self.info and self.info.data
+  if info_data then
+    info_data[audience] = info_data[current_audience]
+    info_data[current_audience] = nil
+  end
+
+  local count = #data
+  if count == 1 then
+    data[1][2] = audience
+    return
+  end
+
+  local previous_index
+  for i = 1, count do
+    if data[i][2] == audience then
+      previous_index = i
+      break
+    end
+  end
+
+  data[data_index][2] = audience
+
+  if not previous_index or previous_index == data_index then
+    return
+  end
+
+  remove(data, previous_index)
+
+  if previous_index < data_index then
+    self.data_index = data_index - 1
+  end
 end
 
 
 function metatable:get_audience()
   assert(self.state ~= STATE_CLOSED, "unable to get audience on closed session")
-  return self.audience
+  return self.data[self.data_index][2]
 end
 
 
@@ -1550,19 +1615,22 @@ function metatable:logout()
   assert(self.state == STATE_OPEN, "unable to logout nonexistent or closed session")
 
   local data = self.data
-  if nkeys(data) == 1 then
+  if #data == 1 then
     return self:destroy()
   end
 
-  local audience = self.audience
-  data[audience] = nil
+  local data_index = self.data_index
   local info = self.info
-  if info and info.data then
-    info.data[audience] = nil
-    if isempty(info.data) then
-      info.data = nil
+  local info_data = info and info.data
+  if info_data then
+    local audience = data[data_index][2]
+    info_data[audience] = nil
+    if isempty(info_data) then
+      info.data = false
     end
   end
+
+  remove(data, data_index)
 
   local ok, err = save(self, STATE_CLOSED)
   if not ok then
@@ -1745,9 +1813,11 @@ function session.init(configuration)
 
     local ikm_fallbacks = configuration.ikm_fallbacks
     if ikm_fallbacks then
-      for _, i in ipairs(ikm_fallbacks) do
-        assert(#i == 32, "ikm_fallbacks field has invalid size, each ikm must be 32 bytes")
+      local count = #ikm_fallbacks
+      for i = 1, count do
+        assert(#ikm_fallbacks[i] == 32, "ikm_fallbacks field has invalid size, each ikm must be 32 bytes")
       end
+
       DEFAULT_IKM_FALLBACKS = ikm_fallbacks
 
     else
@@ -1812,6 +1882,11 @@ function session.init(configuration)
     local hash_storage_key = configuration.hash_storage_key
     if hash_storage_key ~= nil then
       DEFAULT_HASH_STORAGE_KEY = hash_storage_key
+    end
+
+    local store_metadate = configuration.store_metadata
+    if store_metadate ~= nil then
+      DEFAULT_STORE_METADATA = store_metadate
     end
   end
 
@@ -1893,6 +1968,11 @@ function session.new(configuration)
   local hash_storage_key = configuration and configuration.hash_storage_key
   if hash_storage_key == nil then
     hash_storage_key = DEFAULT_HASH_STORAGE_KEY
+  end
+
+  local store_metadata = configuration and configuration.store_metadata
+  if store_metadata == nil then
+    store_metadata = DEFAULT_STORE_METADATA
   end
 
   if cookie_prefix == "__Host-" then
@@ -1979,8 +2059,9 @@ function session.new(configuration)
   end
 
   if ikm_fallbacks then
-    for _, i in ipairs(ikm_fallbacks) do
-      assert(#i == 32, "ikm_fallbacks field has invalid size, each ikm must be 32 bytes")
+    local count = #ikm_fallbacks
+    for i = 1, count do
+      assert(#ikm_fallbacks[i] == 32, "ikm_fallbacks field has invalid size, each ikm must be 32 bytes")
     end
   end
 
@@ -2003,6 +2084,7 @@ function session.new(configuration)
     touch_threshold       = touch_threshold,
     compression_threshold = compression_threshold,
     storage_key           = hash_storage_key and sha256_storage_key or storage_key,
+    store_metadata        = store_metadata,
     cookie_name           = cookie_name,
     cookie_flags          = cookie_flags,
     remember_cookie_name  = remember_cookie_name,
@@ -2013,14 +2095,15 @@ function session.new(configuration)
     ikm                   = ikm,
     ikm_fallbacks         = ikm_fallbacks,
     state                 = STATE_NEW,
-    audience              = audience,
     meta                  = DEFAULT_META,
     remember_meta         = DEFAULT_REMEMBER_META,
-    info                  = storage and info or nil,
+    info                  = storage and info, -- TODO: better name for this additional data
+    data_index            = 1,
     data                  = {
-      [audience]          = {
-        subject           = subject,
-        data              = {},
+      {
+        {},
+        audience,
+        subject,
       },
     },
   }, metatable)

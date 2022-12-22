@@ -513,15 +513,23 @@ local function errmsg(err, msg, ...)
 end
 
 
-local function get_name(self, name, key)
+local function get_name(self, name, key, subject)
   local prefix = self.prefix
   local suffix = self.suffix
-  if prefix and suffix then
+  if prefix and suffix and subject then
+    return fmt("%s:%s:%s:%s:%s", prefix, name, key, subject, suffix)
+  elseif prefix and suffix then
     return fmt("%s:%s:%s:%s", prefix, name, key, suffix)
+  elseif prefix and subject then
+    return fmt("%s:%s:%s:%s", prefix, name, key, subject)
+  elseif suffix and subject then
+    return fmt("%s:%s:%s:%s", name, key, subject, suffix)
   elseif prefix then
     return fmt("%s:%s:%s", prefix, name, key)
   elseif suffix then
     return fmt("%s:%s:%s", name, key, suffix)
+  elseif subject then
+    return fmt("%s:%s:%s", name, key, subject)
   else
     return fmt("%s:%s", name, key)
   end

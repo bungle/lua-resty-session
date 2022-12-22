@@ -4,6 +4,8 @@
 
 
 --[[
+-- create a table for session data:
+
 CREATE TABLE IF NOT EXISTS sessions (
   sid  CHAR(43) PRIMARY KEY,
   name TEXT,
@@ -12,15 +14,19 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 CREATE INDEX ON sessions (ttl);
 
+-- when collecting information about subjects, also create:
+
 CREATE TABLE IF NOT EXISTS sessions_meta (
-  sid CHAR(43) REFERENCES sessions (sid) ON DELETE CASCADE ON UPDATE CASCADE,
   aud TEXT,
   sub TEXT,
-  PRIMARY KEY (sid, aud, sub)
+  sid CHAR(43) REFERENCES sessions (sid) ON DELETE CASCADE ON UPDATE CASCADE,
+  PRIMARY KEY (aud, sub, sid)
 );
+CREATE INDEX ON sessions_meta (ttl);
 ]]
 
 
+local buffer = require "string.buffer"
 local pgmoon = require "pgmoon"
 
 
@@ -33,10 +39,18 @@ local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 5432
 
 
-local SET = "INSERT INTO %s (sid, name, data, ttl) VALUES ('%s', '%s', '%s', TO_TIMESTAMP(%d) AT TIME ZONE 'UTC') ON CONFLICT (sid) DO UPDATE SET data = EXCLUDED.data"
-local GET = "SELECT name, data FROM %s WHERE sid = '%s' AND name = '%s' AND ttl >= TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
-local EXPIRE = "UPDATE %s SET ttl = TO_TIMESTAMP(%d) AT TIME ZONE 'UTC' WHERE sid = '%s' AND name = '%s' AND ttl > TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
-local DELETE = "DELETE FROM %s WHERE sid = '%s' AND name = '%s'"
+local SET = "INSERT INTO %s (sid, name, data, ttl) VALUES ('%s', '%s', '%s', TO_TIMESTAMP(%d) AT TIME ZONE 'UTC') ON CONFLICT (sid) DO UPDATE SET data = EXCLUDED.data, ttl = EXCLUDED.ttl"
+local SET_META_PREFIX = "INSERT INTO %s (aud, sub, sid) VALUES "
+local SET_META_VALUES = "('%s', '%s', '%s')"
+local SET_META_SUFFIX = " ON CONFLICT DO NOTHING"
+local GET = "SELECT data FROM %s WHERE sid = '%s' AND ttl >= TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
+local EXPIRE = "UPDATE %s SET ttl = TO_TIMESTAMP(%d) AT TIME ZONE 'UTC' WHERE sid = '%s' AND ttl > TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
+local DELETE = "DELETE FROM %s WHERE sid = '%s'"
+
+
+local SQL = buffer.new()
+local STM_DELIM = ";\n"
+local VAL_DELIM = ", "
 
 
 local function exec(self, query)
@@ -56,14 +70,6 @@ local function exec(self, query)
   local ok, err = pg:connect()
   if not ok then
     return nil, err
-  end
-
-  local schema = self.schema
-  if schema then
-    ok, err = pg:query("SET SCHEMA " .. pg:escape_literal(schema))
-    if not ok then
-      return nil, err
-    end
   end
 
   ok, err = pg:query(query)
@@ -87,13 +93,48 @@ function metatable.__newindex()
 end
 
 
-function metatable:set(name, key, value, ttl, current_time)
-  return exec(self, fmt(SET, self.table, key, name, value, ttl + current_time))
+function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
+  local table = self.table
+  local exp = ttl + current_time
+
+  if not metadata and not old_key then
+    return exec(self, fmt(SET, table, key, name, value, exp))
+  end
+
+  SQL:reset():putf(SET, table, key, name, value, exp)
+
+  if old_key then
+    if remember then
+      SQL:put(STM_DELIM):putf(DELETE, table, old_key)
+    else
+      local stale_exp = stale_ttl + current_time
+      SQL:put(STM_DELIM):putf(EXPIRE, table, stale_exp, old_key, stale_exp)
+    end
+  end
+
+  if metadata then
+    local audiences = metadata.audiences
+    local subjects  = metadata.subjects
+    local count = #audiences
+
+    SQL:put(STM_DELIM):putf(SET_META_PREFIX, table .. "_meta")
+
+    for i = 1, count do
+      if i > 1 then
+        SQL:put(VAL_DELIM)
+      end
+      SQL:putf(SET_META_VALUES, audiences[i], subjects[i], key, exp)
+    end
+
+    SQL:putf(SET_META_SUFFIX)
+  end
+
+  return exec(self, SQL:tostring())
 end
 
 
-function metatable:get(name, key, current_time)
-  local res, err = exec(self, fmt(GET, self.table, key, name, current_time))
+function metatable:get(_, key, current_time)
+  local res, err = exec(self, fmt(GET, self.table, key, current_time))
   if not res then
     return nil, err
   end
@@ -109,14 +150,8 @@ function metatable:get(name, key, current_time)
 end
 
 
-function metatable:expire(name, key, ttl, current_time)
-  ttl = ttl + current_time
-  return exec(self, fmt(EXPIRE, self.table, ttl, key, name, ttl))
-end
-
-
-function metatable:delete(name, key)
-  return exec(self, fmt(DELETE, self.table, key, name))
+function metatable:delete(_, key)
+  return exec(self, fmt(DELETE, self.table, key))
 end
 
 
@@ -131,8 +166,8 @@ function storage.new(configuration)
   local username          = configuration and configuration.username
   local password          = configuration and configuration.password
   local database          = configuration and configuration.database
-  local schema            = configuration and configuration.schema
   local table_name        = configuration and configuration.table
+  local table_name_meta   = configuration and configuration.table_meta
 
   local connect_timeout   = configuration and configuration.connect_timeout
   local send_timeout      = configuration and configuration.send_timeout
@@ -147,8 +182,9 @@ function storage.new(configuration)
   local ssl_required      = configuration and configuration.ssl_required
 
   return setmetatable({
-    schema = schema,
     table = table_name,
+    table_meta = table_name_meta or (table_name .. "_meta"), -- TODO: better name for table that is collection
+                                                             --       information about audiences and subjects
     connect_timeout = connect_timeout,
     send_timeout = send_timeout,
     read_timeout = read_timeout,

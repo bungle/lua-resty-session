@@ -54,9 +54,9 @@ local function exec(self, func, name, key, ...)
 
   key = get_name(self, name, key)
 
-  if func == memc.get then
+  if func == GET then
     local _
-    ok, _, err = memc:get(key)
+    ok, _, err = func(memc, key)
   else
     ok, err = func(memc, key, ...)
   end

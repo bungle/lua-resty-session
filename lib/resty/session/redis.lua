@@ -9,21 +9,95 @@ local get_name = require "resty.session.utils".get_name
 
 local setmetatable = setmetatable
 local error = error
+local time = ngx.time
 local null = ngx.null
-
-
-local SET = redis.set
-local GET = redis.get
-local TTL = redis.ttl
-local EXPIRE = redis.expire
-local UNLINK = redis.unlink
 
 
 local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 6379
 
 
-local function exec(self, func, name, key, ...)
+local function SET(self, red, name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
+  if not metadata and not old_key then
+    return red:set(get_name(self, name, key), value, "EX", ttl)
+  end
+
+  local old_name
+  local old_ttl
+  if old_key then
+    old_name = get_name(self, name, old_key)
+    if not remember then
+      -- redis < 7.0
+      old_ttl = red:ttl(old_name)
+    end
+  end
+
+  red:init_pipeline()
+  red:set(get_name(self, name, key), value, "EX", ttl)
+
+  -- redis < 7.0
+  if old_name then
+    if remember then
+      red:unlink(old_name)
+    elseif not old_ttl or old_ttl > stale_ttl then
+      red:expire(old_name, stale_ttl)
+    end
+  end
+
+  -- redis >= 7.0
+  --if old_key then
+  --  if remember then
+  --    red:unlink(get_name(self, name, old_key))
+  --  else
+  --    red:expire(get_name(self, name, old_key), stale_ttl, "LT")
+  --  end
+  --end
+
+  if metadata then
+    local audiences = metadata.audiences
+    local subjects  = metadata.subjects
+    local score = current_time - 1
+    local new_score = current_time + ttl
+    for i = 1, #audiences do
+      local k = get_name(self, name, audiences[i], subjects[i])
+      red:zremrangebyscore(k, 0, score)
+      red:zadd(k, new_score, key)
+      if old_key then
+        red:zrem(k, old_key) -- TODO: remove or set new score?
+      end
+      red:expire(k, ttl)
+    end
+  end
+
+  return red:commit_pipeline()
+end
+
+
+local function GET(self, red, name, key)
+  return red:get(get_name(self, name, key))
+end
+
+
+local function UNLINK(self, red, name, key, metadata)
+  if not metadata then
+    return red:unlink(get_name(self, name, key))
+  end
+
+  red:init_pipeline()
+  red:unlink(get_name(self, name, key))
+  local audiences = metadata.audiences
+  local subjects  = metadata.subjects
+  local score = time() - 1
+  for i = 1, #audiences do
+    local k = get_name(self, name, audiences[i], subjects[i])
+    red:zremrangebyscore(k, 0, score)
+    red:zrem(k, key)
+  end
+  return red:commit_pipeline()
+end
+
+
+local function exec(self, func, ...)
   local red = redis:new()
 
   local connect_timeout = self.connect_timeout
@@ -70,7 +144,7 @@ local function exec(self, func, name, key, ...)
     end
   end
 
-  ok, err = func(red, get_name(self, name, key), ...)
+  ok, err = func(self, red, ...)
   if err then
     red:close()
     return nil, err
@@ -99,28 +173,18 @@ function metatable.__newindex()
 end
 
 
-function metatable:set(name, key, value, ttl)
-  return exec(self, SET, name, key, value, "EX", ttl)
+function metatable:set(...)
+  return exec(self, SET, ...)
 end
 
 
-function metatable:get(name, key)
-  return exec(self, GET, name, key)
+function metatable:get(...)
+  return exec(self, GET, ...)
 end
 
 
-function metatable:ttl(name, key)
-  return exec(self, TTL, name, key)
-end
-
-
-function metatable:expire(name, key, ttl)
-  return exec(self, EXPIRE, name, key, ttl)
-end
-
-
-function metatable:delete(name, key)
-  return exec(self, UNLINK, name, key)
+function metatable:delete(...)
+  return exec(self, UNLINK, ...)
 end
 
 
