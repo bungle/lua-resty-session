@@ -1787,7 +1787,7 @@ local session = {
 -- @field cookie_same_party Mark cookie with same party flag, use `nil`, `true`, or `false` (default: `nil`)
 -- @field cookie_partitioned Mark cookie with partitioned flag, use `nil`, `true`, or `false` (default: `nil`)
 -- @field remember Enable or disable persistent sessions, use `nil`, `true`, or `false` (defaults to `false`)
--- @field remember_safety Remember cookie key derivation complexity, use `nil`, `"Low"` (fast), `"Medium"`, or `"High"` (slow) (defaults to `"Medium"`)
+-- @field remember_safety Remember cookie key derivation complexity, use `nil`, `"None"` (fast), `"Low"`, `"Medium"`, or `"High"` (slow) (defaults to `"Medium"`)
 -- @field remember_cookie_name Persistent session cookie name, e.g. `"remember"` (defaults to `"remember"`)
 -- @field audience Session audience, e.g. `"my-application"` (defaults to `"default"`)
 -- @field subject Session subject, e.g. `"john.doe@example.com"` (defaults to `nil`)
@@ -1797,6 +1797,7 @@ local session = {
 -- @field absolute_timeout Absolute timeout limits how long the session can be renewed, until re-authentication is required, e.g. `86400` (defaults to `86400`, or a day) (in seconds)
 -- @field remember_timeout Remember timeout specifies how long the persistent session is considered valid, e.g. `604800` (defaults to `604800`, or a week) (in seconds)
 -- @field hash_storage_key Whether to hash or not the storage key. With storage key hashed it is impossible to decrypt data on server side without having a cookie too (defaults to `true`).
+-- @field store_metadata Whether to also store metadata of sessions, such as collecting data of sessions belonging to specific subject (defaults to `false`).
 -- @field touch_threshold Touch threshold controls how frequently or infrequently the `session:refresh` touches the cookie, e.g. `60` (defaults to `60`, or a minute) (in seconds)
 -- @field compression_threshold Compression threshold controls when the data is deflated, e.g. `1024` (defaults to `1024`, or a kilobyte) (in bytes)
 -- @field storage Storage is responsible of storing session data, use `nil` (data is stored in cookie), `dshm`, `file`, `memcached`, `mysql`, `postgres`, `redis`, `redis-cluster`, `redis-sentinel`, or `shm`, or give a name of custom module (`"custom.session.storage"`), or a `table` that implements session storage interface (defaults to `nil`)
@@ -2058,7 +2059,10 @@ function session.new(configuration)
 
   local cookie_flags = FLAGS_BUFFER:get()
 
-  if not ikm then
+  if ikm then
+    assert(#ikm == 32, "ikm field has invalid size, must be 32 bytes")
+
+  else
     local secret = configuration and configuration.secret
     if secret then
       ikm = assert(sha256(secret))
@@ -2072,9 +2076,13 @@ function session.new(configuration)
     end
   end
 
-  assert(#ikm == 32, "ikm field has invalid size, must be 32 bytes")
+  if ikm_fallbacks then
+    local count = #ikm_fallbacks
+    for i = 1, count do
+      assert(#ikm_fallbacks[i] == 32, "ikm_fallbacks field has invalid size, each ikm must be 32 bytes")
+    end
 
-  if not ikm_fallbacks then
+  else
     local secret_fallbacks = configuration and configuration.secret_fallbacks
     if secret_fallbacks then
       local count = #secret_fallbacks
@@ -2086,14 +2094,7 @@ function session.new(configuration)
       end
 
     else
-      ikm_fallbacks = ikm_fallbacks or DEFAULT_IKM_FALLBACKS
-    end
-  end
-
-  if ikm_fallbacks then
-    local count = #ikm_fallbacks
-    for i = 1, count do
-      assert(#ikm_fallbacks[i] == 32, "ikm_fallbacks field has invalid size, each ikm must be 32 bytes")
+      ikm_fallbacks = DEFAULT_IKM_FALLBACKS
     end
   end
 
