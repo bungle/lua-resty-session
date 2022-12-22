@@ -822,7 +822,7 @@ end
 
 
 ---
--- Helper to create a delimited key
+-- Helper to create a delimited key.
 --
 -- @function utils.get_name
 -- @tparam   table  storage  a storage implementation
