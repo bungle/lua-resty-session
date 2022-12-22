@@ -113,12 +113,13 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     end
   end
 
+  local table_meta = self.table_meta
   if metadata then
     local audiences = metadata.audiences
     local subjects  = metadata.subjects
     local count = #audiences
 
-    SQL:put(STM_DELIM):putf(SET_META_PREFIX, table .. "_meta")
+    SQL:put(STM_DELIM):putf(SET_META_PREFIX, table_meta)
 
     for i = 1, count do
       if i > 1 then
