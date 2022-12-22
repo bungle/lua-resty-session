@@ -1188,6 +1188,44 @@ end
 -- @section instance
 
 
+local fake_info_mt = {}
+
+
+function fake_info_mt:set(key, value)
+  local session = self.session
+  assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
+  session:set("@" .. key, value)
+end
+
+
+function fake_info_mt:get(key)
+  local session = self.session
+  assert(session.state ~= STATE_CLOSED, "unable to get session info on closed session")
+  return session:get("@" .. key)
+end
+
+
+function fake_info_mt:save()
+  local session = self.session
+  assert(session.state == STATE_OPEN, "unable to save session info on nonexistent or closed session")
+  return session:save()
+end
+
+
+fake_info_mt.__index = fake_info_mt
+
+
+local fake_info = {}
+
+
+function fake_info.new(session)
+  return setmetatable({
+    session = session,
+    data = false,
+  }, fake_info_mt)
+end
+
+
 local info_mt = {}
 
 
@@ -1202,9 +1240,7 @@ info_mt.__index = info_mt
 -- @tparam string value value
 function info_mt:set(key, value)
   local session = self.session
-
   assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
-
   local audience = session.data[session.data_index][2]
   local data = self.data
   if data then
@@ -1235,9 +1271,7 @@ end
 -- @return value
 function info_mt:get(key)
   local session = self.session
-
   assert(session.state ~= STATE_CLOSED, "unable to get session info on closed session")
-
   local data = self.data
   if not data then
     return
@@ -1263,9 +1297,7 @@ end
 -- @treturn string   error message
 function info_mt:save()
   local session = self.session
-
   assert(session.state == STATE_OPEN, "unable to save session info on nonexistent or closed session")
-
   local data = self.data
   if not data then
     return true
@@ -1370,7 +1402,7 @@ function metatable:set_audience(audience)
     return
   end
 
-  local info_data = self.info and self.info.data
+  local info_data = self.info.data
   if info_data then
     info_data[audience] = info_data[current_audience]
     info_data[current_audience] = nil
@@ -2097,7 +2129,7 @@ function session.new(configuration)
     state                 = STATE_NEW,
     meta                  = DEFAULT_META,
     remember_meta         = DEFAULT_REMEMBER_META,
-    info                  = storage and info, -- TODO: better name for this additional data
+    info                  = info,
     data_index            = 1,
     data                  = {
       {
@@ -2108,8 +2140,11 @@ function session.new(configuration)
     },
   }, metatable)
 
+  -- TODO: better name for this additional data
   if storage then
     self.info = info.new(self)
+  else
+    self.info = fake_info.new(self)
   end
 
   return self
