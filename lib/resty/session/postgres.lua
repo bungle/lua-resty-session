@@ -35,8 +35,9 @@ local error = error
 local fmt = string.format
 
 
-local DEFAULT_HOST = "127.0.0.1"
-local DEFAULT_PORT = 5432
+local DEFAULT_HOST  = "127.0.0.1"
+local DEFAULT_PORT  = 5432
+local DEFAULT_TABLE = "sessions"
 
 
 local SET = "INSERT INTO %s (sid, name, data, ttl) VALUES ('%s', '%s', '%s', TO_TIMESTAMP(%d) AT TIME ZONE 'UTC') ON CONFLICT (sid) DO UPDATE SET data = EXCLUDED.data, ttl = EXCLUDED.ttl"
@@ -166,7 +167,7 @@ function storage.new(configuration)
   local username          = configuration and configuration.username
   local password          = configuration and configuration.password
   local database          = configuration and configuration.database
-  local table_name        = configuration and configuration.table
+  local table_name        = configuration and configuration.table or DEFAULT_TABLE
   local table_name_meta   = configuration and configuration.table_meta
 
   local connect_timeout   = configuration and configuration.connect_timeout
