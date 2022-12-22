@@ -824,15 +824,15 @@ end
 ---
 -- Helper to create a delimited key
 --
--- @function utils.load_storage
--- @tparam   table  self  a storage implementation
+-- @function utils.get_name
+-- @tparam   table  storage  a storage implementation
 -- @tparam   string  name  name
 -- @tparam   string  key  key
 -- @tparam   string  subject  subject
 -- @treturn  string  formatted and delimited name
-local function get_name(self, name, key, subject)
-  local prefix = self.prefix
-  local suffix = self.suffix
+local function get_name(storage, name, key, subject)
+  local prefix = storage.prefix
+  local suffix = storage.suffix
   if prefix and suffix and subject then
     return fmt("%s:%s:%s:%s:%s", prefix, name, key, subject, suffix)
   elseif prefix and suffix then
