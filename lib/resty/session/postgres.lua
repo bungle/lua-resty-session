@@ -37,7 +37,6 @@
 --   sid CHAR(43) REFERENCES sessions (sid) ON DELETE CASCADE ON UPDATE CASCADE,
 --   PRIMARY KEY (aud, sub, sid)
 -- );
--- CREATE INDEX ON sessions_meta (ttl);
 -- @table metadata
 
 
@@ -169,6 +168,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
   return exec(self, SQL:tostring())
 end
 
+
 ---
 -- Retrieve session data.
 --
@@ -177,7 +177,7 @@ end
 -- @tparam  string     key  session key
 -- @treturn string|nil      session data
 -- @treturn string          error message
-function metatable:get(_, key, current_time)
+function metatable:get(name, key, current_time)
   local res, err = exec(self, fmt(GET, self.table, key, current_time))
   if not res then
     return nil, err
@@ -200,9 +200,10 @@ end
 -- @function instance:delete
 -- @tparam  string      name cookie name
 -- @tparam  string      key  session key
+-- @tparam[opt]  table  metadata  session meta data
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
-function metatable:delete(_, key)
+function metatable:delete(name, key, metadata)
   return exec(self, fmt(DELETE, self.table, key))
 end
 
@@ -217,11 +218,12 @@ local storage = {}
 
 ---
 -- Postgres storage backend configuration
--- @field host the host to connect to (defaults to `"127.0.0.1"`)
--- @field port the port to connect to (defaults to `5432`)
+-- @field host the host to connect (defaults to `"127.0.0.1"`)
+-- @field port the port to connect (defaults to `5432`)
 -- @field application set the name of the connection as displayed in pg_stat_activity (defaults to `"pgmoon"`)
 -- @field username the database username to authenticate (defaults to `"postgres"`)
 -- @field password password for authentication, may be required depending on server configuration
+-- @field database the database name to connect
 -- @field table_name name of database table to which to store session data (can be `database schema` prefixed) (defaults to `"sessions"`)
 -- @field table_name_meta name of database meta data table to which to store session meta data (can be `database schema` prefixed) (defaults to `"sessions_meta"`)
 -- @field connect_timeout controls the default timeout value used in TCP/unix-domain socket object's `connect` method
@@ -258,6 +260,7 @@ function storage.new(configuration)
   local username          = configuration and configuration.username
   local password          = configuration and configuration.password
   local database          = configuration and configuration.database
+
   local table_name        = configuration and configuration.table or DEFAULT_TABLE
   local table_name_meta   = configuration and configuration.table_meta
 
@@ -275,7 +278,7 @@ function storage.new(configuration)
 
   return setmetatable({
     table = table_name,
-    table_meta = table_name_meta or (table_name .. "_meta"), -- TODO: better name for table that is collection
+    table_meta = table_name_meta or (table_name .. "_meta"), -- TODO: better name for table that is collecting
                                                              --       information about audiences and subjects
     connect_timeout = connect_timeout,
     send_timeout = send_timeout,

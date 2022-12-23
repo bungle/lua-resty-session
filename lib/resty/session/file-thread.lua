@@ -1,7 +1,21 @@
+---
+-- File storage backend worker thread module
+--
+-- @module resty.session.file-thread
+
+
 local open = io.open
 local remove = os.remove
 
 
+---
+-- Store data in file.
+--
+-- @function set
+-- @tparam  string   path     file path
+-- @tparam  string   content  file content
+-- @treturn true|nil ok
+-- @treturn string   error message
 local function set(path, content)
   local file, err = open(path, "wb")
   if not file then
@@ -21,6 +35,13 @@ local function set(path, content)
 end
 
 
+---
+-- Read data from a file.
+--
+-- @function get
+-- @tparam  string  path file to read
+-- @treturn string|nil content
+-- @treturn string     error message
 local function get(path)
   local file, err = open(path, "rb")
   if not file then
@@ -39,6 +60,13 @@ local function get(path)
 end
 
 
+---
+-- Delete a file.
+--
+-- @function delete
+-- @tparam  string  path file to read
+-- @treturn string|nil ok
+-- @treturn string     error message
 local function delete(path)
   return remove(path)
 end

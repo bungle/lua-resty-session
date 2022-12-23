@@ -1,5 +1,6 @@
 ---
 -- File storage backend for session library.
+--
 -- @module resty.session.file
 
 
@@ -78,9 +79,15 @@ end
 -- @tparam  string   name  cookie name
 -- @tparam  string   key   session key
 -- @tparam  string   value session value
--- @treturn true|nil       ok
--- @treturn string         error message
-function metatable:set(name, key, value)
+-- @tparam  number   ttl   session ttl
+-- @tparam  number   current_time  current time
+-- @tparam  string   old_key  old session id
+-- @tparam  string   stale_ttl  stale ttl
+-- @tparam  table    metadata  table of metadata
+-- @tparam  table    remember  whether storing persistent session or not
+-- @treturn true|nil ok
+-- @treturn string   error message
+function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
   return run_worker_thread(self.pool, "resty.session.file-thread", "set", get_path(self, name, key), value)
 end
 
@@ -103,9 +110,10 @@ end
 -- @function instance:delete
 -- @tparam  string      name cookie name
 -- @tparam  string      key  session key
+-- @tparam[opt]  table  metadata  session meta data
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
-function metatable:delete(name, key)
+function metatable:delete(name, key, metadata)
   return run_worker_thread(self.pool, "resty.session.file-thread", "delete", get_path(self, name, key))
 end
 
@@ -120,10 +128,10 @@ local storage = {}
 
 ---
 -- File storage backend configuration
--- @field prefix File prefix for session file
--- @field suffix File suffix (or extension without `.`) for session file
--- @field pool Name of the thread pool under which file writing happens (available on Linux only)
--- @field path Path (or directory) under which session files are created
+-- @field prefix file prefix for session file
+-- @field suffix file suffix (or extension without `.`) for session file
+-- @field pool name of the thread pool under which file writing happens (available on Linux only)
+-- @field path path (or directory) under which session files are created
 -- @table configuration
 
 

@@ -1,5 +1,6 @@
 ---
 -- Redis backend for session library
+--
 -- @module resty.session.redis
 
 
@@ -162,6 +163,11 @@ local function exec(self, func, ...)
 end
 
 
+---
+-- Storage
+-- @section instance
+
+
 local metatable = {}
 
 
@@ -173,11 +179,34 @@ function metatable.__newindex()
 end
 
 
+---
+-- Store session data.
+--
+-- @function instance:set
+-- @tparam  string   name  cookie name
+-- @tparam  string   key   session key
+-- @tparam  string   value session value
+-- @tparam  number   ttl   session ttl
+-- @tparam  number   current_time  current time
+-- @tparam  string   old_key  old session id
+-- @tparam  string   stale_ttl  stale ttl
+-- @tparam  table    metadata  table of metadata
+-- @tparam  table    remember  whether storing persistent session or not
+-- @treturn true|nil ok
+-- @treturn string   error message
 function metatable:set(...)
   return exec(self, SET, ...)
 end
 
 
+---
+-- Retrieve session data.
+--
+-- @function instance:get
+-- @tparam  string     name cookie name
+-- @tparam  string     key  session key
+-- @treturn string|nil      session data
+-- @treturn string          error message
 function metatable:get(...)
   return exec(self, GET, ...)
 end
@@ -191,6 +220,47 @@ end
 local storage = {}
 
 
+---
+-- Configuration
+-- @section configuration
+
+
+---
+-- Redis storage backend configuration
+-- @field prefix prefix for the keys stored in redis
+-- @field suffix suffix for the keys stored in redis
+-- @field host the host to connect (defaults to `"127.0.0.1"`)
+-- @field port the port to connect (defaults to `6379`)
+-- @field socket the socket file to connect to (defaults to `nil`)
+-- @field username the database username to authenticate
+-- @field password password for authentication
+-- @field database the database to connect
+-- @field connect_timeout controls the default timeout value used in TCP/unix-domain socket object's `connect` method
+-- @field send_timeout controls the default timeout value used in TCP/unix-domain socket object's `send` method
+-- @field read_timeout controls the default timeout value used in TCP/unix-domain socket object's `receive` method
+-- @field keepalive_timeout controls the default maximal idle time of the connections in the connection pool
+-- @field pool a custom name for the connection pool being used.
+-- @field pool_size the size of the connection pool,
+-- @field backlog a queue size to use when the connection pool is full (configured with @pool_size)
+-- @field ssl enable ssl (defaults to `false`)
+-- @field ssl_verify verify server certificate (defaults to `nil`)
+-- @field server_name the server name for the new TLS extension Server Name Indication (SNI)
+-- @table configuration
+
+
+---
+-- Constructors
+-- @section constructors
+
+
+---
+-- Create a Redis storage.
+--
+-- This creates a new Redis storage instance.
+--
+-- @function module.new
+-- @tparam[opt]  table   configuration  redis storage @{configuration}
+-- @treturn      table                  redis storage instance
 function storage.new(configuration)
   local prefix            = configuration and configuration.prefix
   local suffix            = configuration and configuration.suffix

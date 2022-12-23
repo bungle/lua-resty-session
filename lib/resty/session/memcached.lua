@@ -1,5 +1,6 @@
 ---
 -- Memcached backend for session library
+--
 -- @module resty.session.memcached
 
 
@@ -78,6 +79,11 @@ local function exec(self, func, name, key, ...)
 end
 
 
+---
+-- Storage
+-- @section instance
+
+
 local metatable = {}
 
 
@@ -89,22 +95,55 @@ function metatable.__newindex()
 end
 
 
-function metatable:set(name, key, value, ttl)
+---
+-- Store session data.
+--
+-- @function instance:set
+-- @tparam  string   name  cookie name
+-- @tparam  string   key   session key
+-- @tparam  string   value session value
+-- @tparam  number   ttl   session ttl
+-- @tparam  number   current_time  current time
+-- @tparam  string   old_key  old session id
+-- @tparam  string   stale_ttl  stale ttl
+-- @tparam  table    metadata  table of metadata
+-- @tparam  table    remember  whether storing persistent session or not
+-- @treturn true|nil ok
+-- @treturn string   error message
+function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
   return exec(self, SET, name, key, value, ttl)
 end
 
 
+---
+-- Retrieve session data.
+--
+-- @function instance:get
+-- @tparam  string     name cookie name
+-- @tparam  string     key  session key
+-- @treturn string|nil      session data
+-- @treturn string          error message
 function metatable:get(name, key)
   return exec(self, GET, name, key)
 end
 
 
+-- TODO: needs to be removed (set command should do it)
 function metatable:expire(name, key, ttl)
   return exec(self, TOUCH, name, key, ttl)
 end
 
 
-function metatable:delete(name, key)
+---
+-- Delete session data.
+--
+-- @function instance:delete
+-- @tparam  string      name cookie name
+-- @tparam  string      key  session key
+-- @tparam[opt]  table  metadata  session meta data
+-- @treturn boolean|nil      session data
+-- @treturn string           error message
+function metatable:delete(name, key, metadata)
   return exec(self, DELETE, name, key)
 end
 
@@ -112,6 +151,44 @@ end
 local storage = {}
 
 
+---
+-- Configuration
+-- @section configuration
+
+
+---
+-- Distributed shared memory storage backend configuration
+-- @field prefix prefix for the keys stored in memcached
+-- @field suffix suffix for the keys stored in memcached
+-- @field host the host to connect (defaults to `"127.0.0.1"`)
+-- @field port the port to connect (defaults to `11211`)
+-- @field socket the socket file to connect to (defaults to `nil`)
+-- @field connect_timeout controls the default timeout value used in TCP/unix-domain socket object's `connect` method
+-- @field send_timeout controls the default timeout value used in TCP/unix-domain socket object's `send` method
+-- @field read_timeout controls the default timeout value used in TCP/unix-domain socket object's `receive` method
+-- @field keepalive_timeout controls the default maximal idle time of the connections in the connection pool
+-- @field pool a custom name for the connection pool being used.
+-- @field pool_size the size of the connection pool,
+-- @field backlog a queue size to use when the connection pool is full (configured with @pool_size)
+-- @field ssl enable ssl (defaults to `false`)
+-- @field ssl_verify verify server certificate (defaults to `nil`)
+-- @field server_name the server name for the new TLS extension Server Name Indication (SNI)
+-- @table configuration
+
+
+---
+-- Constructors
+-- @section constructors
+
+
+---
+-- Create a memcached storage.
+--
+-- This creates a new memcached storage instance.
+--
+-- @function module.new
+-- @tparam[opt]  table   configuration  memcached storage @{configuration}
+-- @treturn      table                  memcached storage instance
 function storage.new(configuration)
   local prefix            = configuration and configuration.prefix
   local suffix            = configuration and configuration.suffix
