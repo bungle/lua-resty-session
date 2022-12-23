@@ -1196,14 +1196,14 @@ local fake_info_mt = {}
 function fake_info_mt:set(key, value)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
-  session:set("@" .. key, value)
+  session.data[session.data_index][1]["@" .. key] = value
 end
 
 
 function fake_info_mt:get(key)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to get session info on closed session")
-  return session:get("@" .. key)
+  return session.data[session.data_index][1]["@" .. key]
 end
 
 
@@ -1239,7 +1239,7 @@ info_mt.__index = info_mt
 --
 -- @function instance.info:set
 -- @tparam string key   key
--- @tparam string value value
+-- @param value value
 function info_mt:set(key, value)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
@@ -1363,7 +1363,7 @@ end
 --
 -- @function instance:set
 -- @tparam string key   key
--- @tparam string value value
+-- @param value value
 function metatable:set(key, value)
   assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
   if self.storage or byte(key, 1) ~= AT_BYTE then
@@ -1379,7 +1379,7 @@ end
 --
 -- @function instance:get
 -- @tparam string key key
--- @return value value
+-- @return value
 --
 -- @usage
 -- local session, err, exists = require "resty.session".open()
