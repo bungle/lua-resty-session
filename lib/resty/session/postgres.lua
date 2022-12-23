@@ -40,6 +40,7 @@
 -- CREATE INDEX ON sessions_meta (ttl);
 -- @table metadata
 
+
 local buffer = require "string.buffer"
 local pgmoon = require "pgmoon"
 
@@ -126,8 +127,8 @@ end
 -- @tparam  string   stale_ttl  stale ttl
 -- @tparam  table    metadata  table of metadata
 -- @tparam  table    remember  whether storing persistent session or not
--- @treturn true|nil       ok
--- @treturn string         error message
+-- @treturn true|nil ok
+-- @treturn string   error message
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
   local table = self.table
   local exp = ttl + current_time
@@ -216,23 +217,23 @@ local storage = {}
 
 ---
 -- Postgres storage backend configuration
--- @field host ...
--- @field port ...
--- @field application ...
--- @field username ...
--- @field password ...
--- @field table_name ...
--- @field table_name_meta ...
--- @field connect_timeout ...
--- @field send_timeout ...
--- @field read_timeout ...
--- @field keepalive_timeout ...
--- @field pool ...
--- @field pool_size ...
--- @field backlog ...
--- @field ssl ...
--- @field ssl_verify ...
--- @field ssl_required ...
+-- @field host the host to connect to (defaults to `"127.0.0.1"`)
+-- @field port the port to connect to (defaults to `5432`)
+-- @field application set the name of the connection as displayed in pg_stat_activity (defaults to `"pgmoon"`)
+-- @field username the database username to authenticate (defaults to `"postgres"`)
+-- @field password password for authentication, may be required depending on server configuration
+-- @field table_name name of database table to which to store session data (can be `database schema` prefixed) (defaults to `"sessions"`)
+-- @field table_name_meta name of database meta data table to which to store session meta data (can be `database schema` prefixed) (defaults to `"sessions_meta"`)
+-- @field connect_timeout controls the default timeout value used in TCP/unix-domain socket object's `connect` method
+-- @field send_timeout controls the default timeout value used in TCP/unix-domain socket object's `send` method
+-- @field read_timeout controls the default timeout value used in TCP/unix-domain socket object's `receive` method
+-- @field keepalive_timeout controls the default maximal idle time of the connections in the connection pool
+-- @field pool a custom name for the connection pool being used.
+-- @field pool_size the size of the connection pool,
+-- @field backlog a queue size to use when the connection pool is full (configured with @pool_size)
+-- @field ssl enable ssl (defaults to `false`)
+-- @field ssl_verify verify server certificate (defaults to `nil`)
+-- @field ssl_required abort the connection if the server does not support SSL connections (defaults to `nil`)
 -- @table configuration
 
 
