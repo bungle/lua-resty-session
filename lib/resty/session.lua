@@ -141,6 +141,7 @@ local STATE_OPEN   = "open"
 local STATE_CLOSED = "closed"
 
 
+local AT_BYTE        = byte("@")
 local EQUALS_BYTE    = byte("=")
 local SEMICOLON_BYTE = byte(";")
 
@@ -1365,7 +1366,11 @@ end
 -- @tparam string value value
 function metatable:set(key, value)
   assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
-  self.data[self.data_index][1][key] = value
+  if self.storage or byte(key, 1) ~= AT_BYTE then
+    self.data[self.data_index][1][key] = value
+  else
+    self.data[self.data_index][1]["$" .. key] = value
+  end
 end
 
 
@@ -1384,7 +1389,11 @@ end
 -- end
 function metatable:get(key)
   assert(self.state ~= STATE_CLOSED, "unable to get session data on closed session")
-  return self.data[self.data_index][1][key]
+  if self.storage or byte(key, 1) ~= AT_BYTE then
+    return self.data[self.data_index][1][key]
+  else
+    return self.data[self.data_index][1]["$" .. key]
+  end
 end
 
 
