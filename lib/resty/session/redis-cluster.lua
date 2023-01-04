@@ -5,7 +5,7 @@
 
 
 local redis = require "resty.rediscluster"
-local get_name = require "resty.session.utils".get_name
+local redis_utils = require "resty.session.redis-common"
 
 
 local setmetatable = setmetatable
@@ -13,19 +13,20 @@ local error = error
 local null = ngx.null
 
 
-local SET = redis.set
-local GET = redis.get
-local TTL = redis.ttl
-local EXPIRE = redis.expire
-local UNLINK = redis.unlink
+local SET    = redis_utils.SET
+local GET    = redis_utils.GET
+local UNLINK = redis_utils.UNLINK
 
 
-local function exec(self, func, name, key, ...)
-  local red = redis:new(self.options)
-
-  local ok, err = func(red, get_name(self, name, key), ...)
+local function exec(self, func, ...)
+  local red, err = redis:new(self.options)
   if err then
     return nil, err
+  end
+
+  local ok, err = func(self, red, ...)
+  if err then
+    red:close()
   end
 
   if ok == null then
@@ -67,8 +68,8 @@ end
 -- @tparam  table    remember  whether storing persistent session or not
 -- @treturn true|nil ok
 -- @treturn string   error message
-function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
-  return exec(self, SET, name, key, value, "EX", ttl)
+function metatable:set(...)
+  return exec(self, SET, ...)
 end
 
 
@@ -80,20 +81,8 @@ end
 -- @tparam  string     key  session key
 -- @treturn string|nil      session data
 -- @treturn string          error message
-function metatable:get(name, key)
-  return exec(self, GET, name, key)
-end
-
-
--- TODO: needs to be removed (set command should do it)
-function metatable:ttl(name, key)
-  return exec(self, TTL, name, key)
-end
-
-
--- TODO: needs to be removed (set command should do it)
-function metatable:expire(name, key, ttl)
-  return exec(self, EXPIRE, name, key, ttl)
+function metatable:get(...)
+  return exec(self, GET, ...)
 end
 
 
@@ -106,8 +95,8 @@ end
 -- @tparam[opt]  table  metadata  session meta data
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
-function metatable:delete(name, key, metadata)
-  return exec(self, UNLINK, name, key)
+function metatable:delete(...)
+  return exec(self, UNLINK, ...)
 end
 
 

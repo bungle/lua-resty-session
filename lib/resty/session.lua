@@ -2638,7 +2638,7 @@ end
 -- @usage
 -- local session = require "resty.session".start()
 -- -- OR
--- local session, err, exists, refreshed = require "resty.session".start()
+-- local session, err, exists, refreshed = require "resty.session".start({
 --   audience = "my-application",
 -- })
 function session.start(configuration)

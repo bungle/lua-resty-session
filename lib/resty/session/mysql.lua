@@ -40,6 +40,7 @@
 -- @table metadata
 
 
+local buffer = require "string.buffer"
 local mysql = require "resty.mysql"
 
 
@@ -54,10 +55,18 @@ local DEFAULT_TABLE = "sessions"
 local DEFAULT_CHARSET = "ascii"
 
 
-local SET = "INSERT INTO %s (sid, name, data, ttl) VALUES ('%s', '%s', '%s', FROM_UNIXTIME(%d)) ON DUPLICATE KEY UPDATE data = new.data"
-local GET = "SELECT name, data FROM %s WHERE sid = '%s' AND name = '%s' AND ttl >= FROM_UNIXTIME(%d)"
-local EXPIRE = "UPDATE %s SET ttl = FROM_UNIXTIME(%d) WHERE sid = '%s' AND name = '%s' AND ttl > FROM_UNIXTIME(%d)"
-local DELETE = "DELETE FROM %s WHERE sid = '%s' AND name = '%s'"
+local SET = "INSERT INTO %s (sid, name, data, ttl) VALUES ('%s', '%s', '%s', FROM_UNIXTIME(%d)) AS new ON DUPLICATE KEY UPDATE data = new.data"
+local SET_META_PREFIX = "INSERT INTO %s (aud, sub, sid) VALUES "
+local SET_META_VALUES = "('%s', '%s', '%s')"
+local SET_META_SUFFIX = " ON DUPLICATE KEY UPDATE sid=sid"
+local GET = "SELECT data FROM %s WHERE sid = '%s' AND ttl >= FROM_UNIXTIME(%d)"
+local EXPIRE = "UPDATE %s SET ttl = FROM_UNIXTIME(%d) WHERE sid = '%s' AND ttl > FROM_UNIXTIME(%d)"
+local DELETE = "DELETE FROM %s WHERE sid = '%s'"
+
+
+local SQL = buffer.new()
+local STM_DELIM = ";\n"
+local VAL_DELIM = ", "
 
 
 local function exec(self, query)
@@ -121,7 +130,43 @@ end
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
-  return exec(self, fmt(SET, self.table, key, name, value, ttl + current_time))
+  local table = self.table
+  local exp = ttl + current_time
+
+  if not metadata and not old_key then
+    return exec(self, fmt(SET, table, key, name, value, exp))
+  end
+
+  SQL:reset():putf(SET, table, key, name, value, exp)
+
+  if old_key then
+    if remember then
+      SQL:put(STM_DELIM):putf(DELETE, table, old_key)
+    else
+      local stale_exp = stale_ttl + current_time
+      SQL:put(STM_DELIM):putf(EXPIRE, table, stale_exp, old_key, stale_exp)
+    end
+  end
+
+  local table_meta = self.table_meta
+  if metadata then
+    local audiences = metadata.audiences
+    local subjects  = metadata.subjects
+    local count = #audiences
+
+    SQL:put(STM_DELIM):putf(SET_META_PREFIX, table_meta)
+
+    for i = 1, count do
+      if i > 1 then
+        SQL:put(VAL_DELIM)
+      end
+      SQL:putf(SET_META_VALUES, audiences[i], subjects[i], key, exp)
+    end
+
+    SQL:putf(SET_META_SUFFIX)
+  end
+
+  return exec(self, SQL:tostring())
 end
 
 
@@ -134,7 +179,7 @@ end
 -- @treturn string|nil      session data
 -- @treturn string          error message
 function metatable:get(name, key, current_time)
-  local res, err = exec(self, fmt(GET, self.table, key, name, current_time))
+  local res, err = exec(self, fmt(GET, self.table, key, current_time))
   if not res then
     return nil, err
   end
@@ -150,13 +195,6 @@ function metatable:get(name, key, current_time)
 end
 
 
--- TODO: needs to be removed (set command should do it)
-function metatable:expire(name, key, ttl, current_time)
-  ttl = ttl + current_time
-  return exec(self, fmt(EXPIRE, self.table, ttl, key, name, ttl))
-end
-
-
 ---
 -- Delete session data.
 --
@@ -167,7 +205,7 @@ end
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
 function metatable:delete(name, key, metadata)
-  return exec(self, fmt(DELETE, self.table, key, name))
+  return exec(self, fmt(DELETE, self.table, key))
 end
 
 
@@ -244,6 +282,7 @@ function storage.new(configuration)
   if socket then
     return setmetatable({
       table = table_name,
+      table_meta = table_name_meta or (table_name .. "_meta"),
       connect_timeout = connect_timeout,
       send_timeout = send_timeout,
       read_timeout = read_timeout,
