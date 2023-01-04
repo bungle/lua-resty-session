@@ -31,5 +31,7 @@ build = {
     ["resty.session.redis-sentinel"] = "lib/resty/session/redis-sentinel.lua",
     ["resty.session.shm"] = "lib/resty/session/shm.lua",
     ["resty.session.utils"] = "lib/resty/session/utils.lua",
+    ["resty.session.redis-common"] = "lib/resty/session/redis-common.lua",
+    ["resty.session.scored-collections"] = "lib/resty/session/scored-collections.lua",
   },
 }

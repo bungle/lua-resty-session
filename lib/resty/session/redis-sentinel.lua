@@ -5,30 +5,27 @@
 
 
 local redis = require "resty.redis.connector"
-local get_name = require "resty.session.utils".get_name
+local redis_utils = require "resty.session.redis-common"
 
 
 local setmetatable = setmetatable
 local error = error
 local null = ngx.null
 
-
-local SET = "set"
-local GET = "get"
-local TTL = "ttl"
-local EXPIRE = "expire"
-local UNLINK = "unlink"
+local SET    = redis_utils.SET
+local GET    = redis_utils.GET
+local UNLINK = redis_utils.UNLINK
 
 
-local function exec(self, func, name, key, ...)
+local function exec(self, func, ...)
   local red, err = self.connector:connect()
   if not red then
     return nil, err
   end
 
-  local ok, err = red[func](red, get_name(self, name, key), ...)
+  local ok, err = func(self, red, ...)
   if err then
-    return nil, err
+    red:close()
   end
 
   if ok == null then
@@ -72,8 +69,8 @@ end
 -- @tparam  table    remember  whether storing persistent session or not
 -- @treturn true|nil ok
 -- @treturn string   error message
-function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
-  return exec(self, SET, name, key, value, "EX", ttl)
+function metatable:set(...)
+  return exec(self, SET, ...)
 end
 
 
@@ -85,20 +82,8 @@ end
 -- @tparam  string     key  session key
 -- @treturn string|nil      session data
 -- @treturn string          error message
-function metatable:get(name, key)
-  return exec(self, GET, name, key)
-end
-
-
--- TODO: needs to be removed (set command should do it)
-function metatable:ttl(name, key)
-  return exec(self, TTL, name, key)
-end
-
-
--- TODO: needs to be removed (set command should do it)
-function metatable:expire(name, key, ttl)
-  return exec(self, EXPIRE, name, key, ttl)
+function metatable:get(...)
+  return exec(self, GET, ...)
 end
 
 
@@ -111,8 +96,8 @@ end
 -- @tparam[opt]  table  metadata  session meta data
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
-function metatable:delete(name, key, metadata)
-  return exec(self, UNLINK, name, key)
+function metatable:delete(...)
+  return exec(self, UNLINK, ...)
 end
 
 
