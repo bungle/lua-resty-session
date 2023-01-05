@@ -307,7 +307,7 @@ function storage.new(configuration)
         pool_size = pool_size,
         backlog = backlog,
       }
-    })
+    }, metatable)
   end
 
   return setmetatable({

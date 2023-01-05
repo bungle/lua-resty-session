@@ -28,15 +28,39 @@ local bpack, bunpack do
   local SIZE_TO_FORMAT = {
     [1] = "<C",
     [2] = "<S",
+    [3] = "<I",
     [4] = "<I",
+    [5] = "<L",
+    [6] = "<L",
+    [7] = "<L",
     [8] = "<L",
   }
 
   local function bpack_real(size, value)
-    return binpack(SIZE_TO_FORMAT[size], value)
+    local packed = binpack(SIZE_TO_FORMAT[size], value)
+
+    if size == 3 then
+      return sub(packed, 1, 3)
+    elseif size == 5 then
+      return sub(packed, 1, 5)
+    elseif size == 6 then
+      return sub(packed, 1, 6)
+    elseif size == 7 then
+      return sub(packed, 1, 7)
+    end
+
+    return packed
   end
 
   local function bunpack_real(size, value)
+    if size == 5 then
+      value = value .. "\0\0\0"
+    elseif size == 6 then
+      value = value .. "\0\0"
+    elseif size == 3 or size == 7 then
+      value = value .. "\0"
+    end
+
     local _, value = binunpack(value, SIZE_TO_FORMAT[size])
     return value
   end
@@ -51,7 +75,11 @@ local bpack, bunpack do
   --
   -- * `1`, pack input as a little endian unsigned char (`<C`)
   -- * `2`, pack input as a little endian unsigned short (`<S`)
+  -- * `3`, pack input as a little endian unsigned integer (truncated) (`<I`)
   -- * `4`, pack input as a little endian unsigned integer (`<I`)
+  -- * `5`, pack input as a little endian unsigned long (truncated) (`<L`)
+  -- * `6`, pack input as a little endian unsigned long (truncated) (`<L`)
+  -- * `7`, pack input as a little endian unsigned long (truncated) (`<L`)
   -- * `8`, pack input as a little endian unsigned long (`<L`)
   --
   -- @function utils.bpack
@@ -80,7 +108,11 @@ local bpack, bunpack do
   --
   -- * `1`, unpack input from little endian unsigned char (`<C`)
   -- * `2`, unpack input from little endian unsigned short (`<S`)
+  -- * `3`, unpack input from little endian unsigned integer (truncated) (`<I`)
   -- * `4`, unpack input from little endian unsigned integer (`<I`)
+  -- * `5`, unpack input from little endian unsigned integer (truncated) (`<L`)
+  -- * `6`, unpack input from little endian unsigned integer (truncated) (`<L`)
+  -- * `7`, unpack input from little endian unsigned integer (truncated) (`<L`)
   -- * `8`, unpack input from little endian unsigned long (`<L`)
   --
   -- @function utils.bunpack
@@ -502,14 +534,14 @@ local derive_hkdf_sha256 do
 end
 
 
-local derive_pbkdf2_hmac_sha256  do
+local derive_pbkdf2_hmac_sha256 do
   local kdf_derive
 
   local PBKDF2_SHA256_OPTS
 
-  local function derive_pbkdf2_hmac_sha256_real(ikm, nonce, usage, size, iterations)
-    PBKDF2_SHA256_OPTS.pass = ikm
-    PBKDF2_SHA256_OPTS.salt = usage .. ":" .. nonce
+  local function derive_pbkdf2_hmac_sha256_real(pass, salt, usage, size, iterations)
+    PBKDF2_SHA256_OPTS.pass = pass
+    PBKDF2_SHA256_OPTS.salt = usage .. ":" .. salt
     PBKDF2_SHA256_OPTS.outlen = size
     PBKDF2_SHA256_OPTS.pbkdf2_iter = iterations
     local key, err = kdf_derive(PBKDF2_SHA256_OPTS)
@@ -524,20 +556,20 @@ local derive_pbkdf2_hmac_sha256  do
   -- Derive a new key using PBKDF2 with SHA-256.
   --
   -- @function utils.derive_pbkdf2_hmac_sha256
-  -- @tparam   string      ikm    initial key material
-  -- @tparam   string      nonce  nonce
+  -- @tparam   string      pass   password
+  -- @tparam   string      salt   salt
   -- @tparam   string      usage  e.g. `"encryption"` or `"authentication"`
   -- @tparam   number      size   how many bytes to return
-  -- @tparam   number      iterations  how many iterations to run, e.g. `100000`
+  -- @tparam   number      iterations  how many iterations to run, e.g. `10000`
   -- @treturn  string|nil  key material
   -- @treturn  string|nil  error message
   --
   -- @usage
   -- local utils = require "resty.session.utils"
-  -- local ikm = utils.rand_bytes(32)
-  -- local nonce = utils.rand_bytes(32)
-  -- local key, err = utils.derive_pbkdf2_hmac_sha256(ikm, nonce, "encryption", 32, 100000)
-  derive_pbkdf2_hmac_sha256 = function(ikm, nonce, usage, size, iterations)
+  -- local pass = "my-super-secret-password"
+  -- local salt = utils.rand_bytes(32)
+  -- local key, err = utils.derive_pbkdf2_hmac_sha256(pass, salt, "encryption", 32, 10000)
+  derive_pbkdf2_hmac_sha256 = function(pass, salt, usage, size, iterations)
     if not kdf_derive then
       local kdf = require "resty.openssl.kdf"
       PBKDF2_SHA256_OPTS = {
@@ -551,7 +583,7 @@ local derive_pbkdf2_hmac_sha256  do
       kdf_derive = kdf.derive
     end
     derive_pbkdf2_hmac_sha256 = derive_pbkdf2_hmac_sha256_real
-    return derive_pbkdf2_hmac_sha256(ikm, nonce, usage, size, iterations)
+    return derive_pbkdf2_hmac_sha256(pass, salt, usage, size, iterations)
   end
 end
 
@@ -564,6 +596,7 @@ end
 -- * `Low`: key and iv will be derived using PBKDF2 with SHA-256 (1.000 iterations)
 -- * `Medium`: key and iv will be derived using PBKDF2 with SHA-256 (10.000 iterations)
 -- * `High`: key and iv will be derived using PBKDF2 with SHA-256 (100.000 iterations)
+-- * `Very High`: key and iv will be derived using PBKDF2 with SHA-256 (1.000.000 iterations)
 --
 -- @function utils.derive_aes_gcm_256_key_and_iv
 -- @tparam       string  ikm  initial key material
@@ -581,7 +614,9 @@ end
 local function derive_aes_gcm_256_key_and_iv(ikm, nonce, safety)
   local bytes, err
   if safety and safety ~= "None" then
-    if safety == "High" then
+    if safety == "Very High" then
+      bytes, err = derive_pbkdf2_hmac_sha256(ikm, nonce, "encryption", 44, 1000000)
+    elseif safety == "High" then
       bytes, err = derive_pbkdf2_hmac_sha256(ikm, nonce, "encryption", 44, 100000)
     elseif safety == "Low" then
       bytes, err = derive_pbkdf2_hmac_sha256(ikm, nonce, "encryption", 44, 1000)
@@ -617,7 +652,7 @@ end
 -- local utils = require "resty.session.utils"
 -- local ikm = utils.rand_bytes(32)
 -- local nonce = utils.rand_bytes(32)
--- local key, err = utils.derive_pbkdf2_hmac_sha256(ikm, nonce)
+-- local key, err = utils.derive_hmac_sha256_key(ikm, nonce)
 local function derive_hmac_sha256_key(ikm, nonce)
   return derive_hkdf_sha256(ikm, nonce, "authentication", 32)
 end
@@ -744,51 +779,103 @@ local hmac_sha256 do
 end
 
 
----
--- Loads session storage and creates a new instance using session configuration.
---
--- @function utils.load_storage
--- @tparam  string  storage  name of the storage to load
--- @tparam[opt]  string  configuration  session configuration
--- @treturn  table|nil  instance of session storage
--- @treturn  string|nil  error message
---
--- @usage
--- local postgres = require "resty.session.utils".load_storage("postgres", {
---   postgres = {
---     host = "127.0.0.1",
---   }
--- })
-local function load_storage(storage, configuration)
-  if storage == "file" then
-    return require("resty.session.file").new(configuration and configuration.file)
 
-  elseif storage == "memcached" then
-    return require("resty.session.memcached").new(configuration and configuration.memcached)
+local load_storage do
+  local DSHM
+  local FILE
+  local MEMCACHED
+  local MYSQL
+  local POSTGRES
+  local REDIS
+  local REDIS_SENTINEL
+  local REDIS_CLUSTER
+  local SHM
+  local CUSTOM = {}
 
-  elseif storage == "mysql" then
-    return require("resty.session.mysql").new(configuration and configuration.mysql)
+  ---
+  -- Loads session storage and creates a new instance using session configuration.
+  --
+  -- @function utils.load_storage
+  -- @tparam  string  storage  name of the storage to load
+  -- @tparam[opt]  table  configuration  session configuration
+  -- @treturn  table|nil  instance of session storage
+  -- @treturn  string|nil  error message
+  --
+  -- @usage
+  -- local postgres = require "resty.session.utils".load_storage("postgres", {
+  --   postgres = {
+  --     host = "127.0.0.1",
+  --   }
+  -- })
+  load_storage = function(storage, configuration)
+    if storage == "cookie" then
+      return nil
 
-  elseif storage == "postgres" then
-    return require("resty.session.postgres").new(configuration and configuration.postgres)
-
-  elseif storage == "redis" then
-    local cfg = configuration and configuration.redis
-    if cfg then
-      if cfg.nodes then
-        return require("resty.session.redis-cluster").new(cfg)
-      elseif cfg.sentinels then
-        return require("resty.session.redis-sentinel").new(cfg)
+    elseif storage == "dshm" then
+      if not DSHM then
+        DSHM = require("resty.session.dshm")
       end
+      return DSHM.new(configuration and configuration.dshm)
+
+    elseif storage == "file" then
+      if not FILE then
+        FILE = require("resty.session.file")
+      end
+      return FILE.new(configuration and configuration.file)
+
+    elseif storage == "memcached" then
+      if not MEMCACHED then
+        MEMCACHED = require("resty.session.memcached")
+      end
+      return MEMCACHED.new(configuration and configuration.memcached)
+
+    elseif storage == "mysql" then
+      if not MYSQL then
+        MYSQL = require("resty.session.mysql")
+      end
+      return MYSQL.new(configuration and configuration.mysql)
+
+    elseif storage == "postgres" then
+      if not POSTGRES then
+        POSTGRES = require("resty.session.postgres")
+      end
+      return POSTGRES.new(configuration and configuration.postgres)
+
+    elseif storage == "redis" then
+      local cfg = configuration and configuration.redis
+      if cfg then
+        if cfg.nodes then
+          if not REDIS_CLUSTER then
+            REDIS_CLUSTER = require("resty.session.redis-cluster")
+          end
+          return REDIS_CLUSTER.new(cfg)
+
+        elseif cfg.sentinels then
+          if not REDIS_SENTINEL then
+            REDIS_SENTINEL = require("resty.session.redis-sentinel")
+          end
+          return REDIS_SENTINEL.new(cfg)
+        end
+      end
+
+      if not REDIS then
+        REDIS = require("resty.session.redis")
+      end
+      return REDIS.new(cfg)
+
+    elseif storage == "shm" then
+      if not SHM then
+        SHM = require("resty.session.shm")
+      end
+
+      return SHM.new(configuration and configuration.shm)
+
+    else
+      if not CUSTOM[storage] then
+        CUSTOM[storage] = require(storage)
+      end
+      return CUSTOM[storage].new(configuration and configuration[storage])
     end
-
-    return require("resty.session.redis").new(cfg)
-
-  elseif storage == "shm" then
-    return require("resty.session.shm").new(configuration and configuration.shm)
-
-  else
-    return require(storage).new(configuration and configuration[storage])
   end
 end
 

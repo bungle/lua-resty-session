@@ -64,22 +64,27 @@ local NOTICE = ngx.NOTICE
 local WARN   = ngx.WARN
 
 
--- Type (1B) || Options (2B) || Session ID (32B) || Creation Time (8B) || Rolling Offset (4B) || Data Size (4B) || Tag (16B) || Idling Offset (2B) || Mac (16B) || [ Data (*B) ]
+local KEY_SIZE = 32
 
 
-local COOKIE_TYPE_SIZE    = 1
-local OPTIONS_SIZE        = 2
-local SID_SIZE            = 32
-local CREATED_AT_SIZE     = 8
-local ROLLING_OFFSET_SIZE = 4
-local DATA_SIZE           = 4
-local TAG_SIZE            = 16
-local IDLING_OFFSET_SIZE  = 2
-local MAC_SIZE            = 16
+-- Type (1B) || Options (2B) || Session ID (32) || Creation Time (5B) || Rolling Offset (3B) || Data Size (3B) || Tag (16B) || Idling Offset (2B) || Mac (16B) || [ Data (*B) ]
 
 
-local HEADER_SIZE = COOKIE_TYPE_SIZE + OPTIONS_SIZE + SID_SIZE + CREATED_AT_SIZE + ROLLING_OFFSET_SIZE +
-                    DATA_SIZE + TAG_SIZE + IDLING_OFFSET_SIZE + MAC_SIZE
+local COOKIE_TYPE_SIZE    = 1  --  1
+local OPTIONS_SIZE        = 2  --  3
+local SID_SIZE            = 32 -- 35
+local CREATION_TIME_SIZE  = 5  -- 40
+local ROLLING_OFFSET_SIZE = 3  -- 43
+local DATA_SIZE           = 3  -- 46
+local TAG_SIZE            = 16 -- 62
+local IDLING_OFFSET_SIZE  = 2  -- 64
+local MAC_SIZE            = 16 -- 80
+
+
+local HEADER_TAG_SIZE = COOKIE_TYPE_SIZE + OPTIONS_SIZE + SID_SIZE + CREATION_TIME_SIZE + ROLLING_OFFSET_SIZE + DATA_SIZE
+local HEADER_TOUCH_SIZE = HEADER_TAG_SIZE + TAG_SIZE
+local HEADER_MAC_SIZE = HEADER_TOUCH_SIZE + IDLING_OFFSET_SIZE
+local HEADER_SIZE = HEADER_MAC_SIZE + MAC_SIZE
 local HEADER_ENCODED_SIZE = base64_size(HEADER_SIZE)
 
 
@@ -89,7 +94,10 @@ local COOKIE_TYPE = bpack(COOKIE_TYPE_SIZE, 1)
 local MAX_COOKIE_SIZE    = 4096
 local MAX_COOKIES        = 9
 local MAX_COOKIES_SIZE   = MAX_COOKIES * MAX_COOKIE_SIZE -- 36864 bytes
-local MAX_IDLING_TIMEOUT = 65535
+local MAX_CREATION_TIME  = 2 ^ (CREATION_TIME_SIZE  * 8) - 1
+local MAX_ROLLING_OFFSET = 2 ^ (ROLLING_OFFSET_SIZE * 8) - 1
+local MAX_IDLING_OFFSET  = 2 ^ (IDLING_OFFSET_SIZE  * 8) - 1
+local MAX_DATA_SIZE      = 2 ^ (DATA_SIZE           * 8) - 1
 
 
 local OPTIONS_NONE       = 0x0000
@@ -169,6 +177,10 @@ local function sha256_storage_key(sid)
     return nil, errmsg(err, "unable to sha256 hash session id")
   end
 
+  if SID_SIZE ~= 32 then
+    key = sub(key, 1, SID_SIZE)
+  end
+
   key, err = encode_base64url(key)
   if not key then
     return nil, errmsg(err, "unable to base64url encode session id")
@@ -189,7 +201,11 @@ local function calculate_mac(ikm, nonce, msg)
     return nil, errmsg(err, "unable to calculate session message authentication code")
   end
 
-  return sub(mac, 1, MAC_SIZE)
+  if MAC_SIZE ~= 32 then
+    return sub(mac, 1, MAC_SIZE)
+  end
+
+  return mac
 end
 
 
@@ -358,15 +374,18 @@ local function open(self, remember, meta_only)
     end
   end
 
-  local created_at do
-    created_at = HEADER_BUFFER:get(CREATED_AT_SIZE)
-    if #created_at ~= CREATED_AT_SIZE then
+  local creation_time do
+    creation_time = HEADER_BUFFER:get(CREATION_TIME_SIZE)
+    if #creation_time ~= CREATION_TIME_SIZE then
       return nil, "invalid session creation time"
     end
 
-    created_at = bunpack(CREATED_AT_SIZE, created_at)
+    creation_time = bunpack(CREATION_TIME_SIZE, creation_time)
+    if not creation_time or creation_time < 0 or creation_time > MAX_CREATION_TIME then
+      return nil, "invalid session creation time"
+    end
 
-    local period = current_time - created_at
+    local period = current_time - creation_time
     if remember then
       local remember_timeout = self.remember_timeout
       if remember_timeout ~= 0 then
@@ -392,11 +411,14 @@ local function open(self, remember, meta_only)
     end
 
     rolling_offset = bunpack(ROLLING_OFFSET_SIZE, rolling_offset)
+    if not rolling_offset or rolling_offset < 0 or rolling_offset > MAX_ROLLING_OFFSET then
+      return nil, "invalid session rolling offset"
+    end
 
     if not remember then
       local rolling_timeout = self.rolling_timeout
       if rolling_timeout ~= 0 then
-        local rolling_period = current_time - created_at - rolling_offset
+        local rolling_period = current_time - creation_time - rolling_offset
         if rolling_period > rolling_timeout then
           return nil, "session rolling timeout exceeded"
         end
@@ -411,6 +433,9 @@ local function open(self, remember, meta_only)
     end
 
     data_size = bunpack(DATA_SIZE, data_size)
+    if not data_size or data_size < 0 or data_size > MAX_DATA_SIZE then
+      return nil, "invalid session data size"
+    end
   end
 
   local tag do
@@ -427,6 +452,9 @@ local function open(self, remember, meta_only)
     end
 
     idling_offset = bunpack(IDLING_OFFSET_SIZE, idling_offset)
+    if not idling_offset or idling_offset < 0 or idling_offset > MAX_IDLING_OFFSET then
+      return nil, "invalid session idling offset"
+    end
 
     if remember then
       if idling_offset ~= 0 then
@@ -436,7 +464,7 @@ local function open(self, remember, meta_only)
     else
       local idling_timeout = self.idling_timeout
       if idling_timeout ~= 0 then
-        local idling_period = current_time - created_at - rolling_offset - idling_offset
+        local idling_period = current_time - creation_time - rolling_offset - idling_offset
         if idling_period > idling_timeout then
           return nil, "session idling timeout exceeded"
         end
@@ -451,7 +479,7 @@ local function open(self, remember, meta_only)
       return nil, "invalid session message authentication code"
     end
 
-    local msg = sub(header_decoded, 1, HEADER_SIZE - MAC_SIZE)
+    local msg = sub(header_decoded, 1, HEADER_MAC_SIZE)
     local expected_mac, err = calculate_mac(ikm, sid, msg)
     if mac ~= expected_mac then
       local fallback_keys = self.ikm_fallbacks
@@ -460,7 +488,7 @@ local function open(self, remember, meta_only)
         if count > 0 then
           for i = 1, count do
             ikm = fallback_keys[i]
-            local expected_mac, err = calculate_mac(ikm, sid, msg)
+            expected_mac, err = calculate_mac(ikm, sid, msg)
             if mac == expected_mac then
               break
             end
@@ -560,7 +588,7 @@ local function open(self, remember, meta_only)
     self.remember_meta = {
       options        = options,
       sid            = sid,
-      created_at     = created_at,
+      creation_time  = creation_time,
       rolling_offset = rolling_offset,
       data_size      = data_size,
       tag            = tag,
@@ -576,7 +604,7 @@ local function open(self, remember, meta_only)
     self.meta = {
       options        = options,
       sid            = sid,
-      created_at     = created_at,
+      creation_time  = creation_time,
       rolling_offset = rolling_offset,
       data_size      = data_size,
       tag            = tag,
@@ -604,7 +632,7 @@ local function open(self, remember, meta_only)
     return nil, errmsg(err, "unable to derive session decryption key")
   end
 
-  local aad = sub(header_decoded, 1, HEADER_SIZE - MAC_SIZE - TAG_SIZE - IDLING_OFFSET_SIZE)
+  local aad = sub(header_decoded, 1, HEADER_TAG_SIZE)
   local plaintext, err = decrypt_aes_256_gcm(key, iv, ciphertext, aad, tag)
   if not plaintext then
     return nil, errmsg(err, "unable to decrypt session data")
@@ -642,7 +670,7 @@ local function open(self, remember, meta_only)
     self.state = STATE_NEW
     self.data = data
     self.data_index = count + 1
-    return nil, "missing session audience"
+    return nil, "missing session audience", true
   end
 
   self.state = STATE_OPEN
@@ -676,12 +704,12 @@ local function save(self, state, remember)
   local current_time = time()
   local rolling_offset
 
-  local created_at = meta.created_at
-  if created_at then
-    rolling_offset = current_time - created_at
+  local creation_time = meta.creation_time
+  if creation_time then
+    rolling_offset = current_time - creation_time
 
   else
-    created_at = current_time
+    creation_time = current_time
     rolling_offset = 0
   end
 
@@ -733,12 +761,12 @@ local function save(self, state, remember)
 
   local packed_options        = bpack(OPTIONS_SIZE, options)
   local packed_data_size      = bpack(DATA_SIZE, data_size)
-  local packed_created_at     = bpack(CREATED_AT_SIZE, created_at)
+  local packed_creation_time  = bpack(CREATION_TIME_SIZE, creation_time)
   local packed_rolling_offset = bpack(ROLLING_OFFSET_SIZE, rolling_offset)
   local packed_idling_offset  = bpack(IDLING_OFFSET_SIZE, idling_offset)
 
   HEADER_BUFFER:reset()
-  HEADER_BUFFER:put(COOKIE_TYPE, packed_options, sid, packed_created_at, packed_rolling_offset, packed_data_size)
+  HEADER_BUFFER:put(COOKIE_TYPE, packed_options, sid, packed_creation_time, packed_rolling_offset, packed_data_size)
 
   local ikm = self.ikm
   local key, iv
@@ -764,7 +792,7 @@ local function save(self, state, remember)
     return nil, err
   end
 
-  local header_decoded = HEADER_BUFFER:put(sub(mac, 1, MAC_SIZE)):get()
+  local header_decoded = HEADER_BUFFER:put(mac):get()
   local header_encoded, err = encode_base64url(header_decoded)
   if not header_encoded then
     return nil, errmsg(err, "unable to base64url encode session header")
@@ -784,7 +812,7 @@ local function save(self, state, remember)
   local remember_flags
   if remember then
     local max_age = self.remember_timeout
-    local expires = http_time(created_at + max_age)
+    local expires = http_time(creation_time + max_age)
     remember_flags = fmt("; Expires=%s; Max-Age=%d", expires, max_age)
   end
 
@@ -915,7 +943,7 @@ local function save(self, state, remember)
     self.remember_meta = {
       options        = options,
       sid            = sid,
-      created_at     = created_at,
+      creation_time  = creation_time,
       rolling_offset = rolling_offset,
       data_size      = data_size,
       tag            = tag,
@@ -932,7 +960,7 @@ local function save(self, state, remember)
     self.meta = {
       options        = options,
       sid            = sid,
-      created_at     = created_at,
+      creation_time  = creation_time,
       rolling_offset = rolling_offset,
       data_size      = data_size,
       tag            = tag,
@@ -975,7 +1003,7 @@ local function save_info(self, data, remember)
 
   local current_time = time()
 
-  local ttl = max(self.rolling_timeout - (current_time - meta.created_at -  meta.rolling_offset), 1)
+  local ttl = max(self.rolling_timeout - (current_time - meta.creation_time -  meta.rolling_offset), 1)
   local ok, err = self.storage:set(cookie_name, key, data, ttl, current_time)
   if not ok then
     return nil, errmsg(err, "unable to store session info")
@@ -1359,13 +1387,52 @@ end
 
 
 ---
+-- Set session data.
+--
+-- @function instance:set_data
+-- @tparam table data data
+--
+-- @usage
+-- local session, err, exists = require "resty.session".open()
+-- if not exists then
+--   local data = session:set_data({
+--     user = "Anonymous",
+--   })
+-- end
+function metatable:set_data(data)
+  assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
+  assert(type(data) == "table", "invalid session data")
+  self.data[self.data_index][1] = data
+end
+
+
+---
+-- Get session data.
+--
+-- @function instance:get_data
+-- @tparam string key key
+-- @treturn table value
+--
+-- @usage
+-- local session, err, exists = require "resty.session".open()
+-- if exists then
+--   local data = session:get_data()
+--   ngx.req.set_header("Authorization", "Bearer " .. data.access_token)
+-- end
+function metatable:get_data()
+  assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
+  return self.data[self.data_index][1]
+end
+
+
+---
 -- Set a value in session.
 --
 -- @function instance:set
 -- @tparam string key   key
 -- @param value value
 function metatable:set(key, value)
-  assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
+  assert(self.state ~= STATE_CLOSED, "unable to set session data value on closed session")
   if self.storage or byte(key, 1) ~= AT_BYTE then
     self.data[self.data_index][1][key] = value
   else
@@ -1388,7 +1455,7 @@ end
 --   ngx.req.set_header("Authorization", "Bearer " .. access_token)
 -- end
 function metatable:get(key)
-  assert(self.state ~= STATE_CLOSED, "unable to get session data on closed session")
+  assert(self.state ~= STATE_CLOSED, "unable to get session data value on closed session")
   if self.storage or byte(key, 1) ~= AT_BYTE then
     return self.data[self.data_index][1][key]
   else
@@ -1534,9 +1601,13 @@ end
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:open()
-  local exists, err = open(self)
+  local exists, err, audience_error = open(self)
   if exists then
     return true
+  end
+
+  if audience_error then
+    return nil, err
   end
 
   if not self.remember then
@@ -1612,9 +1683,9 @@ function metatable:touch()
   assert(self.state == STATE_OPEN, "unable to touch nonexistent or closed session")
 
   local meta = self.meta
-  local idling_offset = min(time() - meta.created_at - meta.rolling_offset, MAX_IDLING_TIMEOUT)
+  local idling_offset = min(time() - meta.creation_time - meta.rolling_offset, MAX_IDLING_OFFSET)
 
-  HEADER_BUFFER:reset():put(sub(meta.header, 1, HEADER_SIZE - IDLING_OFFSET_SIZE - MAC_SIZE),
+  HEADER_BUFFER:reset():put(sub(meta.header, 1, HEADER_TOUCH_SIZE),
                             bpack(IDLING_OFFSET_SIZE, idling_offset))
 
   local mac, err = calculate_mac(meta.ikm, meta.sid, HEADER_BUFFER:tostring())
@@ -1662,7 +1733,7 @@ function metatable:refresh()
   assert(self.state == STATE_OPEN, "unable to refresh nonexistent or closed session")
 
   local meta = self.meta
-  local created_at = meta.created_at
+  local creation_time = meta.creation_time
   local rolling_offset = meta.rolling_offset
 
   local rolling_timeout = self.rolling_timeout
@@ -1675,7 +1746,7 @@ function metatable:refresh()
     idling_timeout = DEFAULT_IDLING_TIMEOUT
   end
 
-  local time_passed_after_previous_save = time() - created_at - rolling_offset
+  local time_passed_after_previous_save = time() - creation_time - rolling_offset
   local time_to_rolling_expiry = rolling_timeout - time_passed_after_previous_save
   if time_to_rolling_expiry > idling_timeout then
     local idling_offset = meta.idling_offset
@@ -1685,7 +1756,7 @@ function metatable:refresh()
         return self:touch()
 
       else
-        return false
+        return true
       end
 
     else
@@ -1847,11 +1918,11 @@ local session = {
 -- @field cookie_http_only Mark cookie HTTP only, use `true` or `false` (defaults to `true`)
 -- @field cookie_secure Mark cookie secure, use `nil`, `true` or `false` (defaults to `nil`)
 -- @field cookie_priority Cookie priority, use `nil`, `"Low"`, `"Medium"`, or `"High"` (defaults to `nil`)
--- @field cookie_same_site Cookie same-site policy, use `nil`, `"Lax"`, `"Strict"`, or `"None"` (defaults to `"Lax"`)
+-- @field cookie_same_site Cookie same-site policy, use `nil`, `"Lax"`, `"Strict"`, `"None"`, or `"Default"` (defaults to `"Lax"`)
 -- @field cookie_same_party Mark cookie with same party flag, use `nil`, `true`, or `false` (default: `nil`)
 -- @field cookie_partitioned Mark cookie with partitioned flag, use `nil`, `true`, or `false` (default: `nil`)
 -- @field remember Enable or disable persistent sessions, use `nil`, `true`, or `false` (defaults to `false`)
--- @field remember_safety Remember cookie key derivation complexity, use `nil`, `"None"` (fast), `"Low"`, `"Medium"`, or `"High"` (slow) (defaults to `"Medium"`)
+-- @field remember_safety Remember cookie key derivation complexity, use `nil`, `"None"` (fast), `"Low"`, `"Medium"`, `"High"` or `"Very High"` (slow) (defaults to `"Medium"`)
 -- @field remember_cookie_name Persistent session cookie name, e.g. `"remember"` (defaults to `"remember"`)
 -- @field audience Session audience, e.g. `"my-application"` (defaults to `"default"`)
 -- @field subject Session subject, e.g. `"john.doe@example.com"` (defaults to `nil`)
@@ -1864,7 +1935,7 @@ local session = {
 -- @field store_metadata Whether to also store metadata of sessions, such as collecting data of sessions belonging to specific subject (defaults to `false`).
 -- @field touch_threshold Touch threshold controls how frequently or infrequently the `session:refresh` touches the cookie, e.g. `60` (defaults to `60`, or a minute) (in seconds)
 -- @field compression_threshold Compression threshold controls when the data is deflated, e.g. `1024` (defaults to `1024`, or a kilobyte) (in bytes)
--- @field storage Storage is responsible of storing session data, use `nil` (data is stored in cookie), `dshm`, `file`, `memcached`, `mysql`, `postgres`, `redis`, `redis-cluster`, `redis-sentinel`, or `shm`, or give a name of custom module (`"custom.session.storage"`), or a `table` that implements session storage interface (defaults to `nil`)
+-- @field storage Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface (defaults to `nil`)
 -- @field dshm Configuration for dshm storage, e.g. `{ prefix = "sessions" }`
 -- @field file Configuration for file storage, e.g. `{ path = "/tmp", suffix = "session" }`
 -- @field memcached Configuration for memcached storage, e.g. `{ prefix = "sessions" }`
@@ -1872,7 +1943,7 @@ local session = {
 -- @field postgres Configuration for Postgres storage, e.g. `{ database = "sessions" }`
 -- @field redis Configuration for Redis / Redis Sentinel / Redis Cluster storages, e.g. `{ prefix = "sessions" }`
 -- @field shm Configuration for shared memory storage, e.g. `{ zone = "sessions" }`
--- @field ["resty.session.custom-storage"] sssadws
+-- @field ["custom-storage"] custom storage (loaded with `require "custom-storage"`) configuration
 -- @table configuration
 
 
@@ -1904,7 +1975,7 @@ function session.init(configuration)
   if configuration then
     local ikm = configuration.ikm
     if ikm then
-      assert(#ikm == 32, "ikm field has invalid size, must be 32 bytes")
+      assert(#ikm == KEY_SIZE, "invalid ikm size")
       DEFAULT_IKM = ikm
 
     else
@@ -1918,7 +1989,7 @@ function session.init(configuration)
     if ikm_fallbacks then
       local count = #ikm_fallbacks
       for i = 1, count do
-        assert(#ikm_fallbacks[i] == 32, "ikm_fallbacks field has invalid size, each ikm must be 32 bytes")
+        assert(#ikm_fallbacks[i] == KEY_SIZE, "invalid ikm size in ikm_fallbacks")
       end
 
       DEFAULT_IKM_FALLBACKS = ikm_fallbacks
@@ -1994,7 +2065,7 @@ function session.init(configuration)
   end
 
   if not DEFAULT_IKM then
-    DEFAULT_IKM = assert(sha256(assert(rand_bytes(32))))
+    DEFAULT_IKM = assert(sha256(assert(rand_bytes(KEY_SIZE))))
   end
 
   if type(DEFAULT_STORAGE) == "string" then
@@ -2131,7 +2202,7 @@ function session.new(configuration)
   local cookie_flags = FLAGS_BUFFER:get()
 
   if ikm then
-    assert(#ikm == 32, "ikm field has invalid size, must be 32 bytes")
+    assert(#ikm == KEY_SIZE, "invalid ikm size")
 
   else
     local secret = configuration and configuration.secret
@@ -2140,7 +2211,7 @@ function session.new(configuration)
 
     else
       if not DEFAULT_IKM then
-        DEFAULT_IKM = assert(sha256(assert(rand_bytes(32))))
+        DEFAULT_IKM = assert(sha256(assert(rand_bytes(KEY_SIZE))))
       end
 
       ikm = DEFAULT_IKM
@@ -2150,7 +2221,7 @@ function session.new(configuration)
   if ikm_fallbacks then
     local count = #ikm_fallbacks
     for i = 1, count do
-      assert(#ikm_fallbacks[i] == 32, "ikm_fallbacks field has invalid size, each ikm must be 32 bytes")
+      assert(#ikm_fallbacks[i] == KEY_SIZE, "invalid ikm size in ikm_fallbacks")
     end
 
   else
