@@ -25,6 +25,7 @@ local assert = assert
 local remove = table.remove
 local header = ngx.header
 local error = error
+local floor = math.ceil
 local time = ngx.time
 local byte = string.byte
 local type = type
@@ -67,6 +68,7 @@ local WARN   = ngx.WARN
 local KEY_SIZE = 32
 
 
+--[ HEADER ----------------------------------------------------------------------------------------------------------------------------------------------------][ PAYLOAD ----]
 -- Type (1B) || Options (2B) || Session ID (32) || Creation Time (5B) || Rolling Offset (3B) || Data Size (3B) || Tag (16B) || Idling Offset (2B) || Mac (16B) || [ Data (*B) ]
 
 
@@ -93,11 +95,13 @@ local COOKIE_TYPE = bpack(COOKIE_TYPE_SIZE, 1)
 
 local MAX_COOKIE_SIZE    = 4096
 local MAX_COOKIES        = 9
-local MAX_COOKIES_SIZE   = MAX_COOKIES * MAX_COOKIE_SIZE -- 36864 bytes
-local MAX_CREATION_TIME  = 2 ^ (CREATION_TIME_SIZE  * 8) - 1
-local MAX_ROLLING_OFFSET = 2 ^ (ROLLING_OFFSET_SIZE * 8) - 1
-local MAX_IDLING_OFFSET  = 2 ^ (IDLING_OFFSET_SIZE  * 8) - 1
-local MAX_DATA_SIZE      = 2 ^ (DATA_SIZE           * 8) - 1
+local MAX_COOKIES_SIZE   = MAX_COOKIES * MAX_COOKIE_SIZE     --    36864 bytes
+local MAX_CREATION_TIME  = 2 ^ (CREATION_TIME_SIZE  * 8) - 1 --   ~34789 years
+local MAX_ROLLING_OFFSET = 2 ^ (ROLLING_OFFSET_SIZE * 8) - 1 --     ~194 days
+local MAX_IDLING_OFFSET  = 2 ^ (IDLING_OFFSET_SIZE  * 8) - 1 --      ~18 hours
+local MAX_DATA_SIZE      = 2 ^ (DATA_SIZE           * 8) - 1 -- 16777215 bytes
+local MAX_TTL            = 34560000                          --      400 days
+-- see: https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis-11#section-4.1.2.1
 
 
 local OPTIONS_NONE       = 0x0000
@@ -706,11 +710,19 @@ local function save(self, state, remember)
 
   local creation_time = meta.creation_time
   if creation_time then
-    rolling_offset = current_time - creation_time
+    rolling_offset = min(current_time - creation_time, MAX_ROLLING_OFFSET)
+    if rolling_offset > MAX_ROLLING_OFFSET then
+      return nil, "session maximum rolling offset exceeded"
+    end
 
   else
     creation_time = current_time
     rolling_offset = 0
+  end
+
+  if creation_time > MAX_CREATION_TIME then
+    -- this should only happen at around year 36759 (most likely a clock problem)
+    return nil, "session maximum creation time exceeded"
   end
 
   do
@@ -748,6 +760,10 @@ local function save(self, state, remember)
     data_size = base64_size(data_size)
 
     if storage then
+      if data_size > MAX_DATA_SIZE then
+        return nil, "session maximum data size exceeded"
+      end
+
       cookie_chunks = 1
     else
       cookie_chunks, err = calculate_cookie_chunks(cookie_name_size, data_size)
@@ -812,6 +828,10 @@ local function save(self, state, remember)
   local remember_flags
   if remember then
     local max_age = self.remember_timeout
+    if max_age == 0 then
+      max_age = MAX_TTL
+    end
+
     local expires = http_time(creation_time + max_age)
     remember_flags = fmt("; Expires=%s; Max-Age=%d", expires, max_age)
   end
@@ -915,6 +935,9 @@ local function save(self, state, remember)
     end
 
     local ttl = remember and self.remember_timeout or self.rolling_timeout
+    if ttl == 0 then
+      ttl = MAX_TTL
+    end
     local ok, err = storage:set(cookie_name, key, data, ttl, current_time, old_key, self.stale_ttl, metadata, remember)
     if not ok then
       return nil, errmsg(err, "unable to store session data")
@@ -1003,7 +1026,11 @@ local function save_info(self, data, remember)
 
   local current_time = time()
 
-  local ttl = max(self.rolling_timeout - (current_time - meta.creation_time -  meta.rolling_offset), 1)
+  local ttl = self.rolling_timeout
+  if ttl == 0 then
+    ttl = MAX_TTL
+  end
+  ttl = max(ttl - (current_time - meta.creation_time - meta.rolling_offset), 1)
   local ok, err = self.storage:set(cookie_name, key, data, ttl, current_time)
   if not ok then
     return nil, errmsg(err, "unable to store session info")
@@ -1723,8 +1750,10 @@ end
 -- Refresh the session.
 --
 -- Either saves the session (creating a new session id) or touches the session
--- depending on whether the rolling timeout is getting closer. The touch has
--- a threshold, by default one minute, so it may be skipped in some cases.
+-- depending on whether the rolling timeout is getting closer, which means
+-- by default when 3/4 of rolling timeout is spent - 45 minutes with default
+-- rolling timeout of an hour. The touch has a threshold, by default one minute,
+-- so it may be skipped in some cases (you can call `session:touch()` to force it).
 --
 -- @function instance:refresh
 -- @treturn true|nil ok
@@ -1732,39 +1761,31 @@ end
 function metatable:refresh()
   assert(self.state == STATE_OPEN, "unable to refresh nonexistent or closed session")
 
-  local meta = self.meta
-  local creation_time = meta.creation_time
-  local rolling_offset = meta.rolling_offset
-
   local rolling_timeout = self.rolling_timeout
-  if rolling_timeout == 0 then
-    rolling_timeout = DEFAULT_ROLLING_TIMEOUT
-  end
-
   local idling_timeout = self.idling_timeout
-  if idling_timeout == 0 then
-    idling_timeout = DEFAULT_IDLING_TIMEOUT
+  if rolling_timeout == 0 and idling_timeout == 0 then
+    return true
   end
 
-  local time_passed_after_previous_save = time() - creation_time - rolling_offset
-  local time_to_rolling_expiry = rolling_timeout - time_passed_after_previous_save
-  if time_to_rolling_expiry > idling_timeout then
-    local idling_offset = meta.idling_offset
-    if idling_offset then
-      local time_passed_after_previous_touch = time_passed_after_previous_save - idling_offset
-      if time_passed_after_previous_touch > self.touch_threshold then
-        return self:touch()
+  local meta = self.meta
+  local time_passed_since_save = time() - meta.creation_time - meta.rolling_offset
 
-      else
-        return true
-      end
+  if rolling_timeout > 0 then
+    local save_threshold = floor(rolling_timeout / 4 * 3)
+    if time_passed_since_save > save_threshold then
+      -- TODO: in case session was modified before calling this function, the possible remember me cookie needs to be saved too?
+      return save(self)
+    end
+  end
 
-    else
+  if idling_timeout > 0 then
+    local time_passed_since_touch = time_passed_since_save - meta.idling_offset
+    if time_passed_since_touch > self.touch_threshold then
       return self:touch()
     end
   end
 
-  return save(self)
+  return true
 end
 
 
