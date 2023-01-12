@@ -4,26 +4,92 @@
 -- @module resty.session.memcached
 
 
-local memcached = require "resty.memcached"
-local get_name = require "resty.session.utils".get_name
+local memcached   = require "resty.memcached"
+local utils       = require "resty.session.utils"
+local collections = require "resty.session.scored-collections"
 
 
 local setmetatable = setmetatable
-local error = error
-local null = ngx.null
+local error        = error
+local null         = ngx.null
+local time         = ngx.time
+local get_name     = utils.get_name
 
 
-local SET = memcached.set
-local GET = memcached.get
-local TOUCH = memcached.touch
-local DELETE = memcached.delete
+local function SET(self, memc, name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
+  local inferred_key = get_name(self, name, key)
 
+  if not metadata and not old_key then
+    return memc:set(inferred_key, value, ttl)
+  end
+
+  local ok, err = memc:set(inferred_key, value, ttl)
+  if err then
+    return nil, err
+  end
+
+  local old_name = old_key and get_name(self, name, old_key)
+  if old_name then
+    if remember then
+      memc:delete(old_name)
+    else
+      memc:touch(old_name, stale_ttl)
+    end
+  end
+
+  if metadata then
+    local audiences = metadata.audiences
+    local subjects  = metadata.subjects
+    for i = 1, #audiences do
+      -- no need to use get_name for this key because insert_element uses
+      -- this same storage access methods, so the prefix will be applied there
+      local aud_sub_key = audiences[i] .. ":" .. subjects[i]
+      local exp_score   = (current_time or time()) - 1
+      local new_score   = (current_time or time()) + ttl
+
+      collections.remove_range_by_score(self, name, aud_sub_key, 0, exp_score)
+      collections.insert_element(self, name, aud_sub_key, key, new_score)
+      if old_key then
+        collections.delete_element(self, name, aud_sub_key, old_key)
+      end
+    end
+  end
+  return ok
+end
+
+local function GET(self, memc, name, key)
+  local res, _, err = memc:get(get_name(self, name, key))
+  if err then
+    return nil, err
+  end
+  return res
+end
+
+local function DELETE(self, memc, name, key, metadata)
+  local key_name = get_name(self, name, key)
+  local ok, err = memc:delete(key_name)
+
+  if not metadata then
+    return ok
+  end
+
+  local audiences = metadata.audiences
+  local subjects  = metadata.subjects
+  local exp_score = time() - 1
+  for i = 1, #audiences do
+    local aud_sub_key = audiences[i] .. ":" .. subjects[i]
+    collections.remove_range_by_score(self, name, aud_sub_key, 0, exp_score)
+    collections.delete_element(self, name, aud_sub_key, key)
+  end
+
+  return ok, err
+end
 
 local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 11211
 
 
-local function exec(self, func, name, key, ...)
+local function exec(self, func, ...)
   local memc = memcached:new()
 
   local connect_timeout = self.connect_timeout
@@ -53,14 +119,7 @@ local function exec(self, func, name, key, ...)
     end
   end
 
-  key = get_name(self, name, key)
-
-  if func == GET then
-    local _
-    ok, _, err = func(memc, key)
-  else
-    ok, err = func(memc, key, ...)
-  end
+  ok, err = func(self, memc, ...)
 
   if err then
     memc:close()
@@ -110,8 +169,8 @@ end
 -- @tparam  table    remember  whether storing persistent session or not
 -- @treturn true|nil ok
 -- @treturn string   error message
-function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
-  return exec(self, SET, name, key, value, ttl)
+function metatable:set(...)
+  return exec(self, SET, ...)
 end
 
 
@@ -123,14 +182,8 @@ end
 -- @tparam  string     key  session key
 -- @treturn string|nil      session data
 -- @treturn string          error message
-function metatable:get(name, key)
-  return exec(self, GET, name, key)
-end
-
-
--- TODO: needs to be removed (set command should do it)
-function metatable:expire(name, key, ttl)
-  return exec(self, TOUCH, name, key, ttl)
+function metatable:get(...)
+  return exec(self, GET, ...)
 end
 
 
@@ -143,8 +196,8 @@ end
 -- @tparam[opt]  table  metadata  session meta data
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
-function metatable:delete(name, key, metadata)
-  return exec(self, DELETE, name, key)
+function metatable:delete(...)--name, key, metadata)
+  return exec(self, DELETE, ...)
 end
 
 
