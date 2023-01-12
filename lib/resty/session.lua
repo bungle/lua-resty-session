@@ -111,6 +111,8 @@ local OPTION_DEFLATE     = 0x0010
 
 
 local DEFAULT_AUDIENCE = "default"
+local DEFAULT_SUBJECT
+local DEFAULT_ENFORCE_SAME_SUBJECT = false
 local DEFAULT_META = {}
 local DEFAULT_IKM
 local DEFAULT_IKM_FALLBACKS
@@ -733,7 +735,20 @@ local function save(self, state, remember)
   end
 
   local data, data_size, cookie_chunks do
-    data, err = encode_json(self.data)
+    data = self.data
+    if self.enforce_same_subject then
+      local count = #data
+      if count > 1 then
+        local subject = data[self.data_index][3]
+        for i = count, 1, -1 do
+          if data[i][3] ~= subject then
+            remove(data, i)
+          end
+        end
+      end
+    end
+
+    data, err = encode_json(data)
     if not data then
       return nil, errmsg(err, "unable to json encode session data")
     end
@@ -1947,13 +1962,14 @@ local session = {
 -- @field remember_cookie_name Persistent session cookie name, e.g. `"remember"` (defaults to `"remember"`)
 -- @field audience Session audience, e.g. `"my-application"` (defaults to `"default"`)
 -- @field subject Session subject, e.g. `"john.doe@example.com"` (defaults to `nil`)
+-- @field enforce_same_subject When set to `true`, audiences need to share the same subject. The library removes non-subject matching audience data on save.
 -- @field stale_ttl When session is saved a new session is created, stale ttl specifies how long the old one can still be used, e.g. `10` (defaults to `10`) (in seconds)
 -- @field idling_timeout Idling timeout specifies how long the session can be inactive until it is considered invalid, e.g. `900` (defaults to `900`, or 15 minutes) (in seconds)
 -- @field rolling_timeout Rolling timeout specifies how long the session can be used until it needs to be renewed, e.g. `3600` (defaults to `3600`, or an hour) (in seconds)
 -- @field absolute_timeout Absolute timeout limits how long the session can be renewed, until re-authentication is required, e.g. `86400` (defaults to `86400`, or a day) (in seconds)
 -- @field remember_timeout Remember timeout specifies how long the persistent session is considered valid, e.g. `604800` (defaults to `604800`, or a week) (in seconds)
 -- @field hash_storage_key Whether to hash or not the storage key. With storage key hashed it is impossible to decrypt data on server side without having a cookie too (defaults to `true`).
--- @field store_metadata Whether to also store metadata of sessions, such as collecting data of sessions belonging to specific subject (defaults to `false`).
+-- @field store_metadata Whether to also store metadata of sessions, such as collecting data of sessions for a specific audience belonging to a specific subject (defaults to `false`).
 -- @field touch_threshold Touch threshold controls how frequently or infrequently the `session:refresh` touches the cookie, e.g. `60` (defaults to `60`, or a minute) (in seconds)
 -- @field compression_threshold Compression threshold controls when the data is deflated, e.g. `1024` (defaults to `1024`, or a kilobyte) (in bytes)
 -- @field storage Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface (defaults to `nil`)
@@ -2040,6 +2056,7 @@ function session.init(configuration)
     DEFAULT_REMEMBER_SAFETY       = configuration.remember_safety       or DEFAULT_REMEMBER_SAFETY
     DEFAULT_REMEMBER_COOKIE_NAME  = configuration.remember_cookie_name  or DEFAULT_REMEMBER_COOKIE_NAME
     DEFAULT_AUDIENCE              = configuration.audience              or DEFAULT_AUDIENCE
+    DEFAULT_SUBJECT               = configuration.subject               or DEFAULT_SUBJECT
     DEFAULT_STALE_TTL             = configuration.stale_ttl             or DEFAULT_STALE_TTL
     DEFAULT_IDLING_TIMEOUT        = configuration.idling_timeout        or DEFAULT_IDLING_TIMEOUT
     DEFAULT_ROLLING_TIMEOUT       = configuration.rolling_timeout       or DEFAULT_ROLLING_TIMEOUT
@@ -2083,6 +2100,11 @@ function session.init(configuration)
     if store_metadate ~= nil then
       DEFAULT_STORE_METADATA = store_metadate
     end
+
+    local enforce_same_subject = configuration.enforce_same_subject
+    if enforce_same_subject ~= nil then
+      DEFAULT_ENFORCE_SAME_SUBJECT = enforce_same_subject
+    end
   end
 
   if not DEFAULT_IKM then
@@ -2124,7 +2146,7 @@ function session.new(configuration)
   local remember_safety       = configuration and configuration.remember_safety       or DEFAULT_REMEMBER_SAFETY
   local remember_cookie_name  = configuration and configuration.remember_cookie_name  or DEFAULT_REMEMBER_COOKIE_NAME
   local audience              = configuration and configuration.audience              or DEFAULT_AUDIENCE
-  local subject               = configuration and configuration.subject
+  local subject               = configuration and configuration.subject               or DEFAULT_SUBJECT
   local stale_ttl             = configuration and configuration.stale_ttl             or DEFAULT_STALE_TTL
   local idling_timeout        = configuration and configuration.idling_timeout        or DEFAULT_IDLING_TIMEOUT
   local rolling_timeout       = configuration and configuration.rolling_timeout       or DEFAULT_ROLLING_TIMEOUT
@@ -2169,6 +2191,11 @@ function session.new(configuration)
   local store_metadata = configuration and configuration.store_metadata
   if store_metadata == nil then
     store_metadata = DEFAULT_STORE_METADATA
+  end
+
+  local enforce_same_subject = configuration and configuration.enforce_same_subject
+  if enforce_same_subject == nil then
+    enforce_same_subject = DEFAULT_ENFORCE_SAME_SUBJECT
   end
 
   if cookie_prefix == "__Host-" then
@@ -2281,6 +2308,7 @@ function session.new(configuration)
     compression_threshold = compression_threshold,
     storage_key           = hash_storage_key and sha256_storage_key or storage_key,
     store_metadata        = store_metadata,
+    enforce_same_subject  = enforce_same_subject,
     cookie_name           = cookie_name,
     cookie_flags          = cookie_flags,
     remember_cookie_name  = remember_cookie_name,
