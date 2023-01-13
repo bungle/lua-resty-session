@@ -10,6 +10,10 @@
 --
 
 local sha256_encode = require "resty.session.utils".sha256
+local buffer        = require "string.buffer"
+local encode        = buffer.encode
+local decode        = buffer.decode
+
 
 local function get_element_hash(value)
   return sha256_encode(value)
@@ -39,13 +43,13 @@ function _SCORED_COLLECTIONS.insert_element(
   if err then
     return nil, err
   end
-  collection = collection or {}
+  collection = collection and decode(collection) or {}
 
   collection[get_element_hash(value)] = {
     value = value,
     score = score
   }
-  storage:set(storage_cookie_name, coll_key, collection)
+  storage:set(storage_cookie_name, coll_key, encode(collection))
 end
 
 ---
@@ -66,12 +70,13 @@ function _SCORED_COLLECTIONS.delete_element(
   if err then
     return nil, err
   end
+  collection = decode(collection)
 
   collection[get_element_hash(value)] = nil
   if next(collection) == nil then --empty
     return storage:delete(storage_cookie_name, coll_key)
   end
-  return storage:set(storage_cookie_name, coll_key, collection)
+  return storage:set(storage_cookie_name, coll_key, encode(collection))
 end
 
 ---
@@ -88,7 +93,7 @@ function _SCORED_COLLECTIONS.get(storage, storage_cookie_name, coll_key)
   if err then
     return nil, err
   end
-  collection = collection or {}
+  collection = collection and decode(collection) or {}
 
   for _, element in pairs(collection) do
     elements[#elements + 1] = element.value
@@ -120,7 +125,7 @@ function _SCORED_COLLECTIONS.remove_range_by_score(
   if err then
     return nil, err
   end
-  collection = collection or {}
+  collection = collection and decode(collection) or {}
 
   for _, element in pairs(collection) do
     local min    = range_min
@@ -137,7 +142,7 @@ function _SCORED_COLLECTIONS.remove_range_by_score(
   if next(collection) == nil then --empty
     return storage:delete(storage_cookie_name, coll_key)
   end
-  return storage:set(storage_cookie_name, coll_key, collection)
+  return storage:set(storage_cookie_name, coll_key, encode(collection))
 end
 
 return _SCORED_COLLECTIONS
