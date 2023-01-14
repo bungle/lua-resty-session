@@ -10,13 +10,44 @@
 --
 
 local sha256_encode = require "resty.session.utils".sha256
+local utils         = require "resty.session.utils"
 local buffer        = require "string.buffer"
-local encode        = buffer.encode
-local decode        = buffer.decode
+
+
+local serialize     = buffer.encode
+local deserialize   = buffer.decode
+local encode_b64    = utils.encode_base64url
+local decode_b64    = utils.decode_base64url
 
 
 local function get_element_hash(value)
   return sha256_encode(value)
+end
+
+local function decode(v)
+  local res, err
+  res, err = decode_b64(v)
+  if not res then
+    return nil, err
+  end
+  res, err = deserialize(res)
+  if not res then
+    return nil, err
+  end
+  return res
+end
+
+local function encode(v)
+  local res, err
+  res, err = serialize(v)
+  if not res then
+    return nil, err
+  end
+  res, err = encode_b64(res)
+  if not res then
+    return nil, err
+  end
+  return res
 end
 
 
