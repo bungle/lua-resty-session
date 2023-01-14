@@ -62,7 +62,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
   if old_key then
     old_name = get_name(self, name, old_key)
     if not remember then
-      old_ttl  = self.dict:ttl(old_name)
+      old_ttl = self.dict:ttl(old_name)
     end
   end
 
