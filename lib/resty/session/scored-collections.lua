@@ -1,11 +1,11 @@
 --------------------------------------------------------------------------
 -- Scored Collections
 --
--- Allows to manage collections in storages that do not support them
--- out of the box, with the ability to set a different score to each
--- element and remove elements based on a score range.
+-- Allows to manage scored collections in storages that do not support them out
+-- of the box, with the ability to set a different score to each element and
+-- remove elements based on a score range.
 --
--- Implements a `get_element` `delete_element`, `get` interface to interact
+-- Implements a `insert_element` `delete_element`, `get` interface to interact
 -- with the collection given a key (coll_key).
 --
 
@@ -39,10 +39,7 @@ function _SCORED_COLLECTIONS.insert_element(
     value,
     score
   )
-  local collection, err = storage:get(storage_cookie_name, coll_key)
-  if err then
-    return nil, err
-  end
+  local collection = storage:get(storage_cookie_name, coll_key)
   collection = collection and decode(collection) or {}
 
   collection[get_element_hash(value)] = {
@@ -66,10 +63,7 @@ function _SCORED_COLLECTIONS.delete_element(
     coll_key,
     value
   )
-  local collection, err = storage:get(storage_cookie_name, coll_key)
-  if err then
-    return nil, err
-  end
+  local collection = storage:get(storage_cookie_name, coll_key)
   collection = decode(collection)
 
   collection[get_element_hash(value)] = nil
@@ -89,10 +83,7 @@ end
 -- @treturn table all the elements
 function _SCORED_COLLECTIONS.get(storage, storage_cookie_name, coll_key)
   local elements = {}
-  local collection, err = storage:get(storage_cookie_name, coll_key)
-  if err then
-    return nil, err
-  end
+  local collection = storage:get(storage_cookie_name, coll_key)
   collection = collection and decode(collection) or {}
 
   for _, element in pairs(collection) do
@@ -121,10 +112,7 @@ function _SCORED_COLLECTIONS.remove_range_by_score(
   -- remove range by score is currently O(n) with n = #elements in the
   -- collection this could be improved with an additional data structure
   -- for scores
-  local collection, err = storage:get(storage_cookie_name, coll_key)
-  if err then
-    return nil, err
-  end
+  local collection = storage:get(storage_cookie_name, coll_key)
   collection = collection and decode(collection) or {}
 
   for _, element in pairs(collection) do
