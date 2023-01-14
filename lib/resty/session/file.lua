@@ -5,13 +5,15 @@
 
 
 local collections = require "resty.session.scored-collections"
-
+local file_utils  = require "resty.session.file.file-utils"
+local EXP         = require "resty.session.file.file-expirations"
 
 local setmetatable = setmetatable
 local error = error
 local byte = string.byte
-local fmt = string.format
 local time = ngx.time
+local run_worker_thread = file_utils.run_worker_thread
+local get_path = file_utils.get_path
 
 
 local SLASH_BYTE = byte("/")
@@ -29,34 +31,6 @@ local DEFAULT_PATH do
   end
 
   DEFAULT_PATH = path:sub(1, pos)
-end
-
-
-local run_worker_thread do
-  run_worker_thread = ngx.run_worker_thread
-  if not run_worker_thread then
-    local require = require
-    run_worker_thread = function(_, module, func, ...)
-      local m = require(module)
-      return m[func](...)
-    end
-  end
-end
-
-
-local function get_path(self, name, key)
-  local path = self.path
-  local prefix = self.prefix
-  local suffix = self.suffix
-  if prefix and suffix then
-    return fmt("%s%s_%s_%s.%s", path, prefix, name, key, suffix)
-  elseif prefix then
-    return fmt("%s%s_%s_%s", path, prefix, name, key)
-  elseif suffix then
-    return fmt("%s%s_%s.%s", path, name, key, suffix)
-  else
-    return fmt("%s%s_%s", path, name, key)
-  end
 end
 
 
@@ -92,46 +66,55 @@ end
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
-  local inferred_path = get_path(self, name, key)
+  local now = (current_time or time())
+  EXP.delete_expired(self, name, now, false)
+
+  local path = get_path(self, name, key)
   if not metadata and not old_key then
-    return run_worker_thread(
+    if ttl then
+      EXP.upsert_ttl(self, name, key, ttl, now)
+    end
+    local _, res, err = run_worker_thread(
       self.pool,
-      "resty.session.file-thread",
+      "resty.session.file.file-thread",
       "set",
-      inferred_path,
+      path,
       value
     )
+    return res, err
   end
 
-  local old_path, old_ttl
+  local old_ttl
   if old_key then
-    old_path = get_path(self, name, old_key)
     if not remember then
-      old_ttl = nil -- TODO (expire implementation): set old_ttl to old_path's ttl
+      old_ttl = EXP.expires_at(self, name, old_key)
     end
   end
 
   local ok, res, err = run_worker_thread(
     self.pool,
-    "resty.session.file-thread",
+    "resty.session.file.file-thread",
     "set",
-    inferred_path,
+    path,
     value
   )
   if not res then
     return nil, err or "set failed"
   end
+  if ttl then
+    EXP.upsert_ttl(self, name, key, ttl, now)
+  end
 
-  if old_path then
+  if old_key then
     if remember then
       run_worker_thread(
         self.pool,
-        "resty.session.file-thread",
+        "resty.session.file.file-thread",
         "delete",
-        inferred_path
+        path
       )
     elseif (not old_ttl or old_ttl > stale_ttl) then
-      -- TODO (expire implementation): expire old_path with stale_ttl
+      EXP.upsert_ttl(self, name, old_key, stale_ttl, now)
     end
   end
 
@@ -162,9 +145,12 @@ end
 -- @treturn string|nil      session data
 -- @treturn string          error message
 function metatable:get(name, key)
+  local now = time()
+  EXP.delete_expired(self, name, now, true)
+
   local _, res, err = run_worker_thread(
     self.pool,
-    "resty.session.file-thread",
+    "resty.session.file.file-thread",
     "get",
     get_path(self, name, key)
   )
@@ -182,11 +168,17 @@ end
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
 function metatable:delete(name, key, metadata)
+  local ses_path = get_path(self, name, key)
+  local now = time()
+
+  EXP.delete_expired(self, name, now, false)
+  EXP.remove_file(self, name, key, true)
+
   run_worker_thread(
     self.pool,
-    "resty.session.file-thread",
+    "resty.session.file.file-thread",
     "delete",
-    get_path(self, name, key)
+    ses_path
   )
   if not metadata then
     return true
