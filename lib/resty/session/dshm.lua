@@ -4,33 +4,97 @@
 -- @module resty.session.dshm
 
 
-local dshm = require "resty.dshm"
-local get_name = require "resty.session.utils".get_name
+local dshm        = require "resty.dshm"
+local utils       = require "resty.session.utils"
+
+local collections = require "resty.session.scored-collections"
 
 
 local setmetatable = setmetatable
-local error = error
-local null = ngx.null
+local error        = error
+local null         = ngx.null
+local time         = ngx.time
+local get_name     = utils.get_name
 
 
-local SET = dshm.set
-local GET = dshm.get
-local TOUCH = dshm.touch
-local DELETE = dshm.delete
+local function SET(self, dshmc, name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
+  local inferred_key = get_name(self, name, key)
 
+  if not metadata and not old_key then
+    return dshmc:set(inferred_key, value, ttl)
+  end
+
+  local ok, err = dshmc:set(inferred_key, value, ttl)
+  if err then
+    return nil, err
+  end
+
+  local old_name = old_key and get_name(self, name, old_key)
+  if old_name then
+    if remember then
+      dshmc:delete(old_name)
+    else
+      dshmc:touch(old_name, stale_ttl)
+    end
+  end
+
+  if metadata then
+    local audiences = metadata.audiences
+    local subjects  = metadata.subjects
+    for i = 1, #audiences do
+      local aud_sub_key = audiences[i] .. ":" .. subjects[i]
+      local exp_score   = (current_time or time()) - 1
+      local new_score   = (current_time or time()) + ttl
+
+      collections.remove_range_by_score(self, name, aud_sub_key, 0, exp_score)
+      collections.insert_element(self, name, aud_sub_key, key, new_score)
+      if old_key then
+        collections.delete_element(self, name, aud_sub_key, old_key)
+      end
+    end
+  end
+  return ok
+end
+
+local function GET(self, dshmc, name, key)
+  local res, err = dshmc:get(get_name(self, name, key))
+  if err then
+    return nil, err
+  end
+  return res
+end
+
+local function DELETE(self, dshmc, name, key, metadata)
+  local key_name = get_name(self, name, key)
+  local ok, err = dshmc:delete(key_name)
+
+  if not metadata then
+    return ok
+  end
+
+  local audiences = metadata.audiences
+  local subjects  = metadata.subjects
+  local exp_score = time() - 1
+  for i = 1, #audiences do
+    local aud_sub_key = audiences[i] .. ":" .. subjects[i]
+    collections.remove_range_by_score(self, name, aud_sub_key, 0, exp_score)
+    collections.delete_element(self, name, aud_sub_key, key)
+  end
+
+  return ok, err
+end
 
 local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 4321
 
 
-local function exec(self, func, name, key, ...)
+local function exec(self, func, ...)
   local dshmc = dshm:new()
-
   local connect_timeout = self.connect_timeout
   local send_timeout = self.send_timeout
   local read_timeout = self.read_timeout
   if connect_timeout or send_timeout or read_timeout then
-    dshmc.sock:set_timeouts(connect_timeout, send_timeout, read_timeout)
+      dshmc.sock:settimeouts(connect_timeout, send_timeout, read_timeout)
   end
 
   local ok, err = dshmc:connect(self.host, self.port, self.options)
@@ -46,7 +110,7 @@ local function exec(self, func, name, key, ...)
     end
   end
 
-  ok, err = func(dshmc, get_name(self, name, key), ...)
+  ok, err = func(self, dshmc, ...)
   if err then
     dshmc:close()
     return nil, err
@@ -95,8 +159,8 @@ end
 -- @tparam  table    remember  whether storing persistent session or not
 -- @treturn true|nil ok
 -- @treturn string   error message
-function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
-  return exec(self, SET, name, key, value, ttl)
+function metatable:set(...)
+  return exec(self, SET, ...)
 end
 
 
@@ -108,14 +172,8 @@ end
 -- @tparam  string     key  session key
 -- @treturn string|nil      session data
 -- @treturn string          error message
-function metatable:get(name, key)
-  return exec(self, GET, name, key)
-end
-
-
--- TODO: needs to be removed (set command should do it)
-function metatable:expire(name, key, ttl)
-  return exec(self, TOUCH, name, key, ttl)
+function metatable:get(...)
+  return exec(self, GET, ...)
 end
 
 
@@ -128,8 +186,8 @@ end
 -- @tparam[opt]  table  metadata  session meta data
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
-function metatable:delete(name, key, metadata)
-  return exec(self, DELETE, name, key)
+function metatable:delete(...)
+  return exec(self, DELETE, ...)
 end
 
 
