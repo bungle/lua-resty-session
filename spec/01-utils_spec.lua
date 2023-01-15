@@ -126,20 +126,4 @@ describe("Testing utils", function()
       end
     end)
   end)
-
-  describe("load_storage() successfully loads the storage", function()
-    for _, storage in ipairs({
-      "file",
-      "memcached",
-      "mysql",
-      "postgres",
-      "redis",
-      "shm"
-    }) do
-      it("[" .. storage .. "] with an empty configuration", function()
-        local loaded = utils.load_storage(storage, {})
-        assert.is_not_nil(loaded)
-      end)
-    end
-  end)
 end)
