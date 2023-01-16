@@ -87,7 +87,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
       local exp_score   = (current_time or time()) - 1
       local new_score   = (current_time or time()) + ttl
 
-      collections.remove_range_by_score(self, name, aud_sub_key, 0, exp_score)
+      collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
       collections.insert_element(self, name, aud_sub_key, key, new_score)
       if old_key then
         collections.delete_element(self, name, aud_sub_key, old_key)
@@ -135,7 +135,7 @@ function metatable:delete(name, key, metadata)
   local exp_score = time() - 1
   for i = 1, #audiences do
     local aud_sub_key = audiences[i] .. ":" .. subjects[i]
-    collections.remove_range_by_score(self, name, aud_sub_key, 0, exp_score)
+    collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
     collections.delete_element(self, name, aud_sub_key, key)
   end
 

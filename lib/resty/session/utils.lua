@@ -1004,6 +1004,39 @@ local function has_flag(flags, flag)
 end
 
 
+---
+-- Function to determine if the storage should be cleaned up.
+--
+-- @function utils.should_cleanup
+-- @treturn  boolean  true if storage should be cleaned up, false otherwise
+-- Cleanup probability varies between 0.01 (1/100) and inf, based on last
+-- cleanup timestamp
+local should_cleanup do
+  local last_cleanup_time
+  local max    = math.max
+  local random = math.random
+  local time   = ngx.time
+  local ref    = 120
+
+  should_cleanup = function()
+    local elapsed, x, MIN_X, now
+
+    now     = time()
+    elapsed = last_cleanup_time and now - last_cleanup_time
+    MIN_X   = 2
+    x       = elapsed and (ref / elapsed) or MIN_X
+    x       = max(MIN_X, x)
+    ngx.log(ngx.ERR, "probability is: "..100*0.1 ^ x.."%")
+    local cleanup = random() < 0.1 ^ x
+    if cleanup then
+      last_cleanup_time = now
+      ngx.log(ngx.ERR, "cleaning up with chance: "..100*0.1 ^ x.."%")
+    end
+    return cleanup
+  end
+end
+
+
 return {
   bpack = bpack,
   bunpack = bunpack,
@@ -1030,4 +1063,5 @@ return {
   set_flag = set_flag,
   unset_flag = unset_flag,
   has_flag = has_flag,
+  should_cleanup = should_cleanup,
 }

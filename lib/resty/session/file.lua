@@ -3,23 +3,24 @@
 --
 -- @module resty.session.file
 
-
+local lfs         = require "lfs"
 local collections = require "resty.session.scored-collections"
 local file_utils  = require "resty.session.file.file-utils"
-local EXP         = require "resty.session.file.file-expirations"
+local utils       = require "resty.session.utils"
 
+local run_worker_thread = file_utils.run_worker_thread
+local should_cleanup = utils.should_cleanup
+local get_path = file_utils.get_path
 local setmetatable = setmetatable
-local error = error
 local byte = string.byte
 local time = ngx.time
-local run_worker_thread = file_utils.run_worker_thread
-local get_path = file_utils.get_path
+local error = error
 
 
 local SLASH_BYTE = byte("/")
 
-
 local DEFAULT_POOL = "default"
+local DEFAULT_SUFFIX = "ses"
 local DEFAULT_PATH do
   local path = os.tmpname()
   local pos
@@ -33,6 +34,40 @@ local DEFAULT_PATH do
   DEFAULT_PATH = path:sub(1, pos)
 end
 
+
+local function cleanup(storage)
+  if not should_cleanup() then
+    return false
+  end
+  local now     = time()
+  local path    = storage.path
+  local suffix  = storage.suffix
+  local deleted = 0
+
+  ngx.log(ngx.DEBUG, "expired keys cleanup initiated")
+
+  for file in lfs.dir(path) do
+    if file ~= "." and file ~= ".." then
+      if #file > #suffix and file:sub(#file - #suffix + 1, #file) == suffix then
+        local attr = lfs.attributes(path .. file)
+        local exp = attr and attr.modification
+        if exp < now then
+          ngx.log(ngx.ERR, "deleting file "..file)
+          file = path .. file
+          run_worker_thread(
+            storage.pool,
+            "resty.session.file.file-thread",
+            "delete",
+            file
+          )
+          deleted = deleted + 1
+        end
+      end
+    end
+  end
+  ngx.log(ngx.DEBUG, string.format("deleted %s files", deleted))
+  return true
+end
 
 ---
 -- Storage
@@ -66,14 +101,9 @@ end
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
-  local now = (current_time or time())
-  EXP.delete_expired(self, name, now, false)
-
+  cleanup(self)
   local path = get_path(self, name, key)
   if not metadata and not old_key then
-    if ttl then
-      EXP.upsert_ttl(self, name, key, ttl, now)
-    end
     local _, res, err = run_worker_thread(
       self.pool,
       "resty.session.file.file-thread",
@@ -81,13 +111,20 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
       path,
       value
     )
+    -- use mtime to hold the value of the expiration time of the file (and session)
+    if current_time and ttl then
+      lfs.touch(path, nil, current_time + ttl)
+    end
     return res, err
   end
 
-  local old_ttl
+  local old_ttl, old_path
   if old_key then
     if not remember then
-      old_ttl = EXP.expires_at(self, name, old_key)
+      old_path = get_path(self, name, old_key)
+      local attr = lfs.attributes(old_path)
+      local exp = attr and attr.modification
+      old_ttl = exp - current_time
     end
   end
 
@@ -101,20 +138,20 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
   if not res then
     return nil, err or "set failed"
   end
-  if ttl then
-    EXP.upsert_ttl(self, name, key, ttl, now)
-  end
 
-  if old_key then
+  if current_time and ttl then
+    lfs.touch(path, nil, current_time + ttl)
+  end
+  if old_path then
     if remember then
       run_worker_thread(
         self.pool,
         "resty.session.file.file-thread",
         "delete",
-        path
+        old_path
       )
     elseif (not old_ttl or old_ttl > stale_ttl) then
-      EXP.upsert_ttl(self, name, old_key, stale_ttl, now)
+      lfs.touch(old_path, nil, current_time + stale_ttl)
     end
   end
 
@@ -122,11 +159,11 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     local audiences = metadata.audiences
     local subjects  = metadata.subjects
     for i = 1, #audiences do
-      local aud_sub_key = audiences[i] .. ":" .. subjects[i]
+      local aud_sub_key = audiences[i] .. "_" .. subjects[i]
       local exp_score   = (current_time or time()) - 1
       local new_score   = (current_time or time()) + ttl
 
-      collections.remove_range_by_score(self, name, aud_sub_key, 0, exp_score)
+      collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
       collections.insert_element(self, name, aud_sub_key, key, new_score)
       if old_key then
         collections.delete_element(self, name, aud_sub_key, old_key)
@@ -145,8 +182,15 @@ end
 -- @treturn string|nil      session data
 -- @treturn string          error message
 function metatable:get(name, key)
-  local now = time()
-  EXP.delete_expired(self, name, now, true)
+  local now  = time()
+  local path = get_path(self, name, key)
+
+  local attr = lfs.attributes(path)
+  local exp = attr and attr.modification
+
+  if exp and exp < now then
+    return nil, "expired"
+  end
 
   local _, res, err = run_worker_thread(
     self.pool,
@@ -168,17 +212,14 @@ end
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
 function metatable:delete(name, key, metadata)
-  local ses_path = get_path(self, name, key)
-  local now = time()
-
-  EXP.delete_expired(self, name, now, false)
-  EXP.remove_file(self, name, key, true)
+  cleanup(self)
+  local path = get_path(self, name, key)
 
   run_worker_thread(
     self.pool,
     "resty.session.file.file-thread",
     "delete",
-    ses_path
+    path
   )
   if not metadata then
     return true
@@ -188,8 +229,8 @@ function metatable:delete(name, key, metadata)
   local subjects  = metadata.subjects
   local exp_score = time() - 1
   for i = 1, #audiences do
-    local aud_sub_key = audiences[i] .. ":" .. subjects[i]
-    collections.remove_range_by_score(self, name, aud_sub_key, 0, exp_score)
+    local aud_sub_key = audiences[i] .. "_" .. subjects[i]
+    collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
     collections.delete_element(self, name, aud_sub_key, key)
   end
 
@@ -229,7 +270,7 @@ local storage = {}
 -- @treturn      table                  file storage instance
 function storage.new(configuration)
   local prefix = configuration and configuration.prefix
-  local suffix = configuration and configuration.suffix
+  local suffix = configuration and configuration.suffix or DEFAULT_SUFFIX
 
   local pool   = configuration and configuration.pool or DEFAULT_POOL
   local path   = configuration and configuration.path or DEFAULT_PATH
