@@ -884,8 +884,8 @@ end
 -- Helper to format error messages.
 --
 -- @function utils.errmsg
--- @tparam[opt]  string  err  a possible error coming from underlying library
--- @tparam   string  msg  error message
+-- @tparam[opt]  string|nil  err  a possible error coming from underlying library
+-- @tparam   string|nil  msg  error message
 -- @tparam   any  ...  arguments for formatting the msg
 -- @treturn  string  formatted error message
 --

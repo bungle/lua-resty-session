@@ -17,10 +17,11 @@ local utils = require "resty.session.utils"
 
 
 local setmetatable = setmetatable
-local clear_header = ngx.req.clear_header
-local set_header = ngx.req.set_header
+local clear_request_header = ngx.req.clear_header
+local set_request_header = ngx.req.set_header
 local http_time = ngx.http_time
 local tonumber = tonumber
+local select = select
 local assert = assert
 local remove = table.remove
 local header = ngx.header
@@ -69,18 +70,18 @@ local KEY_SIZE = 32
 
 
 --[ HEADER ----------------------------------------------------------------------------------------------------------------------------------------------------][ PAYLOAD ----]
--- Type (1B) || Options (2B) || Session ID (32) || Creation Time (5B) || Rolling Offset (3B) || Data Size (3B) || Tag (16B) || Idling Offset (2B) || Mac (16B) || [ Data (*B) ]
+-- Type (1B) || Options (2B) || Session ID (32) || Creation Time (5B) || Rolling Offset (4B) || Data Size (3B) || Tag (16B) || Idling Offset (3B) || Mac (16B) || [ Data (*B) ]
 
 
 local COOKIE_TYPE_SIZE    = 1  --  1
 local OPTIONS_SIZE        = 2  --  3
 local SID_SIZE            = 32 -- 35
 local CREATION_TIME_SIZE  = 5  -- 40
-local ROLLING_OFFSET_SIZE = 3  -- 43
-local DATA_SIZE           = 3  -- 46
-local TAG_SIZE            = 16 -- 62
-local IDLING_OFFSET_SIZE  = 2  -- 64
-local MAC_SIZE            = 16 -- 80
+local ROLLING_OFFSET_SIZE = 4  -- 44
+local DATA_SIZE           = 3  -- 47
+local TAG_SIZE            = 16 -- 63
+local IDLING_OFFSET_SIZE  = 3  -- 66
+local MAC_SIZE            = 16 -- 82
 
 
 local HEADER_TAG_SIZE = COOKIE_TYPE_SIZE + OPTIONS_SIZE + SID_SIZE + CREATION_TIME_SIZE + ROLLING_OFFSET_SIZE + DATA_SIZE
@@ -97,8 +98,8 @@ local MAX_COOKIE_SIZE    = 4096
 local MAX_COOKIES        = 9
 local MAX_COOKIES_SIZE   = MAX_COOKIES * MAX_COOKIE_SIZE     --    36864 bytes
 local MAX_CREATION_TIME  = 2 ^ (CREATION_TIME_SIZE  * 8) - 1 --   ~34789 years
-local MAX_ROLLING_OFFSET = 2 ^ (ROLLING_OFFSET_SIZE * 8) - 1 --     ~194 days
-local MAX_IDLING_OFFSET  = 2 ^ (IDLING_OFFSET_SIZE  * 8) - 1 --      ~18 hours
+local MAX_ROLLING_OFFSET = 2 ^ (ROLLING_OFFSET_SIZE * 8) - 1 --     ~136 years
+local MAX_IDLING_OFFSET  = 2 ^ (IDLING_OFFSET_SIZE  * 8) - 1 --     ~194 days
 local MAX_DATA_SIZE      = 2 ^ (DATA_SIZE           * 8) - 1 -- 16777215 bytes
 local MAX_TTL            = 34560000                          --      400 days
 -- see: https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis-11#section-4.1.2.1
@@ -120,6 +121,8 @@ local DEFAULT_HASH_STORAGE_KEY = true
 local DEFAULT_STORE_METADATA = false
 local DEFAULT_TOUCH_THRESHOLD = 60 -- 1 minute
 local DEFAULT_COMPRESSION_THRESHOLD = 1024 -- 1 kB
+local DEFAULT_REQUEST_HEADERS
+local DEFAULT_RESPONSE_HEADERS
 
 
 local DEFAULT_COOKIE_NAME = "session"
@@ -140,11 +143,12 @@ local DEFAULT_REMEMBER_META = false
 local DEFAULT_REMEMBER = false
 
 
-local DEFAULT_STALE_TTL        = 10     -- 10 seconds
-local DEFAULT_IDLING_TIMEOUT   = 900    -- 15 minutes
-local DEFAULT_ROLLING_TIMEOUT  = 3600   --  1 hour
-local DEFAULT_ABSOLUTE_TIMEOUT = 86400  --  1 day
-local DEFAULT_REMEMBER_TIMEOUT = 604800 --  1 week
+local DEFAULT_STALE_TTL                 = 10      -- 10 seconds
+local DEFAULT_IDLING_TIMEOUT            = 900     -- 15 minutes
+local DEFAULT_ROLLING_TIMEOUT           = 3600    --  1 hour
+local DEFAULT_ABSOLUTE_TIMEOUT          = 86400   --  1 day
+local DEFAULT_REMEMBER_ROLLING_TIMEOUT  = 604800  --  1 week
+local DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT = 2592000 -- 30 days
 
 
 local DEFAULT_STORAGE
@@ -170,6 +174,22 @@ local HIDE_BUFFER   = buffer.new(256)
 
 
 local DATA = table_new(2, 0)
+
+
+local HEADERS = {
+  id = "Session-Id",
+  audience = "Session-Audience",
+  subject = "Session-Subject",
+  timeout = "Session-Timeout",
+  ["idling-timeout"] = "Session-Idling-Timeout",
+  ["rolling-timeout"] = "Session-Rolling-Timeout",
+  ["absolute-timeout"] = "Session-Absolute-Timeout",
+}
+
+
+local function set_response_header(name, value)
+  header[name] = value
+end
 
 
 local function storage_key(sid)
@@ -274,7 +294,7 @@ local function merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data
 end
 
 
-local function get_metadata(self)
+local function get_store_metadata(self)
   if not self.store_metadata then
     return
   end
@@ -318,6 +338,69 @@ local function get_metadata(self)
     audiences = audiences,
     subjects  = subjects,
   }
+end
+
+
+local function get_meta(self, name)
+  if name == "id" then
+    return self.meta.sid
+
+  elseif name == "audience" then
+    return self.data[self.data_index][2]
+
+  elseif name == "subject" then
+    return self.data[self.data_index][3]
+
+  elseif name == "timeout" then
+    local timeout
+    local meta = self.meta
+
+    if self.idling_timeout > 0 then
+      timeout = self.idling_timeout - (meta.timestamp - meta.creation_time - meta.rolling_offset - meta.idling_offset)
+    end
+
+    if self.rolling_timeout > 0 then
+      local t = self.rolling_timeout - (meta.timestamp - meta.creation_time - meta.rolling_offset)
+      timeout = timeout and min(t, timeout) or t
+    end
+
+    if self.absolute_timeout > 0 then
+      local t = self.absolute_timeout - (meta.timestamp - meta.creation_time)
+      timeout = timeout and min(t, timeout) or t
+    end
+
+    return timeout
+
+  elseif name == "idling-timeout" then
+    local idling_timeout = self.idling_timeout
+    if idling_timeout == 0 then
+      return
+    end
+
+    local meta = self.meta
+    return idling_timeout - (meta.timestamp - meta.creation_time - meta.rolling_offset - meta.idling_offset)
+
+  elseif name == "rolling-timeout" then
+    local rolling_timeout = self.rolling_timeout
+    if rolling_timeout == 0 then
+      return
+    end
+
+    local meta = self.meta
+    return rolling_timeout - (meta.timestamp - meta.creation_time - meta.rolling_offset)
+
+  elseif name == "absolute-timeout" then
+    local absolute_timeout = self.absolute_timeout
+    if absolute_timeout == 0 then
+      return
+    end
+
+    local meta = self.meta
+    return absolute_timeout - (meta.timestamp - meta.creation_time)
+
+  else
+    return self.meta[name]
+  end
 end
 
 
@@ -391,19 +474,23 @@ local function open(self, remember, meta_only)
       return nil, "invalid session creation time"
     end
 
-    local period = current_time - creation_time
+    local absolute_elapsed = current_time - creation_time
+    if absolute_elapsed > MAX_ROLLING_OFFSET then
+      return nil, "session lifetime exceeded"
+    end
+
     if remember then
-      local remember_timeout = self.remember_timeout
-      if remember_timeout ~= 0 then
-        if period > remember_timeout then
-          return nil, "session remember timeout exceeded"
+      local remember_absolute_timeout = self.remember_absolute_timeout
+      if remember_absolute_timeout ~= 0 then
+        if absolute_elapsed > remember_absolute_timeout then
+          return nil, "session remember absolute timeout exceeded"
         end
       end
 
     else
       local absolute_timeout = self.absolute_timeout
       if absolute_timeout ~= 0 then
-        if period > absolute_timeout then
+        if absolute_elapsed > absolute_timeout then
           return nil, "session absolute timeout exceeded"
         end
       end
@@ -421,11 +508,21 @@ local function open(self, remember, meta_only)
       return nil, "invalid session rolling offset"
     end
 
-    if not remember then
+    local rolling_elapsed = current_time - creation_time - rolling_offset
+
+    if remember then
+      local remember_rolling_timeout = self.remember_rolling_timeout
+      if remember_rolling_timeout ~= 0 then
+        if rolling_elapsed > remember_rolling_timeout then
+          return nil, "session remember rolling timeout exceeded"
+        end
+      end
+
+    else
       local rolling_timeout = self.rolling_timeout
       if rolling_timeout ~= 0 then
-        local rolling_period = current_time - creation_time - rolling_offset
-        if rolling_period > rolling_timeout then
+        local rolling_elapsed = current_time - creation_time - rolling_offset
+        if rolling_elapsed > rolling_timeout then
           return nil, "session rolling timeout exceeded"
         end
       end
@@ -470,17 +567,17 @@ local function open(self, remember, meta_only)
     else
       local idling_timeout = self.idling_timeout
       if idling_timeout ~= 0 then
-        local idling_period = current_time - creation_time - rolling_offset - idling_offset
-        if idling_period > idling_timeout then
+        local idling_elapsed = current_time - creation_time - rolling_offset - idling_offset
+        if idling_elapsed > idling_timeout then
           return nil, "session idling timeout exceeded"
         end
       end
     end
   end
 
-  local mac, ikm do
+  local ikm do
     ikm = self.ikm
-    mac = HEADER_BUFFER:get(MAC_SIZE)
+    local mac = HEADER_BUFFER:get(MAC_SIZE)
     if #mac ~= MAC_SIZE then
       return nil, "invalid session message authentication code"
     end
@@ -597,9 +694,7 @@ local function open(self, remember, meta_only)
       creation_time  = creation_time,
       rolling_offset = rolling_offset,
       data_size      = data_size,
-      tag            = tag,
       idling_offset  = idling_offset,
-      mac            = mac,
       ikm            = ikm,
       header         = header_decoded,
       initial_chunk  = initial_chunk,
@@ -613,9 +708,7 @@ local function open(self, remember, meta_only)
       creation_time  = creation_time,
       rolling_offset = rolling_offset,
       data_size      = data_size,
-      tag            = tag,
       idling_offset  = idling_offset,
-      mac            = mac,
       ikm            = ikm,
       header         = header_decoded,
       initial_chunk  = initial_chunk,
@@ -712,7 +805,7 @@ local function save(self, state, remember)
 
   local creation_time = meta.creation_time
   if creation_time then
-    rolling_offset = min(current_time - creation_time, MAX_ROLLING_OFFSET)
+    rolling_offset = current_time - creation_time
     if rolling_offset > MAX_ROLLING_OFFSET then
       return nil, "session maximum rolling offset exceeded"
     end
@@ -842,8 +935,8 @@ local function save(self, state, remember)
 
   local remember_flags
   if remember then
-    local max_age = self.remember_timeout
-    if max_age == 0 then
+    local max_age = self.remember_rolling_timeout
+    if max_age == 0 or max_age > MAX_TTL then
       max_age = MAX_TTL
     end
 
@@ -938,8 +1031,6 @@ local function save(self, state, remember)
       return nil, errmsg(err, "unable to json encode session data")
     end
 
-    local metadata = get_metadata(self)
-
     local old_sid = meta.sid
     local old_key
     if old_sid then
@@ -949,11 +1040,14 @@ local function save(self, state, remember)
       end
     end
 
-    local ttl = remember and self.remember_timeout or self.rolling_timeout
-    if ttl == 0 then
+    local ttl = remember and self.remember_rolling_timeout or self.rolling_timeout
+    if ttl == 0 or ttl > MAX_TTL then
       ttl = MAX_TTL
     end
-    local ok, err = storage:set(cookie_name, key, data, ttl, current_time, old_key, self.stale_ttl, metadata, remember)
+
+    local store_metadata = get_store_metadata(self)
+
+    local ok, err = storage:set(cookie_name, key, data, ttl, current_time, old_key, self.stale_ttl, store_metadata, remember)
     if not ok then
       return nil, errmsg(err, "unable to store session data")
     end
@@ -984,9 +1078,7 @@ local function save(self, state, remember)
       creation_time  = creation_time,
       rolling_offset = rolling_offset,
       data_size      = data_size,
-      tag            = tag,
       idling_offset  = idling_offset,
-      mac            = mac,
       ikm            = ikm,
       header         = header_decoded,
       initial_chunk  = initial_chunk,
@@ -1001,9 +1093,7 @@ local function save(self, state, remember)
       creation_time  = creation_time,
       rolling_offset = rolling_offset,
       data_size      = data_size,
-      tag            = tag,
       idling_offset  = idling_offset,
-      mac            = mac,
       ikm            = ikm,
       header         = header_decoded,
       initial_chunk  = initial_chunk,
@@ -1042,7 +1132,7 @@ local function save_info(self, data, remember)
   local current_time = time()
 
   local ttl = self.rolling_timeout
-  if ttl == 0 then
+  if ttl == 0 or ttl > MAX_TTL then
     ttl = MAX_TTL
   end
   ttl = max(ttl - (current_time - meta.creation_time - meta.rolling_offset), 1)
@@ -1103,7 +1193,7 @@ local function destroy(self, remember)
         return nil, err
       end
 
-      local ok, err = storage:delete(cookie_name, key, get_metadata(self))
+      local ok, err = storage:delete(cookie_name, key, get_store_metadata(self))
       if not ok then
         return nil, errmsg(err, "unable to destroy session")
       end
@@ -1118,9 +1208,7 @@ local function destroy(self, remember)
 end
 
 
-local function hide(self, remember)
-  assert(self.state == STATE_OPEN, "unable to hide nonexistent session")
-
+local function clear_request_cookie(self, remember)
   local cookies = var.http_cookie
   if not cookies or cookies == "" then
     return
@@ -1231,9 +1319,9 @@ local function hide(self, remember)
   end
 
   if #HIDE_BUFFER == 0 then
-    clear_header("Cookie")
+    clear_request_header("Cookie")
   else
-    set_header("Cookie", HIDE_BUFFER:get())
+    set_request_header("Cookie", HIDE_BUFFER:get())
   end
 
   return true
@@ -1252,6 +1340,55 @@ local function get_remember(self)
   end
 
   return self.remember
+end
+
+
+local function set_meta_header(self, header, set_header)
+  local name = HEADERS[header]
+  if not name then
+    return
+  end
+
+  local value = get_meta(self, header)
+  if not value then
+    return
+  end
+
+  set_header(name, value)
+end
+
+
+local function set_meta_headers(self, headers, set_header)
+  if not headers then
+    return
+  end
+
+  local count = #headers
+  for i = 1, count do
+    set_meta_header(self, headers[i], set_header)
+  end
+end
+
+
+local function set_meta_headers_vararg(self, set_header, ...)
+  local count = select("#", ...)
+  if count == 0 then
+    return
+  end
+
+  if count == 1 then
+    local header_or_headers = select(1, ...)
+    if type(header_or_headers) == "table" then
+      return set_meta_headers(self, header_or_headers, set_header)
+    end
+
+    return set_meta_header(self, header_or_headers, set_header)
+  end
+
+  for i = 1, count do
+    local header = select(i, ...)
+    set_meta_header(self, header, set_header)
+  end
 end
 
 
@@ -1507,37 +1644,6 @@ end
 
 
 ---
--- Set session subject.
---
--- @function instance:set_subject
--- @tparam string subject subject
---
--- @usage
--- local session = require "resty.session".new()
--- session.set_subject("john@doe.com")
-function metatable:set_subject(subject)
-  assert(self.state ~= STATE_CLOSED, "unable to set subject on closed session")
-  self.data[self.data_index][3] = subject
-end
-
----
--- Get session subject.
---
--- @function instance:get_subject
--- @treturn string subject
---
--- @usage
--- local session, err, exists = require "resty.session".open()
--- if exists then
---   local subject = session.get_subject()
--- end
-function metatable:get_subject()
-  assert(self.state ~= STATE_CLOSED, "unable to get subject on closed session")
-  return self.data[self.data_index][3]
-end
-
-
----
 -- Set session audience.
 --
 -- @function instance:set_audience
@@ -1598,6 +1704,55 @@ end
 function metatable:get_audience()
   assert(self.state ~= STATE_CLOSED, "unable to get audience on closed session")
   return self.data[self.data_index][2]
+end
+
+
+---
+-- Set session subject.
+--
+-- @function instance:set_subject
+-- @tparam string subject subject
+--
+-- @usage
+-- local session = require "resty.session".new()
+-- session.set_subject("john@doe.com")
+function metatable:set_subject(subject)
+  assert(self.state ~= STATE_CLOSED, "unable to set subject on closed session")
+  self.data[self.data_index][3] = subject
+end
+
+
+---
+-- Get session subject.
+--
+-- @function instance:get_subject
+-- @treturn string subject
+--
+-- @usage
+-- local session, err, exists = require "resty.session".open()
+-- if exists then
+--   local subject = session.get_subject()
+-- end
+function metatable:get_subject()
+  assert(self.state ~= STATE_CLOSED, "unable to get subject on closed session")
+  return self.data[self.data_index][3]
+end
+
+
+---
+-- Get session metadata.
+--
+-- @function instance:get_meta
+-- @treturn string|number metadata
+--
+-- @usage
+-- local session, err, exists = require "resty.session".open()
+-- if exists then
+--   local timeout = session.get_meta("timeout")
+-- end
+function metatable:get_meta(name)
+  assert(self.state ~= STATE_CLOSED, "unable to get session metadata on closed session")
+  return get_meta(self, name)
 end
 
 
@@ -1738,7 +1893,6 @@ function metatable:touch()
   local payload_header = HEADER_BUFFER:put(mac):get()
 
   meta.idling_offset = idling_offset
-  meta.mac           = mac
   meta.header        = payload_header
 
   payload_header, err = encode_base64url(payload_header)
@@ -1902,23 +2056,25 @@ end
 
 
 ---
--- Hide the session.
+-- Clear the request session cookie.
 --
 -- Modifies the request headers by removing the session related
 -- cookies. This is useful when you use the session library on
 -- a proxy server and don't want the session cookies to be forwarded
 -- to the upstream service.
 --
--- @function instance:hide
+-- @function instance:clear_request_cookie
 -- @treturn true|nil ok
-function metatable:hide()
-  local ok = hide(self)
+function metatable:clear_request_cookie()
+  assert(self.state == STATE_OPEN, "unable to hide nonexistent or closed session")
+
+  local ok = clear_request_cookie(self)
   if not ok then
     log(NOTICE, "[session] unable to hide session")
   end
 
   if get_remember(self) then
-    local ok2 = hide(self, true)
+    local ok2 = clear_request_cookie(self, true)
     if not ok2 then
       log(NOTICE, "[session] unable to hide persistent session")
       return false
@@ -1926,6 +2082,36 @@ function metatable:hide()
   end
 
   return ok
+end
+
+
+---
+-- Sets request and response headers based on configuration.
+--
+-- @function instance:set_headers
+function metatable:set_headers()
+  assert(self.state == STATE_OPEN, "unable to set request/response headers of nonexistent or closed session")
+  set_meta_headers(self, self.request_headers, set_request_header)
+  set_meta_headers(self, self.response_headers, set_response_header)
+end
+
+
+---
+-- Set request headers.
+--
+-- @function instance:set_request_headers
+function metatable:set_request_headers(...)
+  assert(self.state == STATE_OPEN, "unable to set request headers of nonexistent or closed session")
+  set_meta_headers_vararg(self, set_request_header, ...)
+end
+
+
+-- Set response headers.
+--
+-- @function instance:set_response_headers
+function metatable:set_response_headers(...)
+  assert(self.state == STATE_OPEN, "unable to set response headers of nonexistent or closed session")
+  set_meta_headers_vararg(self, set_response_header, ...)
 end
 
 
@@ -1945,7 +2131,7 @@ local session = {
 -- Session configuration.
 -- @field secret Secret used for the key derivation. The secret is hashed with SHA-256 before using it. E.g. `"RaJKp8UQW1"`.
 -- @field secret_fallbacks Array of secrets that can be used as alternative secrets (when doing key rotation), E.g. `{ "6RfrAYYzYq", "MkbTkkyF9C" }`.
--- @field ikm Initial key material (or ikm) can be specified directly (without using a secret) with exactly 32 bytes of data, e.g. `"5ixIW4QVMk0dPtoIhn41Eh1I9enP2060"`
+-- @field ikm Initial key material (or ikm) can be specified directly (without using a secret) with exactly 32 bytes of data. E.g. `"5ixIW4QVMk0dPtoIhn41Eh1I9enP2060"`
 -- @field ikm_fallbacks Array of initial key materials that can be used as alternative keys (when doing key rotation), E.g. `{ "QvPtlPKxOKdP5MCu1oI3lOEXIVuDckp7" }`.
 -- @field cookie_prefix Cookie prefix, use `nil`, `"__Host-"` or `"__Secure-"` (defaults to `nil`)
 -- @field cookie_name Session cookie name, e.g. `"session"` (defaults to `"session"`)
@@ -1967,11 +2153,14 @@ local session = {
 -- @field idling_timeout Idling timeout specifies how long the session can be inactive until it is considered invalid, e.g. `900` (defaults to `900`, or 15 minutes) (in seconds)
 -- @field rolling_timeout Rolling timeout specifies how long the session can be used until it needs to be renewed, e.g. `3600` (defaults to `3600`, or an hour) (in seconds)
 -- @field absolute_timeout Absolute timeout limits how long the session can be renewed, until re-authentication is required, e.g. `86400` (defaults to `86400`, or a day) (in seconds)
--- @field remember_timeout Remember timeout specifies how long the persistent session is considered valid, e.g. `604800` (defaults to `604800`, or a week) (in seconds)
+-- @field remember_rolling_timeout Remember timeout specifies how long the persistent session is considered valid, e.g. `604800` (defaults to `604800`, or a week) (in seconds)
+-- @field remember_absolute_timeout Remember absolute timeout limits how long the persistent session can be renewed, until re-authentication is required, e.g. `2592000` (defaults to `2592000`, or 30 days) (in seconds)
 -- @field hash_storage_key Whether to hash or not the storage key. With storage key hashed it is impossible to decrypt data on server side without having a cookie too (defaults to `true`).
 -- @field store_metadata Whether to also store metadata of sessions, such as collecting data of sessions for a specific audience belonging to a specific subject (defaults to `false`).
 -- @field touch_threshold Touch threshold controls how frequently or infrequently the `session:refresh` touches the cookie, e.g. `60` (defaults to `60`, or a minute) (in seconds)
 -- @field compression_threshold Compression threshold controls when the data is deflated, e.g. `1024` (defaults to `1024`, or a kilobyte) (in bytes)
+-- @field request_headers Set of headers to send to upstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` request headers.
+-- @field response_headers Set of headers to send to downstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` response headers.
 -- @field storage Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface (defaults to `nil`)
 -- @field dshm Configuration for dshm storage, e.g. `{ prefix = "sessions" }`
 -- @field file Configuration for file storage, e.g. `{ path = "/tmp", suffix = "session" }`
@@ -2047,24 +2236,45 @@ function session.init(configuration)
       end
     end
 
-    DEFAULT_COOKIE_NAME           = configuration.cookie_name           or DEFAULT_COOKIE_NAME
-    DEFAULT_COOKIE_PATH           = configuration.cookie_path           or DEFAULT_COOKIE_PATH
-    DEFAULT_COOKIE_DOMAIN         = configuration.cookie_domain         or DEFAULT_COOKIE_DOMAIN
-    DEFAULT_COOKIE_SAME_SITE      = configuration.cookie_same_site      or DEFAULT_COOKIE_SAME_SITE
-    DEFAULT_COOKIE_PRIORITY       = configuration.cookie_priority       or DEFAULT_COOKIE_PRIORITY
-    DEFAULT_COOKIE_PREFIX         = configuration.cookie_prefix         or DEFAULT_COOKIE_PREFIX
-    DEFAULT_REMEMBER_SAFETY       = configuration.remember_safety       or DEFAULT_REMEMBER_SAFETY
-    DEFAULT_REMEMBER_COOKIE_NAME  = configuration.remember_cookie_name  or DEFAULT_REMEMBER_COOKIE_NAME
-    DEFAULT_AUDIENCE              = configuration.audience              or DEFAULT_AUDIENCE
-    DEFAULT_SUBJECT               = configuration.subject               or DEFAULT_SUBJECT
-    DEFAULT_STALE_TTL             = configuration.stale_ttl             or DEFAULT_STALE_TTL
-    DEFAULT_IDLING_TIMEOUT        = configuration.idling_timeout        or DEFAULT_IDLING_TIMEOUT
-    DEFAULT_ROLLING_TIMEOUT       = configuration.rolling_timeout       or DEFAULT_ROLLING_TIMEOUT
-    DEFAULT_ABSOLUTE_TIMEOUT      = configuration.absolute_timeout      or DEFAULT_ABSOLUTE_TIMEOUT
-    DEFAULT_REMEMBER_TIMEOUT      = configuration.remember_timeout      or DEFAULT_REMEMBER_TIMEOUT
-    DEFAULT_TOUCH_THRESHOLD       = configuration.touch_threshold       or DEFAULT_TOUCH_THRESHOLD
-    DEFAULT_COMPRESSION_THRESHOLD = configuration.compression_threshold or DEFAULT_COMPRESSION_THRESHOLD
-    DEFAULT_STORAGE               = configuration.storage               or DEFAULT_STORAGE
+    local request_headers = configuration.request_headers
+    if request_headers then
+      local count = #request_headers
+      for i = 1, count do
+        assert(HEADERS[request_headers[i]], "invalid request header")
+      end
+
+      DEFAULT_REQUEST_HEADERS = request_headers
+    end
+
+    local response_headers = configuration.response_headers
+    if response_headers then
+      local count = #response_headers
+      for i = 1, count do
+        assert(HEADERS[response_headers[i]], "invalid response header")
+      end
+
+      DEFAULT_RESPONSE_HEADERS = response_headers
+    end
+
+    DEFAULT_COOKIE_NAME               = configuration.cookie_name               or DEFAULT_COOKIE_NAME
+    DEFAULT_COOKIE_PATH               = configuration.cookie_path               or DEFAULT_COOKIE_PATH
+    DEFAULT_COOKIE_DOMAIN             = configuration.cookie_domain             or DEFAULT_COOKIE_DOMAIN
+    DEFAULT_COOKIE_SAME_SITE          = configuration.cookie_same_site          or DEFAULT_COOKIE_SAME_SITE
+    DEFAULT_COOKIE_PRIORITY           = configuration.cookie_priority           or DEFAULT_COOKIE_PRIORITY
+    DEFAULT_COOKIE_PREFIX             = configuration.cookie_prefix             or DEFAULT_COOKIE_PREFIX
+    DEFAULT_REMEMBER_SAFETY           = configuration.remember_safety           or DEFAULT_REMEMBER_SAFETY
+    DEFAULT_REMEMBER_COOKIE_NAME      = configuration.remember_cookie_name      or DEFAULT_REMEMBER_COOKIE_NAME
+    DEFAULT_AUDIENCE                  = configuration.audience                  or DEFAULT_AUDIENCE
+    DEFAULT_SUBJECT                   = configuration.subject                   or DEFAULT_SUBJECT
+    DEFAULT_STALE_TTL                 = configuration.stale_ttl                 or DEFAULT_STALE_TTL
+    DEFAULT_IDLING_TIMEOUT            = configuration.idling_timeout            or DEFAULT_IDLING_TIMEOUT
+    DEFAULT_ROLLING_TIMEOUT           = configuration.rolling_timeout           or DEFAULT_ROLLING_TIMEOUT
+    DEFAULT_ABSOLUTE_TIMEOUT          = configuration.absolute_timeout          or DEFAULT_ABSOLUTE_TIMEOUT
+    DEFAULT_REMEMBER_ROLLING_TIMEOUT  = configuration.remember_rolling_timeout  or DEFAULT_REMEMBER_ROLLING_TIMEOUT
+    DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT = configuration.remember_absolute_timeout or DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT
+    DEFAULT_TOUCH_THRESHOLD           = configuration.touch_threshold           or DEFAULT_TOUCH_THRESHOLD
+    DEFAULT_COMPRESSION_THRESHOLD     = configuration.compression_threshold     or DEFAULT_COMPRESSION_THRESHOLD
+    DEFAULT_STORAGE                   = configuration.storage                   or DEFAULT_STORAGE
 
     local cookie_http_only = configuration.cookie_http_only
     if cookie_http_only ~= nil then
@@ -2137,26 +2347,29 @@ end
 --   audience = "my-application",
 -- })
 function session.new(configuration)
-  local cookie_name           = configuration and configuration.cookie_name           or DEFAULT_COOKIE_NAME
-  local cookie_path           = configuration and configuration.cookie_path           or DEFAULT_COOKIE_PATH
-  local cookie_domain         = configuration and configuration.cookie_domain         or DEFAULT_COOKIE_DOMAIN
-  local cookie_same_site      = configuration and configuration.cookie_same_site      or DEFAULT_COOKIE_SAME_SITE
-  local cookie_priority       = configuration and configuration.cookie_priority       or DEFAULT_COOKIE_PRIORITY
-  local cookie_prefix         = configuration and configuration.cookie_prefix         or DEFAULT_COOKIE_PREFIX
-  local remember_safety       = configuration and configuration.remember_safety       or DEFAULT_REMEMBER_SAFETY
-  local remember_cookie_name  = configuration and configuration.remember_cookie_name  or DEFAULT_REMEMBER_COOKIE_NAME
-  local audience              = configuration and configuration.audience              or DEFAULT_AUDIENCE
-  local subject               = configuration and configuration.subject               or DEFAULT_SUBJECT
-  local stale_ttl             = configuration and configuration.stale_ttl             or DEFAULT_STALE_TTL
-  local idling_timeout        = configuration and configuration.idling_timeout        or DEFAULT_IDLING_TIMEOUT
-  local rolling_timeout       = configuration and configuration.rolling_timeout       or DEFAULT_ROLLING_TIMEOUT
-  local absolute_timeout      = configuration and configuration.absolute_timeout      or DEFAULT_ABSOLUTE_TIMEOUT
-  local remember_timeout      = configuration and configuration.remember_timeout      or DEFAULT_REMEMBER_TIMEOUT
-  local touch_threshold       = configuration and configuration.touch_threshold       or DEFAULT_TOUCH_THRESHOLD
-  local compression_threshold = configuration and configuration.compression_threshold or DEFAULT_COMPRESSION_THRESHOLD
-  local storage               = configuration and configuration.storage               or DEFAULT_STORAGE
-  local ikm                   = configuration and configuration.ikm
-  local ikm_fallbacks         = configuration and configuration.ikm_fallbacks
+  local cookie_name               = configuration and configuration.cookie_name               or DEFAULT_COOKIE_NAME
+  local cookie_path               = configuration and configuration.cookie_path               or DEFAULT_COOKIE_PATH
+  local cookie_domain             = configuration and configuration.cookie_domain             or DEFAULT_COOKIE_DOMAIN
+  local cookie_same_site          = configuration and configuration.cookie_same_site          or DEFAULT_COOKIE_SAME_SITE
+  local cookie_priority           = configuration and configuration.cookie_priority           or DEFAULT_COOKIE_PRIORITY
+  local cookie_prefix             = configuration and configuration.cookie_prefix             or DEFAULT_COOKIE_PREFIX
+  local remember_safety           = configuration and configuration.remember_safety           or DEFAULT_REMEMBER_SAFETY
+  local remember_cookie_name      = configuration and configuration.remember_cookie_name      or DEFAULT_REMEMBER_COOKIE_NAME
+  local audience                  = configuration and configuration.audience                  or DEFAULT_AUDIENCE
+  local subject                   = configuration and configuration.subject                   or DEFAULT_SUBJECT
+  local stale_ttl                 = configuration and configuration.stale_ttl                 or DEFAULT_STALE_TTL
+  local idling_timeout            = configuration and configuration.idling_timeout            or DEFAULT_IDLING_TIMEOUT
+  local rolling_timeout           = configuration and configuration.rolling_timeout           or DEFAULT_ROLLING_TIMEOUT
+  local absolute_timeout          = configuration and configuration.absolute_timeout          or DEFAULT_ABSOLUTE_TIMEOUT
+  local remember_rolling_timeout  = configuration and configuration.remember_rolling_timeout  or DEFAULT_REMEMBER_ROLLING_TIMEOUT
+  local remember_absolute_timeout = configuration and configuration.remember_absolute_timeout or DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT
+  local touch_threshold           = configuration and configuration.touch_threshold           or DEFAULT_TOUCH_THRESHOLD
+  local compression_threshold     = configuration and configuration.compression_threshold     or DEFAULT_COMPRESSION_THRESHOLD
+  local storage                   = configuration and configuration.storage                   or DEFAULT_STORAGE
+  local ikm                       = configuration and configuration.ikm
+  local ikm_fallbacks             = configuration and configuration.ikm_fallbacks
+  local request_headers           = configuration and configuration.request_headers
+  local response_headers          = configuration and configuration.response_headers
 
   local cookie_http_only = configuration and configuration.cookie_http_only
   if cookie_http_only == nil then
@@ -2288,6 +2501,26 @@ function session.new(configuration)
     end
   end
 
+  if request_headers then
+    local count = #request_headers
+    for i = 1, count do
+      assert(HEADERS[request_headers[i]], "invalid request header")
+    end
+
+  else
+    request_headers = DEFAULT_REQUEST_HEADERS
+  end
+
+  if response_headers then
+    local count = #response_headers
+    for i = 1, count do
+      assert(HEADERS[response_headers[i]], "invalid response header")
+    end
+
+  else
+    response_headers = DEFAULT_RESPONSE_HEADERS
+  end
+
   local options = OPTIONS_NONE
   local t = type(storage)
   if t == "string" then
@@ -2299,31 +2532,34 @@ function session.new(configuration)
   end
 
   local self = setmetatable({
-    stale_ttl             = stale_ttl,
-    idling_timeout        = idling_timeout,
-    rolling_timeout       = rolling_timeout,
-    absolute_timeout      = absolute_timeout,
-    remember_timeout      = remember_timeout,
-    touch_threshold       = touch_threshold,
-    compression_threshold = compression_threshold,
-    storage_key           = hash_storage_key and sha256_storage_key or storage_key,
-    store_metadata        = store_metadata,
-    enforce_same_subject  = enforce_same_subject,
-    cookie_name           = cookie_name,
-    cookie_flags          = cookie_flags,
-    remember_cookie_name  = remember_cookie_name,
-    remember_safety       = remember_safety,
-    remember              = remember,
-    options               = options,
-    storage               = storage,
-    ikm                   = ikm,
-    ikm_fallbacks         = ikm_fallbacks,
-    state                 = STATE_NEW,
-    meta                  = DEFAULT_META,
-    remember_meta         = DEFAULT_REMEMBER_META,
-    info                  = info,
-    data_index            = 1,
-    data                  = {
+    stale_ttl                 = stale_ttl,
+    idling_timeout            = idling_timeout,
+    rolling_timeout           = rolling_timeout,
+    absolute_timeout          = absolute_timeout,
+    remember_rolling_timeout  = remember_rolling_timeout,
+    remember_absolute_timeout = remember_absolute_timeout,
+    touch_threshold           = touch_threshold,
+    compression_threshold     = compression_threshold,
+    storage_key               = hash_storage_key and sha256_storage_key or storage_key,
+    store_metadata            = store_metadata,
+    enforce_same_subject      = enforce_same_subject,
+    cookie_name               = cookie_name,
+    cookie_flags              = cookie_flags,
+    remember_cookie_name      = remember_cookie_name,
+    remember_safety           = remember_safety,
+    remember                  = remember,
+    options                   = options,
+    storage                   = storage,
+    ikm                       = ikm,
+    ikm_fallbacks             = ikm_fallbacks,
+    request_headers           = request_headers,
+    response_headers          = response_headers,
+    state                     = STATE_NEW,
+    meta                      = DEFAULT_META,
+    remember_meta             = DEFAULT_REMEMBER_META,
+    info                      = info,
+    data_index                = 1,
+    data                      = {
       {
         {},
         audience,
@@ -2503,13 +2739,13 @@ function session.__set_ngx_header(ngx_header)
 end
 
 
-function session.__set_ngx_req_clear_header(ngx_clear_header)
-  clear_header = ngx_clear_header
+function session.__set_ngx_req_clear_header(clear_header)
+  clear_request_header = clear_header
 end
 
 
-function session.__set_ngx_req_set_header(ngx_set_header)
-  set_header = ngx_set_header
+function session.__set_ngx_req_set_header(set_header)
+  set_request_header = set_header
 end
 
 
