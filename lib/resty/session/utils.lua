@@ -897,6 +897,14 @@ end
 --   print(utils.errmsg(err, "unable to deflate data '%s'", test)
 -- end
 local function errmsg(err, msg, ...)
+  if not msg then
+    if err then
+      return err
+    end
+
+    return "unknown error"
+  end
+
   if select("#", ...) > 0 then
     msg = fmt(msg, ...)
   end
