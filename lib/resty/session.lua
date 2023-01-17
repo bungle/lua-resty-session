@@ -689,6 +689,7 @@ local function open(self, remember, meta_only)
 
   if remember then
     self.remember_meta = {
+      timestamp      = current_time,
       options        = options,
       sid            = sid,
       creation_time  = creation_time,
@@ -703,6 +704,7 @@ local function open(self, remember, meta_only)
 
   else
     self.meta = {
+      timestamp      = current_time,
       options        = options,
       sid            = sid,
       creation_time  = creation_time,
@@ -1073,6 +1075,7 @@ local function save(self, state, remember)
 
   if remember then
     self.remember_meta = {
+      timestamp      = current_time,
       options        = options,
       sid            = sid,
       creation_time  = creation_time,
@@ -1088,6 +1091,7 @@ local function save(self, state, remember)
   else
     self.state = state or STATE_OPEN
     self.meta = {
+      timestamp      = current_time,
       options        = options,
       sid            = sid,
       creation_time  = creation_time,
