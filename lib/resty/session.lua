@@ -1364,6 +1364,10 @@ local function set_meta_headers(self, headers, set_header)
   end
 
   local count = #headers
+  if count == 0 then
+    return
+  end
+
   for i = 1, count do
     set_meta_header(self, headers[i], set_header)
   end
