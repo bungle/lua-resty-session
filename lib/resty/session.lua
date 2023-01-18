@@ -1948,8 +1948,7 @@ function metatable:refresh()
   local rolling_elapsed = meta.timestamp - meta.creation_time - meta.rolling_offset
 
   if rolling_timeout > 0 then
-    local save_threshold = floor(rolling_timeout / 4 * 3)
-    if rolling_elapsed > save_threshold then
+    if rolling_elapsed > floor(rolling_timeout * 0.75) then
       -- TODO: in case session was modified before calling this function, the possible remember me cookie needs to be saved too?
       return save(self)
     end
