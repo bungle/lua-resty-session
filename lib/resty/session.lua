@@ -2535,6 +2535,9 @@ function session.new(configuration)
 
   elseif t ~= "table" then
     assert(storage == nil, "invalid session storage")
+  end
+
+  if not storage then
     options = set_flag(options, OPTION_STATELESS)
   end
 
