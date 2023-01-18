@@ -1945,19 +1945,19 @@ function metatable:refresh()
   end
 
   local meta = self.meta
-  local time_passed_since_save = time() - meta.creation_time - meta.rolling_offset
+  local rolling_elapsed = meta.timestamp - meta.creation_time - meta.rolling_offset
 
   if rolling_timeout > 0 then
     local save_threshold = floor(rolling_timeout / 4 * 3)
-    if time_passed_since_save > save_threshold then
+    if rolling_elapsed > save_threshold then
       -- TODO: in case session was modified before calling this function, the possible remember me cookie needs to be saved too?
       return save(self)
     end
   end
 
   if idling_timeout > 0 then
-    local time_passed_since_touch = time_passed_since_save - meta.idling_offset
-    if time_passed_since_touch > self.touch_threshold then
+    local idling_elapsed = rolling_elapsed - meta.idling_offset
+    if idling_elapsed > self.touch_threshold then
       return self:touch()
     end
   end
