@@ -19,8 +19,8 @@
 --   sid  CHAR(43) PRIMARY KEY,
 --   name TINYTEXT,
 --   data LONGTEXT,
---   ttl  DATETIME,
---   INDEX (ttl)
+--   exp  DATETIME,
+--   INDEX (exp)
 -- ) CHARACTER SET ascii;
 -- @table sessions
 
@@ -42,6 +42,7 @@
 
 local buffer = require "string.buffer"
 local mysql = require "resty.mysql"
+local should_cleanup = require "resty.session.utils".should_cleanup
 
 
 local setmetatable = setmetatable
@@ -55,13 +56,14 @@ local DEFAULT_TABLE = "sessions"
 local DEFAULT_CHARSET = "ascii"
 
 
-local SET = "INSERT INTO %s (sid, name, data, ttl) VALUES ('%s', '%s', '%s', FROM_UNIXTIME(%d)) AS new ON DUPLICATE KEY UPDATE data = new.data"
+local SET = "INSERT INTO %s (sid, name, data, exp) VALUES ('%s', '%s', '%s', FROM_UNIXTIME(%d)) AS new ON DUPLICATE KEY UPDATE data = new.data"
 local SET_META_PREFIX = "INSERT INTO %s (aud, sub, sid) VALUES "
 local SET_META_VALUES = "('%s', '%s', '%s')"
 local SET_META_SUFFIX = " ON DUPLICATE KEY UPDATE sid=sid"
-local GET = "SELECT data FROM %s WHERE sid = '%s' AND ttl >= FROM_UNIXTIME(%d)"
-local EXPIRE = "UPDATE %s SET ttl = FROM_UNIXTIME(%d) WHERE sid = '%s' AND ttl > FROM_UNIXTIME(%d)"
+local GET = "SELECT data FROM %s WHERE sid = '%s' AND exp >= FROM_UNIXTIME(%d)"
+local EXPIRE = "UPDATE %s SET exp = FROM_UNIXTIME(%d) WHERE sid = '%s' AND exp > FROM_UNIXTIME(%d)"
 local DELETE = "DELETE FROM %s WHERE sid = '%s'"
+local CLEANUP = "DELETE FROM %s WHERE exp < FROM_UNIXTIME(%d)"
 
 
 local SQL = buffer.new()
@@ -97,6 +99,13 @@ local function exec(self, query)
   return ok, err
 end
 
+local function cleanup_check(storage)
+  if should_cleanup() then
+    local table = storage.table
+    return exec(storage, fmt(CLEANUP, table, ngx.time()))
+  end
+end
+
 
 ---
 -- Storage
@@ -130,6 +139,7 @@ end
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
+  cleanup_check(self)
   local table = self.table
   local exp = ttl + current_time
 
@@ -205,6 +215,7 @@ end
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
 function metatable:delete(name, key, metadata)
+  cleanup_check(self)
   return exec(self, fmt(DELETE, self.table, key))
 end
 
