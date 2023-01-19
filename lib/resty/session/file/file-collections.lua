@@ -10,55 +10,23 @@
 --
 
 local utils         = require "resty.session.utils"
-local buffer        = require "string.buffer"
+local encode        = utils.encode_json
+local decode        = utils.decode_json
 
 
-local serialize     = buffer.encode
-local deserialize   = buffer.decode
-local encode_b64    = utils.encode_base64url
-local decode_b64    = utils.decode_base64url
-
-
-local function decode(v)
-  local res, err
-  res, err = decode_b64(v)
-  if not res then
-    return nil, err
-  end
-  res, err = deserialize(res)
-  if not res then
-    return nil, err
-  end
-  return res
-end
-
-local function encode(v)
-  local res, err
-  res, err = serialize(v)
-  if not res then
-    return nil, err
-  end
-  res, err = encode_b64(res)
-  if not res then
-    return nil, err
-  end
-  return res
-end
-
-
-local _SCORED_COLLECTIONS = {}
+local _FILE_COLLECTIONS = {}
 
 ---
 -- Inserts an element in the collection.
 --
--- @function scored-collections.insert_element
+-- @function file-collections.insert_element
 -- @tparam table storage the storage
 -- @tparam string storage_cookie_name name parameter required by the storage
 -- @tparam string coll_key key to identify the collection
 -- @tparam string value the value of the element to insert
 -- @tparam number score the score for this element
 -- @tparam number current_time unix timestamp of current time
-function _SCORED_COLLECTIONS.insert_element(
+function _FILE_COLLECTIONS.insert_element(
     storage,
     storage_cookie_name,
     coll_key,
@@ -74,12 +42,12 @@ end
 ---
 -- Deletes an element from the collection.
 --
--- @function scored-collections.delete_element
+-- @function file-collections.delete_element
 -- @tparam table  storage the storage
 -- @tparam string storage_cookie_name name parameter required by the storage
 -- @tparam string coll_key key to identify the collection
 -- @tparam string value the value of the element to delete
-function _SCORED_COLLECTIONS.delete_element(
+function _FILE_COLLECTIONS.delete_element(
     storage,
     storage_cookie_name,
     coll_key,
@@ -102,12 +70,12 @@ end
 ---
 -- Gets all elements from the collection in O(n) with n = #elements.
 --
--- @function scored-collections.get
+-- @function file-collections.get
 -- @tparam  table storage the storage
 -- @tparam  string storage_cookie_name name parameter required by the storage
 -- @tparam  string coll_key key to identify the collection
 -- @treturn table all the elements
-function _SCORED_COLLECTIONS.get(storage, storage_cookie_name, coll_key)
+function _FILE_COLLECTIONS.get(storage, storage_cookie_name, coll_key)
   local elements = {}
   local collection = storage:get(storage_cookie_name, coll_key)
   collection = collection and decode(collection) or {}
@@ -122,13 +90,13 @@ end
 ---
 -- Removes elements from the collection in the provided range.
 --
--- @function scored-collections.remove_range_by_score
+-- @function file-collections.remove_range_by_score
 -- @tparam table storage the storage
 -- @tparam string storage_cookie_name name parameter required by the storage
 -- @tparam string coll_key key to identify the collection
 -- @tparam number range_min lower bound of the range to remove
 -- @tparam number range_max upper bound of the range to remove
-function _SCORED_COLLECTIONS.remove_range_by_score(
+function _FILE_COLLECTIONS.remove_range_by_score(
     storage,
     storage_cookie_name,
     coll_key,
@@ -156,4 +124,4 @@ function _SCORED_COLLECTIONS.remove_range_by_score(
   return storage:set(storage_cookie_name, coll_key, encode(collection))
 end
 
-return _SCORED_COLLECTIONS
+return _FILE_COLLECTIONS
