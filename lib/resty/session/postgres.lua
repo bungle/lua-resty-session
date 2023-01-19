@@ -19,9 +19,9 @@
 --   sid  CHAR(43) PRIMARY KEY,
 --   name TEXT,
 --   data TEXT,
---   ttl  TIMESTAMP WITH TIME ZONE
+--   exp  TIMESTAMP WITH TIME ZONE
 -- );
--- CREATE INDEX ON sessions (ttl);
+-- CREATE INDEX ON sessions (exp);
 -- @table sessions
 
 
@@ -42,6 +42,7 @@
 
 local buffer = require "string.buffer"
 local pgmoon = require "pgmoon"
+local should_cleanup = require "resty.session.utils".should_cleanup
 
 
 local setmetatable = setmetatable
@@ -54,13 +55,15 @@ local DEFAULT_PORT  = 5432
 local DEFAULT_TABLE = "sessions"
 
 
-local SET = "INSERT INTO %s (sid, name, data, ttl) VALUES ('%s', '%s', '%s', TO_TIMESTAMP(%d) AT TIME ZONE 'UTC') ON CONFLICT (sid) DO UPDATE SET data = EXCLUDED.data, ttl = EXCLUDED.ttl"
+local SET = "INSERT INTO %s (sid, name, data, exp) VALUES ('%s', '%s', '%s', TO_TIMESTAMP(%d) AT TIME ZONE 'UTC') ON CONFLICT (sid) DO UPDATE SET data = EXCLUDED.data, exp = EXCLUDED.exp"
 local SET_META_PREFIX = "INSERT INTO %s (aud, sub, sid) VALUES "
 local SET_META_VALUES = "('%s', '%s', '%s')"
 local SET_META_SUFFIX = " ON CONFLICT DO NOTHING"
-local GET = "SELECT data FROM %s WHERE sid = '%s' AND ttl >= TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
-local EXPIRE = "UPDATE %s SET ttl = TO_TIMESTAMP(%d) AT TIME ZONE 'UTC' WHERE sid = '%s' AND ttl > TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
+local GET = "SELECT data FROM %s WHERE sid = '%s' AND exp >= TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
+local EXPIRE = "UPDATE %s SET exp = TO_TIMESTAMP(%d) AT TIME ZONE 'UTC' WHERE sid = '%s' AND exp > TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
 local DELETE = "DELETE FROM %s WHERE sid = '%s'"
+local CLEANUP = "DELETE FROM %s WHERE exp < TO_TIMESTAMP(%d)"
+
 
 
 local SQL = buffer.new()
@@ -96,6 +99,13 @@ local function exec(self, query)
   return ok, err
 end
 
+local function cleanup_check(storage)
+  if should_cleanup() then
+    local table = storage.table
+    return exec(storage, fmt(CLEANUP, table, ngx.time()))
+  end
+end
+
 
 ---
 -- Storage
@@ -129,6 +139,7 @@ end
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
+  cleanup_check(self)
   local table = self.table
   local exp = ttl + current_time
 
@@ -204,6 +215,7 @@ end
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
 function metatable:delete(name, key, metadata)
+  cleanup_check(self)
   return exec(self, fmt(DELETE, self.table, key))
 end
 

@@ -35,7 +35,7 @@ local DEFAULT_PATH do
 end
 
 
-local function cleanup(storage)
+local function cleanup_check(storage)
   if not should_cleanup() then
     return false
   end
@@ -101,7 +101,7 @@ end
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
-  cleanup(self)
+  cleanup_check(self)
   local path = get_path(self, name, key)
   if not metadata and not old_key then
     local _, res, err = run_worker_thread(
@@ -212,7 +212,7 @@ end
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
 function metatable:delete(name, key, metadata)
-  cleanup(self)
+  cleanup_check(self)
   local path = get_path(self, name, key)
 
   run_worker_thread(
