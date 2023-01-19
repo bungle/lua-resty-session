@@ -1026,11 +1026,10 @@ local should_cleanup do
     MIN_X   = 2
     x       = elapsed and (ref / elapsed) or MIN_X
     x       = max(MIN_X, x)
-    ngx.log(ngx.ERR, "probability is: "..100*0.1 ^ x.."%")
+
     local cleanup = random() < 0.1 ^ x
     if cleanup then
       last_cleanup_time = now
-      ngx.log(ngx.ERR, "cleaning up with chance: "..100*0.1 ^ x.."%")
     end
     return cleanup
   end

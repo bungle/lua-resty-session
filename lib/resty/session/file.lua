@@ -4,7 +4,7 @@
 -- @module resty.session.file
 
 local lfs         = require "lfs"
-local collections = require "resty.session.scored-collections"
+local collections = require "resty.session.file.file-collections"
 local file_utils  = require "resty.session.file.file-utils"
 local utils       = require "resty.session.utils"
 
@@ -52,7 +52,6 @@ local function cleanup_check(storage)
         local attr = lfs.attributes(path .. file)
         local exp = attr and attr.modification
         if exp < now then
-          ngx.log(ngx.ERR, "deleting file "..file)
           file = path .. file
           run_worker_thread(
             storage.pool,
