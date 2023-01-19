@@ -25,7 +25,6 @@ build = {
     ["resty.session.file.file-thread"] = "lib/resty/session/file/file-thread.lua",
     ["resty.session.file.file-expirations"] = "lib/resty/session/file/file-expirations.lua",
     ["resty.session.file.file-utils"] = "lib/resty/session/file/file-utils.lua",
-    ["resty.session.file.file-collections"] = "lib/resty/session/file/file-collections.lua",
     ["resty.session.memcached"] = "lib/resty/session/memcached.lua",
     ["resty.session.mysql"] = "lib/resty/session/mysql.lua",
     ["resty.session.postgres"] = "lib/resty/session/postgres.lua",

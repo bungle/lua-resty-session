@@ -49,7 +49,7 @@ function _REDIS_COMMON.SET(storage, red, name, key, value, ttl, current_time, ol
       red:zremrangebyscore(k, 0, score)
       red:zadd(k, new_score, key)
       if old_key then
-        red:zrem(k, old_key) -- TODO: remove or set new score?
+        red:zrem(k, old_key)
       end
       red:expire(k, ttl)
     end
@@ -78,6 +78,20 @@ function _REDIS_COMMON.UNLINK(storage, red, name, key, metadata)
     red:zrem(k, key)
   end
   return red:commit_pipeline()
+end
+
+function _REDIS_COMMON.READ_METADATA(storage, red, name, audience, subject)
+  local sessions = {}
+  local k = get_name(storage, name, audience, subject)
+  local res = red:zrangebyscore(k, ngx.time(), "+inf")
+  if not res then
+    return nil
+  end
+  for _, v in ipairs(res) do
+    sessions[v] = -1 -- fetch the score if needed
+  end
+
+  return sessions
 end
 
 return _REDIS_COMMON

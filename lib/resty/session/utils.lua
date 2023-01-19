@@ -1035,6 +1035,58 @@ local should_cleanup do
   end
 end
 
+---
+-- Helper get the key used to store metadata for a certain aud and sub
+--
+-- @function utils.get_meta_key
+-- @tparam   table   storage a storage instance
+-- @tparam   string  name name
+-- @tparam   string  audience audience for this key
+-- @tparam   string  subject subject for this key
+-- @treturn  string  the key to store the metadata collection
+local function get_meta_key(storage, audience, subject)
+  local prefix = storage.prefix or "_"
+  return fmt("%s:%s:%s", prefix, audience, subject)
+end
+
+---
+-- Helper get the value used to store metadata for a certain aud and sub pair
+--
+-- @function utils.get_meta_el_val
+-- @tparam   string  sid session id
+-- @tparam   string  exp expiration of session sid
+-- @treturn  string  the value to store in the metadata collection
+local function get_meta_el_val(sid, exp)
+  return fmt("%s:%s;", sid, exp)
+end
+
+---
+-- Function to filter out the latest valid sid:exp from a
+-- serialized list, used to store session metadata
+-- @function utils.get_latest_valid
+-- @tparam   string sessions list of sid:exp;
+-- @treturn  table  valid sessions and their exp
+local function get_latest_valid(sessions)
+  local now      = ngx.time()
+  local pattern  = ".-:.-;"
+  local sess     = {}
+
+  sessions = sessions or ""
+  for s in string.gmatch(sessions, pattern) do
+    ngx.log(ngx.ERR, "s is "..tostring(s))
+    local i = string.find(s, ":")
+    local sid = string.sub(s,     1,  i - 1)
+    local exp = string.sub(s, i + 1, #s - 1)
+    exp = tonumber(exp)
+    if exp > now then
+      sess[sid] = exp
+    else
+      sess[sid] = nil
+    end
+  end
+
+  return sess
+end
 
 return {
   bpack = bpack,
@@ -1063,4 +1115,7 @@ return {
   unset_flag = unset_flag,
   has_flag = has_flag,
   should_cleanup = should_cleanup,
+  get_meta_key = get_meta_key,
+  get_meta_el_val = get_meta_el_val,
+  get_latest_valid = get_latest_valid,
 }

@@ -5,17 +5,57 @@
 
 
 local dshm        = require "resty.dshm"
+local buffer      = require "string.buffer"
 local utils       = require "resty.session.utils"
 
-local collections = require "resty.session.scored-collections"
+local get_meta_key     = utils.get_meta_key
+local get_meta_el_val  = utils.get_meta_el_val
+local get_latest_valid = utils.get_latest_valid
+local setmetatable     = setmetatable
+local error            = error
+local null             = ngx.null
+local time             = ngx.time
+local get_name         = utils.get_name
 
 
-local setmetatable = setmetatable
-local error        = error
-local null         = ngx.null
-local time         = ngx.time
-local get_name     = utils.get_name
+-- not safe for concurrent access
+local function set_sid_exp(dshmc, aud_sub_key, sid, exp)
+  local now     = time()
+  local max_exp = now
 
+  local res = dshmc:get(aud_sub_key)
+  local sessions = get_latest_valid(res)
+  local buf = buffer.new()
+
+  sessions[sid] = exp > 0 and exp or nil
+  for s, e in pairs(sessions) do
+    buf = buf:put(get_meta_el_val(s, e))
+    max_exp = math.max(max_exp, e)
+  end
+
+  return dshmc:set(aud_sub_key, buf:tostring(), max_exp - now)
+end
+
+local function READ_METADATA(self, dshmc, name, audience, subject)
+  local pattern     = ".-:.-;"
+  local sessions    = {}
+
+  local aud_sub_key = get_meta_key(self, audience, subject)
+  local res         = dshmc:get(aud_sub_key)
+  if not res then
+    return nil, "not found"
+  end
+
+  for s in string.gmatch(res, pattern) do
+    local i = string.find(s, ":")
+    local sid = string.sub(s,     1,  i - 1)
+    local exp = string.sub(s, i + 1, #s - 1)
+    exp = tonumber(exp)
+    sessions[sid] = exp
+  end
+
+  return sessions
+end
 
 local function SET(self, dshmc, name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
   local inferred_key = get_name(self, name, key)
@@ -42,14 +82,11 @@ local function SET(self, dshmc, name, key, value, ttl, current_time, old_key, st
     local audiences = metadata.audiences
     local subjects  = metadata.subjects
     for i = 1, #audiences do
-      local aud_sub_key = audiences[i] .. ":" .. subjects[i]
-      local exp_score   = (current_time or time()) - 1
-      local new_score   = (current_time or time()) + ttl
+      local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
+      set_sid_exp(dshmc, aud_sub_key, key, current_time + ttl)
 
-      collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
-      collections.insert_element(self, name, aud_sub_key, key, new_score)
       if old_key then
-        collections.delete_element(self, name, aud_sub_key, old_key)
+        set_sid_exp(dshmc, aud_sub_key, old_key, 0)
       end
     end
   end
@@ -74,11 +111,9 @@ local function DELETE(self, dshmc, name, key, metadata)
 
   local audiences = metadata.audiences
   local subjects  = metadata.subjects
-  local exp_score = time() - 1
   for i = 1, #audiences do
-    local aud_sub_key = audiences[i] .. ":" .. subjects[i]
-    collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
-    collections.delete_element(self, name, aud_sub_key, key)
+    local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
+    set_sid_exp(dshmc, aud_sub_key, key, 0)
   end
 
   return ok, err
@@ -188,6 +223,11 @@ end
 -- @treturn string           error message
 function metatable:delete(...)
   return exec(self, DELETE, ...)
+end
+
+
+function metatable:read_metadata(...)
+  return exec(self, READ_METADATA, ...)
 end
 
 

@@ -6,7 +6,7 @@
 
 local memcached   = require "resty.memcached"
 local utils       = require "resty.session.utils"
-local collections = require "resty.session.scored-collections"
+local buffer      = require "string.buffer"
 
 
 local setmetatable = setmetatable
@@ -14,7 +14,46 @@ local error        = error
 local null         = ngx.null
 local time         = ngx.time
 local get_name     = utils.get_name
+local get_meta_key = utils.get_meta_key
+local get_meta_el_val = utils.get_meta_el_val
+local get_latest_valid = utils.get_latest_valid
 
+
+local function metadata_cleanup(self, memc, aud_sub_key)
+  local now     = time()
+  local retry   = 10
+  local max_exp = now
+  local ok      = false
+
+  while(retry > 0 and not ok) do
+    retry = retry - 1
+    local res, _, cas_u, err = memc:gets(aud_sub_key)
+    if not res then
+      return nil, err
+    end
+
+    local sessions = get_latest_valid(res)
+    local buf  = buffer.new()
+
+    for s, exp in pairs(sessions) do
+      buf = buf:put(get_meta_el_val(s, exp))
+      max_exp = math.max(max_exp, exp)
+    end
+
+    ok, err = memc:cas(aud_sub_key, buf:tostring(), cas_u, max_exp - now)
+  end
+  return ok
+end
+
+local function read_metadata(self, memc, name, audience, subject)
+  local aud_sub_key = get_meta_key(self, audience, subject)
+  local res, _, err = memc:get(aud_sub_key)
+  if not res then
+    return nil, err
+  end
+
+  return get_latest_valid(res)
+end
 
 local function SET(self, memc, name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
   local inferred_key = get_name(self, name, key)
@@ -41,16 +80,20 @@ local function SET(self, memc, name, key, value, ttl, current_time, old_key, sta
     local audiences = metadata.audiences
     local subjects  = metadata.subjects
     for i = 1, #audiences do
-      -- no need to use get_name for this key because insert_element uses
-      -- this same storage access methods, so the prefix will be applied there
-      local aud_sub_key = audiences[i] .. ":" .. subjects[i]
-      local exp_score   = (current_time or time()) - 1
-      local new_score   = (current_time or time()) + ttl
-
-      collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
-      collections.insert_element(self, name, aud_sub_key, key, new_score)
+      local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
+      local meta_el_val = get_meta_el_val(key, current_time + ttl)
+      ok, err = memc:add(aud_sub_key, meta_el_val)
+      if not ok then
+        ok, err = memc:append(aud_sub_key, meta_el_val)
+      end
       if old_key then
-        collections.delete_element(self, name, aud_sub_key, old_key)
+        meta_el_val = get_meta_el_val(old_key, 0)
+        ok, err = memc:append(aud_sub_key, meta_el_val)
+      end
+      -- no need to clean up every time we write
+      -- it is just beneficial when a key is used a lot
+      if math.random() < 0.1 then
+        metadata_cleanup(self, memc, aud_sub_key)
       end
     end
   end
@@ -75,11 +118,11 @@ local function DELETE(self, memc, name, key, metadata)
 
   local audiences = metadata.audiences
   local subjects  = metadata.subjects
-  local exp_score = time() - 1
   for i = 1, #audiences do
-    local aud_sub_key = audiences[i] .. ":" .. subjects[i]
-    collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
-    collections.delete_element(self, name, aud_sub_key, key)
+    local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
+    local meta_el_val = get_meta_el_val(key, 0)
+    memc:append(aud_sub_key, meta_el_val)
+    metadata_cleanup(self, memc, aud_sub_key)
   end
 
   return ok, err
@@ -198,6 +241,11 @@ end
 -- @treturn string           error message
 function metatable:delete(...)--name, key, metadata)
   return exec(self, DELETE, ...)
+end
+
+
+function metatable:read_metadata(...)
+  return exec(self, read_metadata, ...)
 end
 
 
