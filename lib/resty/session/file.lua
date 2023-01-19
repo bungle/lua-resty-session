@@ -4,13 +4,17 @@
 -- @module resty.session.file
 
 local lfs         = require "lfs"
-local collections = require "resty.session.file.file-collections"
 local file_utils  = require "resty.session.file.file-utils"
+local buffer      = require "string.buffer"
 local utils       = require "resty.session.utils"
 
 local run_worker_thread = file_utils.run_worker_thread
+local get_latest_valid = utils.get_latest_valid
+local get_meta_el_val  = utils.get_meta_el_val
+local get_meta_key     = utils.get_meta_key
 local should_cleanup = utils.should_cleanup
 local get_path = file_utils.get_path
+
 local setmetatable = setmetatable
 local byte = string.byte
 local time = ngx.time
@@ -34,6 +38,76 @@ local DEFAULT_PATH do
   DEFAULT_PATH = path:sub(1, pos)
 end
 
+local function file_get(storage, name, key)
+  local ok, res, err = run_worker_thread(
+    storage.pool,
+    "resty.session.file.file-thread",
+    "get",
+    get_path(storage, name, key)
+  )
+  return ok, res, err
+end
+
+local function file_set(storage, path, value)
+  local ok, res, err = run_worker_thread(
+    storage.pool,
+    "resty.session.file.file-thread",
+    "set",
+    path,
+    value
+  )
+  return ok, res, err
+end
+
+local function file_delete(storage, path)
+  run_worker_thread(
+    storage.pool,
+    "resty.session.file.file-thread",
+    "delete",
+    path
+  )
+end
+
+-- not safe for concurrent access
+-- sets one sid:exp; in the metadata of some audience/subject
+local function set_sid_exp(storage, name, aud_sub_key, sid, exp)
+  local now     = time()
+  local max_exp = now
+
+  local _, res = file_get(storage, name, aud_sub_key)
+  local sessions = get_latest_valid(res)
+  local buf = buffer.new()
+  sessions[sid] = exp > 0 and exp or nil
+  for s, e in pairs(sessions) do
+    buf = buf:put(get_meta_el_val(s, e))
+    max_exp = math.max(max_exp, e)
+  end
+
+  local path = get_path(storage, name, aud_sub_key)
+  file_set(storage, path, buf:tostring())
+  lfs.touch(path, nil, max_exp)
+end
+
+local function read_metadata(storage, name, audience, subject)
+  local pattern     = ".-:.-;"
+  local sessions    = {}
+
+  local aud_sub_key = get_meta_key(storage, audience, subject)
+  local _, res      = file_get(storage, name, aud_sub_key)
+  if not res then
+    return nil, "not found"
+  end
+
+  for s in string.gmatch(res, pattern) do
+    local i = string.find(s, ":")
+    local sid = string.sub(s,     1,  i - 1)
+    local exp = string.sub(s, i + 1, #s - 1)
+    exp = tonumber(exp)
+    sessions[sid] = exp
+  end
+
+  return sessions
+end
 
 local function cleanup_check(storage)
   if not should_cleanup() then
@@ -53,12 +127,7 @@ local function cleanup_check(storage)
         local exp = attr and attr.modification
         if exp < now then
           file = path .. file
-          run_worker_thread(
-            storage.pool,
-            "resty.session.file.file-thread",
-            "delete",
-            file
-          )
+          file_delete(storage, file)
           deleted = deleted + 1
         end
       end
@@ -103,13 +172,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
   cleanup_check(self)
   local path = get_path(self, name, key)
   if not metadata and not old_key then
-    local _, res, err = run_worker_thread(
-      self.pool,
-      "resty.session.file.file-thread",
-      "set",
-      path,
-      value
-    )
+    local _, res, err = file_set(self, path, value)
     -- use mtime to hold the value of the expiration time of the file (and session)
     if current_time and ttl then
       lfs.touch(path, nil, current_time + ttl)
@@ -127,13 +190,8 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     end
   end
 
-  local ok, res, err = run_worker_thread(
-    self.pool,
-    "resty.session.file.file-thread",
-    "set",
-    path,
-    value
-  )
+
+  local ok, res, err = file_set(self, path, value)
   if not res then
     return nil, err or "set failed"
   end
@@ -143,12 +201,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
   end
   if old_path then
     if remember then
-      run_worker_thread(
-        self.pool,
-        "resty.session.file.file-thread",
-        "delete",
-        old_path
-      )
+      file_delete(self, old_path)
     elseif (not old_ttl or old_ttl > stale_ttl) then
       lfs.touch(old_path, nil, current_time + stale_ttl)
     end
@@ -158,14 +211,11 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     local audiences = metadata.audiences
     local subjects  = metadata.subjects
     for i = 1, #audiences do
-      local aud_sub_key = audiences[i] .. "_" .. subjects[i]
-      local exp_score   = (current_time or time()) - 1
-      local new_score   = (current_time or time()) + ttl
+      local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
+      set_sid_exp(self, name, aud_sub_key, key, current_time + ttl)
 
-      collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
-      collections.insert_element(self, name, aud_sub_key, key, new_score)
       if old_key then
-        collections.delete_element(self, name, aud_sub_key, old_key)
+        set_sid_exp(self, name, aud_sub_key, old_key, 0)
       end
     end
   end
@@ -191,12 +241,7 @@ function metatable:get(name, key)
     return nil, "expired"
   end
 
-  local _, res, err = run_worker_thread(
-    self.pool,
-    "resty.session.file.file-thread",
-    "get",
-    get_path(self, name, key)
-  )
+  local _, res, err = file_get(self, name, key)
   return res, err
 end
 
@@ -214,26 +259,23 @@ function metatable:delete(name, key, metadata)
   cleanup_check(self)
   local path = get_path(self, name, key)
 
-  run_worker_thread(
-    self.pool,
-    "resty.session.file.file-thread",
-    "delete",
-    path
-  )
+  file_delete(self, path)
   if not metadata then
     return true
   end
 
   local audiences = metadata.audiences
   local subjects  = metadata.subjects
-  local exp_score = time() - 1
   for i = 1, #audiences do
-    local aud_sub_key = audiences[i] .. "_" .. subjects[i]
-    collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
-    collections.delete_element(self, name, aud_sub_key, key)
+    local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
+    set_sid_exp(self, name, aud_sub_key, key, 0)
   end
 
   return true
+end
+
+function metatable:read_metadata(name, audience, subject)
+  return read_metadata(self, name, audience, subject)
 end
 
 

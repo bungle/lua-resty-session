@@ -35,6 +35,7 @@
 --   aud TEXT,
 --   sub TEXT,
 --   sid CHAR(43) REFERENCES sessions (sid) ON DELETE CASCADE ON UPDATE CASCADE,
+--   exp TIMESTAMP WITH TIME ZONE,
 --   PRIMARY KEY (aud, sub, sid)
 -- );
 -- @table metadata
@@ -56,9 +57,10 @@ local DEFAULT_TABLE = "sessions"
 
 
 local SET = "INSERT INTO %s (sid, name, data, exp) VALUES ('%s', '%s', '%s', TO_TIMESTAMP(%d) AT TIME ZONE 'UTC') ON CONFLICT (sid) DO UPDATE SET data = EXCLUDED.data, exp = EXCLUDED.exp"
-local SET_META_PREFIX = "INSERT INTO %s (aud, sub, sid) VALUES "
-local SET_META_VALUES = "('%s', '%s', '%s')"
-local SET_META_SUFFIX = " ON CONFLICT DO NOTHING"
+local SET_META_PREFIX = "INSERT INTO %s (aud, sub, sid, exp) VALUES "
+local SET_META_VALUES = "('%s', '%s', '%s', TO_TIMESTAMP(%d))"
+local SET_META_SUFFIX = " ON CONFLICT (aud, sub, sid) DO UPDATE SET exp = TO_TIMESTAMP(%d)"
+local GET_META = "SELECT sid, exp FROM %s WHERE aud = '%s' AND sub = '%s' AND exp >= TO_TIMESTAMP(%d)"
 local GET = "SELECT data FROM %s WHERE sid = '%s' AND exp >= TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
 local EXPIRE = "UPDATE %s SET exp = TO_TIMESTAMP(%d) AT TIME ZONE 'UTC' WHERE sid = '%s' AND exp > TO_TIMESTAMP(%d) AT TIME ZONE 'UTC'"
 local DELETE = "DELETE FROM %s WHERE sid = '%s'"
@@ -101,8 +103,9 @@ end
 
 local function cleanup_check(storage)
   if should_cleanup() then
-    local table = storage.table
-    return exec(storage, fmt(CLEANUP, table, ngx.time()))
+    local now = ngx.time()
+    exec(storage, fmt(CLEANUP, storage.table,      now))
+    exec(storage, fmt(CLEANUP, storage.table_meta, now))
   end
 end
 
@@ -149,15 +152,6 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
 
   SQL:reset():putf(SET, table, key, name, value, exp)
 
-  if old_key then
-    if remember then
-      SQL:put(STM_DELIM):putf(DELETE, table, old_key)
-    else
-      local stale_exp = stale_ttl + current_time
-      SQL:put(STM_DELIM):putf(EXPIRE, table, stale_exp, old_key, stale_exp)
-    end
-  end
-
   local table_meta = self.table_meta
   if metadata then
     local audiences = metadata.audiences
@@ -173,7 +167,30 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
       SQL:putf(SET_META_VALUES, audiences[i], subjects[i], key, exp)
     end
 
-    SQL:putf(SET_META_SUFFIX)
+    SQL:putf(SET_META_SUFFIX, exp)
+
+    if old_key then
+      local stale_exp = stale_ttl + current_time
+      SQL:put(STM_DELIM):putf(SET_META_PREFIX, table_meta)
+
+      for i = 1, count do
+        if i > 1 then
+          SQL:put(VAL_DELIM)
+        end
+        SQL:putf(SET_META_VALUES, audiences[i], subjects[i], old_key, stale_exp)
+      end
+
+      SQL:putf(SET_META_SUFFIX, stale_exp)
+    end
+  end
+
+  if old_key then
+    if remember then
+      SQL:put(STM_DELIM):putf(DELETE, table, old_key)
+    else
+      local stale_exp = stale_ttl + current_time
+      SQL:put(STM_DELIM):putf(EXPIRE, table, stale_exp, old_key, stale_exp)
+    end
   end
 
   return exec(self, SQL:tostring())
@@ -217,6 +234,21 @@ end
 function metatable:delete(name, key, metadata)
   cleanup_check(self)
   return exec(self, fmt(DELETE, self.table, key))
+end
+
+
+function metatable:read_metadata(name, audience, subject)
+  local res = {}
+  local t = exec(self, fmt(GET_META, self.table_meta, audience, subject, ngx.time()))
+
+  if not t then
+    return nil, "not found"
+  end
+  for _, v in ipairs(t) do
+    res[v["sid"]] = v["exp"]
+  end
+
+  return res
 end
 
 

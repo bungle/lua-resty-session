@@ -4,19 +4,65 @@
 -- @module resty.session.shm
 
 
-local get_name    = require "resty.session.utils".get_name
-local collections = require "resty.session.scored-collections"
+local utils  = require "resty.session.utils"
 
 
+local get_meta_key = utils.get_meta_key
+local get_meta_el_val = utils.get_meta_el_val
 local setmetatable = setmetatable
+local get_name = utils.get_name
 local shared = ngx.shared
 local assert = assert
-local error = error
 local time = ngx.time
+local error = error
 
 
 local DEFAULT_ZONE = "sessions"
 
+
+local function latest_valid_exp(dict, aud_sub_key)
+  local now      = ngx.time()
+  local size    =  dict:llen(aud_sub_key)
+  local sess     = {}
+
+  for _ = 1, size do
+    local el  = dict:lpop(aud_sub_key)
+    if not el then
+      break
+    end
+
+    local i   = string.find(el, ":")
+    local sid = string.sub(el,     1,   i - 1)
+    local exp = string.sub(el, i + 1, #el - 1)
+    exp = exp and tonumber(exp)
+    if exp > now then
+      sess[sid] = exp
+    else
+      sess[sid] = nil
+    end
+  end
+
+  return sess
+end
+
+local function metadata_cleanup(self, aud_sub_key)
+  local now      = ngx.time()
+  local dict     = self.dict
+  local max_exp  = time()
+  local sessions = latest_valid_exp(dict, aud_sub_key)
+
+  for s, exp in pairs(sessions) do
+    local meta_el = get_meta_el_val(s, exp)
+    dict:rpush(aud_sub_key, meta_el)
+    max_exp = math.max(max_exp, exp)
+  end
+  local ok, err = dict:expire(aud_sub_key, max_exp - now)
+  return ok, err
+end
+
+local function read_metadata(self, aud_sub_key)
+  return latest_valid_exp(self.dict, aud_sub_key)
+end
 
 ---
 -- Storage
@@ -83,14 +129,19 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     local audiences = metadata.audiences
     local subjects  = metadata.subjects
     for i = 1, #audiences do
-      local aud_sub_key = audiences[i] .. ":" .. subjects[i]
-      local exp_score   = (current_time or time()) - 1
-      local new_score   = (current_time or time()) + ttl
+      local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
+      local meta_el_val = get_meta_el_val(key, current_time + ttl)
 
-      collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
-      collections.insert_element(self, name, aud_sub_key, key, new_score)
+      ok, err = self.dict:rpush(aud_sub_key, meta_el_val)
+      
       if old_key then
-        collections.delete_element(self, name, aud_sub_key, old_key)
+        meta_el_val = get_meta_el_val(old_key, 0)
+        ok, err = self.dict:rpush(aud_sub_key, meta_el_val)
+      end
+      -- no need to clean up every time we write
+      -- it is just beneficial when a key is used a lot
+      if math.random() < 0.1 then
+        metadata_cleanup(self, aud_sub_key)
       end
     end
   end
@@ -132,16 +183,20 @@ function metatable:delete(name, key, metadata)
 
   local audiences = metadata.audiences
   local subjects  = metadata.subjects
-  local exp_score = time() - 1
   for i = 1, #audiences do
-    local aud_sub_key = audiences[i] .. ":" .. subjects[i]
-    collections.remove_range_by_score(self, name, aud_sub_key, exp_score)
-    collections.delete_element(self, name, aud_sub_key, key)
+    local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
+    local meta_el_val = get_meta_el_val(key, 0)
+    self.dict:rpush(aud_sub_key, meta_el_val)
+    metadata_cleanup(self, aud_sub_key)
   end
 
   return true
 end
 
+function metatable:read_metadata(name, audience, subject)
+  local aud_sub_key = get_meta_key(self, audience, subject)
+  return read_metadata(self, aud_sub_key)
+end
 
 local storage = {}
 

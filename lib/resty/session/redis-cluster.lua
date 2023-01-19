@@ -13,9 +13,10 @@ local error = error
 local null = ngx.null
 
 
-local SET    = redis_utils.SET
-local GET    = redis_utils.GET
-local UNLINK = redis_utils.UNLINK
+local SET           = redis_utils.SET
+local GET           = redis_utils.GET
+local UNLINK        = redis_utils.UNLINK
+local READ_METADATA = redis_utils.READ_METADATA
 
 
 local function exec(self, func, ...)
@@ -99,6 +100,9 @@ function metatable:delete(...)
   return exec(self, UNLINK, ...)
 end
 
+function metatable:read_metadata(...)
+  return exec(self, READ_METADATA, ...)
+end
 
 local storage = {}
 
