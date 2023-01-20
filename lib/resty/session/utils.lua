@@ -1073,7 +1073,6 @@ local function get_latest_valid(sessions)
 
   sessions = sessions or ""
   for s in string.gmatch(sessions, pattern) do
-    ngx.log(ngx.ERR, "s is "..tostring(s))
     local i = string.find(s, ":")
     local sid = string.sub(s,     1,  i - 1)
     local exp = string.sub(s, i + 1, #s - 1)

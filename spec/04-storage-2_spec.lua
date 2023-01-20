@@ -1,3 +1,7 @@
+---
+-- For now these tests don't run on CI.
+-- Ensure to keep the tests consistent with those in 03-storage-1_spec.lua
+
 local utils = require "resty.session.utils"
 
 local storage_configs = {
@@ -67,6 +71,15 @@ for _, st in ipairs({
 }) do
   describe("Storage tests 2 #noci", function()
     local storage
+    local long_ttl  = 60
+    local short_ttl = 2
+    local key       = "test_key"
+    local key1      = "test_key_1"
+    local key2      = "test_key_2"
+    local old_key   = "old_test_key"
+    local name      = "test_name"
+    local value     = "test_value"
+
     lazy_setup(function()
       local conf = {
         remember = true,
@@ -83,14 +96,6 @@ for _, st in ipairs({
     end)
 
     describe("[" .. st .. "] storage: SET + GET", function()
-      local key     = "test_key"
-      local key1    = "test_key_1"
-      local key2    = "test_key_2"
-      local old_key = "old_test_key"
-      local name    = "test_name"
-      local value   = "test_value"
-      local ttl     = 60
-
       local audiences = { "foo", "bar" }
       local subjects = { "john", "jane" }
 
@@ -106,7 +111,7 @@ for _, st in ipairs({
       end)
 
       it("SET: simple set does not return errors, GET fetches value correctly", function()
-        local ok = storage:set(name, key, value, ttl, ngx.time())
+        local ok = storage:set(name, key, value, long_ttl, ngx.time())
         assert.is_not_nil(ok)
 
         local v, err = storage:get(name, key, ngx.time())
@@ -116,48 +121,52 @@ for _, st in ipairs({
       end)
 
       it("SET: with metadata and remember works correctly", function()
-        local ok = storage:set(name, key, value, ttl, ngx.time(), nil, nil, metadata, true)
+        local ok = storage:set(name, key, value, long_ttl, ngx.time(), nil, nil, metadata, true)
         assert.is_not_nil(ok)
+        ngx.sleep(1)
         local v, err = storage:get(name, key, ngx.time())
         assert.is_not_nil(v)
         assert.is_nil(err)
         assert.equals(v, value)
       end)
 
-      it("SET: with metadata (long ttl) correctly appends metadata to collection #pending", function()
-        local ok =  storage:set(name, key, value, ttl, ngx.time(), nil, nil, metadata, true)
-        ok = ok and storage:set(name, key1, value, ttl, ngx.time(), nil, nil, metadata, true)
-        ok = ok and storage:set(name, key2, value, ttl, ngx.time(), nil, nil, metadata, true)
+      it("SET: with metadata (long ttl) correctly appends metadata to collection", function()
+        local ok = storage:set(name, key, value, long_ttl, ngx.time(), nil, nil, metadata, true)
+        ok = ok and storage:set(name, key1, value, long_ttl, ngx.time(), nil, nil, metadata, true)
+        ok = ok and storage:set(name, key2, value, long_ttl, ngx.time(), nil, nil, metadata, true)
         assert.is_not_nil(ok)
-
+        ngx.sleep(1)
         for i = 1, #audiences do
-          -- TODO: fetch metadata and confirm all the 3 keys above exist
-          local meta_values
+          local meta_values = storage:read_metadata(name, audiences[i], subjects[i])
+          assert.truthy(meta_values[key ])
+          assert.truthy(meta_values[key1])
+          assert.truthy(meta_values[key2])
         end
       end)
 
-      it("SET: with metadata (short ttl) correctly expires metadata #pending", function()
+      it("SET: with metadata (short ttl) correctly expires metadata", function()
         ttl = 2
-        local ok =  storage:set(name, key, value, ttl, ngx.time(), nil, nil, metadata, true)
+        local ok = storage:set(name, key, value, short_ttl, ngx.time(), nil, nil, metadata, true)
 
         ngx.sleep(ttl + 1)
 
-        ok = ok and storage:set(name, key1, value, 60, ngx.time(), nil, nil, metadata, true)
+        ok = ok and storage:set(name, key1, value, long_ttl, ngx.time(), nil, nil, metadata, true)
         assert.is_not_nil(ok)
-
+        ngx.sleep(1)
         for i = 1, #audiences do
-          -- TODO: fetch metadata and confirm only key1 above exists (key has expired)
-          local meta_values
+          local meta_values = storage:read_metadata(name, audiences[i], subjects[i])
+          assert.falsy(meta_values[key])
+          assert.truthy(meta_values[key1])
         end
       end)
 
       it("SET: with old_key correctly applies stale ttl on old key", function()
         local stale_ttl = 1
 
-        local ok = storage:set(name, old_key, value, ttl, ngx.time())
+        local ok = storage:set(name, old_key, value, long_ttl, ngx.time())
         assert.is_not_nil(ok)
 
-        ok = storage:set(name, key, value, ttl, ngx.time(), old_key, stale_ttl, nil, false)
+        ok = storage:set(name, key, value, long_ttl, ngx.time(), old_key, stale_ttl, nil, false)
         assert.is_not_nil(ok)
 
         ngx.sleep(3)
@@ -166,10 +175,21 @@ for _, st in ipairs({
         assert.is_nil(v)
       end)
 
-      it("SET: ttl works as expected", function()
-        ttl = 1
+      it("SET: remember deletes file in old_key", function()
+        local stale_ttl = long_ttl
 
-        local ok = storage:set(name, key, value, ttl, ngx.time())
+        local ok = storage:set(name, old_key, value, long_ttl, ngx.time())
+        assert.is_not_nil(ok)
+
+        ok = storage:set(name, key, value, long_ttl, ngx.time(), old_key, stale_ttl, nil, true)
+        assert.is_not_nil(ok)
+
+        local v = storage:get(name, old_key, ngx.time())
+        assert.is_nil(v)
+      end)
+
+      it("SET: ttl works as expected", function()
+        local ok = storage:set(name, key, value, short_ttl, ngx.time())
         assert.is_not_nil(ok)
 
         ngx.sleep(3)
@@ -180,11 +200,6 @@ for _, st in ipairs({
     end)
 
     describe("[" .. st .. "] storage: DELETE", function()
-      local name  = "test_name"
-      local key   = "test_key"
-      local value = "test_value"
-      local ttl   = 60
-
       local audiences = { "foo" }
       local subjects = { "john" }
 
@@ -193,11 +208,10 @@ for _, st in ipairs({
         subjects  = subjects,
       }
 
-      it("deleted file is not found", function()
-        ttl = 1
+      it("deleted file is really deleted", function()
         local current_time = ngx.time()
 
-        local ok = storage:set(name, key, value, ttl, current_time)
+        local ok = storage:set(name, key, value, short_ttl, current_time)
         assert.is_not_nil(ok)
 
         storage:delete(name, key)
@@ -206,17 +220,18 @@ for _, st in ipairs({
         assert.is_nil(v)
       end)
 
-      it("with metadata correctly deletes metadata collection #pending", function()
-        local ok = storage:set(name, key, value, ttl, ngx.time(), nil, nil, metadata, true)
+      it("with metadata correctly deletes metadata collection", function()
+        local ok = storage:set(name, key1, value, long_ttl, ngx.time(), nil, nil, metadata, true)
         assert.is_not_nil(ok)
-
+        ngx.sleep(1)
         for i = 1, #audiences do
-          -- TODO: fetch metadata and confirm key above exists
-          local meta_values
-
-          ok = storage:delete(name, key, metadata)
+          local meta_values = storage:read_metadata(name, audiences[i], subjects[i])
+          assert.truthy(meta_values[key1])
+          ok = storage:delete(name, key1, metadata)
           assert.is_not_nil(ok)
-          -- TODO: fetch metadata again and confirm key above does not exist anymore
+          ngx.sleep(2)
+          meta_values = storage:read_metadata(name, audiences[i], subjects[i])
+          assert.falsy(meta_values[key1])
         end
       end)
     end)

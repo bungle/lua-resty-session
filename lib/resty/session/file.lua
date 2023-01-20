@@ -182,8 +182,8 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
 
   local old_ttl, old_path
   if old_key then
+    old_path = get_path(self, name, old_key)
     if not remember then
-      old_path = get_path(self, name, old_key)
       local attr = lfs.attributes(old_path)
       local exp = attr and attr.modification
       old_ttl = exp - current_time

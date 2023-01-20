@@ -23,7 +23,6 @@ build = {
     ["resty.session.dshm"] = "lib/resty/session/dshm.lua",
     ["resty.session.file"] = "lib/resty/session/file.lua",
     ["resty.session.file.file-thread"] = "lib/resty/session/file/file-thread.lua",
-    ["resty.session.file.file-expirations"] = "lib/resty/session/file/file-expirations.lua",
     ["resty.session.file.file-utils"] = "lib/resty/session/file/file-utils.lua",
     ["resty.session.memcached"] = "lib/resty/session/memcached.lua",
     ["resty.session.mysql"] = "lib/resty/session/mysql.lua",

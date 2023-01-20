@@ -48,7 +48,7 @@ describe("Session", function()
 
       local ok, err = pcall(s.get, s, "anything")
       assert.is_false(ok)
-      assert.matches("unable to get session data on closed session", err)
+      assert.matches("unable to get session data", err)
 
       session.__set_ngx_var({
         ["cookie_" .. cookie_name] = session_cookie
@@ -76,7 +76,7 @@ describe("Session", function()
       assert.equals(s.state, "closed")
       ok, err = pcall(s.get, s, "anything")
       assert.is_false(ok)
-      assert.matches("unable to get session data on closed session", err)
+      assert.matches("unable to get session data", err)
       local session_cookie = extract_session_cookie(cookie_name, cookies["Set-Cookie"]) -- empty
 
       session.__set_ngx_var({
@@ -88,7 +88,7 @@ describe("Session", function()
       assert.equals(s.state, "closed")
       ok, err = pcall(s.get, s, "anything")
       assert.is_false(ok)
-      assert.matches("unable to get session data on closed session", err)
+      assert.matches("unable to get session data", err)
     end
 
     local function test_session(s)
@@ -144,7 +144,7 @@ describe("Session", function()
         configuration.ikm = "12345"
         local ok, err = pcall(session.init,configuration)
         assert.is_false(ok)
-        assert.matches("ikm field has invalid size", err)
+        assert.matches("invalid ikm size", err)
       end)
 
       it("custom ikm_fallbacks must be 32 bytes", function()
@@ -154,7 +154,7 @@ describe("Session", function()
         }
         local ok, err = pcall(session.init,configuration)
         assert.is_false(ok)
-        assert.matches("ikm_fallbacks field has invalid size", err)
+        assert.matches("invalid ikm size in ikm_fallbacks", err)
       end)
     end)
 
@@ -167,7 +167,7 @@ describe("Session", function()
         configuration.ikm = "12345"
         local ok, err = pcall(session.new, configuration)
         assert.is_false(ok)
-        assert.matches("ikm field has invalid size", err)
+        assert.matches("invalid ikm size", err)
       end)
 
       it("custom ikm_fallbacks must be 32 bytes", function()
@@ -177,7 +177,7 @@ describe("Session", function()
         }
         local ok, err = pcall(session.new, configuration)
         assert.is_false(ok)
-        assert.matches("ikm_fallbacks field has invalid size", err)
+        assert.matches("invalid ikm size", err)
       end)
     end)
   end)
