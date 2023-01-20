@@ -70,11 +70,11 @@ local KEY_SIZE = 32
 
 
 --[ HEADER ----------------------------------------------------------------------------------------------------------------------------------------------------][ PAYLOAD ----]
--- Type (1B) || Options (2B) || Session ID (32) || Creation Time (5B) || Rolling Offset (4B) || Data Size (3B) || Tag (16B) || Idling Offset (3B) || Mac (16B) || [ Data (*B) ]
+-- Type (1B) || Flags (2B) || Session ID (32) || Creation Time (5B) || Rolling Offset (4B) || Data Size (3B) || Tag (16B) || Idling Offset (3B) || Mac (16B) || [ Data (*B) ]
 
 
 local COOKIE_TYPE_SIZE    = 1  --  1
-local OPTIONS_SIZE        = 2  --  3
+local FLAGS_SIZE          = 2  --  3
 local SID_SIZE            = 32 -- 35
 local CREATION_TIME_SIZE  = 5  -- 40
 local ROLLING_OFFSET_SIZE = 4  -- 44
@@ -84,7 +84,7 @@ local IDLING_OFFSET_SIZE  = 3  -- 66
 local MAC_SIZE            = 16 -- 82
 
 
-local HEADER_TAG_SIZE = COOKIE_TYPE_SIZE + OPTIONS_SIZE + SID_SIZE + CREATION_TIME_SIZE + ROLLING_OFFSET_SIZE + DATA_SIZE
+local HEADER_TAG_SIZE = COOKIE_TYPE_SIZE + FLAGS_SIZE + SID_SIZE + CREATION_TIME_SIZE + ROLLING_OFFSET_SIZE + DATA_SIZE
 local HEADER_TOUCH_SIZE = HEADER_TAG_SIZE + TAG_SIZE
 local HEADER_MAC_SIZE = HEADER_TOUCH_SIZE + IDLING_OFFSET_SIZE
 local HEADER_SIZE = HEADER_MAC_SIZE + MAC_SIZE
@@ -105,10 +105,10 @@ local MAX_TTL            = 34560000                          --      400 days
 -- see: https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis-11#section-4.1.2.1
 
 
-local OPTIONS_NONE       = 0x0000
-local OPTION_STATELESS   = 0x0001
-local OPTION_NO_REMEMBER = 0x0002
-local OPTION_DEFLATE     = 0x0010
+local FLAGS_NONE   = 0x0000
+local FLAG_STORAGE = 0x0001
+local FLAG_FORGET  = 0x0002
+local FLAG_DEFLATE = 0x0010
 
 
 local DEFAULT_AUDIENCE = "default"
@@ -405,6 +405,7 @@ end
 
 
 local function open(self, remember, meta_only)
+  local storage = self.storage
   local current_time = time()
   local cookie_name
   if remember then
@@ -442,17 +443,20 @@ local function open(self, remember, meta_only)
     end
   end
 
-  local options do
-    options = HEADER_BUFFER:get(OPTIONS_SIZE)
-    if #options ~= OPTIONS_SIZE then
-      return nil, "invalid session options"
+  local flags do
+    flags = HEADER_BUFFER:get(FLAGS_SIZE)
+    if #flags ~= FLAGS_SIZE then
+      return nil, "invalid session flags"
     end
 
-    options = bunpack(OPTIONS_SIZE, options)
-    if has_flag(self.options, OPTION_STATELESS) ~=
-            has_flag(options, OPTION_STATELESS)
-    then
-      return nil, "invalid session options"
+    flags = bunpack(FLAGS_SIZE, flags)
+
+    if storage then
+      if not has_flag(flags, FLAG_STORAGE) then
+        return nil, "invalid session flags"
+      end
+    elseif has_flag(flags, FLAG_STORAGE) then
+      return nil, "invalid session flags"
     end
   end
 
@@ -611,7 +615,6 @@ local function open(self, remember, meta_only)
     end
   end
 
-  local storage = self.storage
   local data_index = self.data_index
   local audience = self.data[data_index][2]
   local initial_chunk, ciphertext, ciphertext_encoded, info_data do
@@ -690,7 +693,7 @@ local function open(self, remember, meta_only)
   if remember then
     self.remember_meta = {
       timestamp      = current_time,
-      options        = options,
+      flags          = flags,
       sid            = sid,
       creation_time  = creation_time,
       rolling_offset = rolling_offset,
@@ -705,7 +708,7 @@ local function open(self, remember, meta_only)
   else
     self.meta = {
       timestamp      = current_time,
-      options        = options,
+      flags          = flags,
       sid            = sid,
       creation_time  = creation_time,
       rolling_offset = rolling_offset,
@@ -740,7 +743,7 @@ local function open(self, remember, meta_only)
   end
 
   local data do
-    if has_flag(options, OPTION_DEFLATE) then
+    if has_flag(flags, FLAG_DEFLATE) then
       plaintext, err = inflate(plaintext)
       if not plaintext then
         return nil, errmsg(err, "unable to inflate session data")
@@ -794,8 +797,14 @@ local function save(self, state, remember)
   end
 
   local cookie_name_size = #cookie_name
-  local options = self.options
   local storage = self.storage
+  local flags = self.flags
+
+  if storage then
+    flags = set_flag(flags, FLAG_STORAGE)
+  else
+    flags = unset_flag(flags, FLAG_STORAGE)
+  end
 
   local sid, err = rand_bytes(SID_SIZE)
   if not sid then
@@ -823,9 +832,9 @@ local function save(self, state, remember)
   end
 
   do
-    local meta_options = meta.options
-    if meta_options and has_flag(meta_options, OPTION_NO_REMEMBER) then
-      options = set_flag(options, OPTION_NO_REMEMBER)
+    local meta_flags = meta.flags
+    if meta_flags and has_flag(meta_flags, FLAG_FORGET) then
+      flags = set_flag(flags, FLAG_FORGET)
     end
   end
 
@@ -859,7 +868,7 @@ local function save(self, state, remember)
         if deflated_data then
           local deflated_size = #deflated_data
           if deflated_size < data_size then
-            options = set_flag(options, OPTION_DEFLATE)
+            flags = set_flag(flags, FLAG_DEFLATE)
             data = deflated_data
             data_size = deflated_size
           end
@@ -885,14 +894,14 @@ local function save(self, state, remember)
 
   local idling_offset = 0
 
-  local packed_options        = bpack(OPTIONS_SIZE, options)
+  local packed_flags          = bpack(FLAGS_SIZE, flags)
   local packed_data_size      = bpack(DATA_SIZE, data_size)
   local packed_creation_time  = bpack(CREATION_TIME_SIZE, creation_time)
   local packed_rolling_offset = bpack(ROLLING_OFFSET_SIZE, rolling_offset)
   local packed_idling_offset  = bpack(IDLING_OFFSET_SIZE, idling_offset)
 
   HEADER_BUFFER:reset()
-  HEADER_BUFFER:put(COOKIE_TYPE, packed_options, sid, packed_creation_time, packed_rolling_offset, packed_data_size)
+  HEADER_BUFFER:put(COOKIE_TYPE, packed_flags, sid, packed_creation_time, packed_rolling_offset, packed_data_size)
 
   local ikm = self.ikm
   local key, iv
@@ -1076,7 +1085,7 @@ local function save(self, state, remember)
   if remember then
     self.remember_meta = {
       timestamp      = current_time,
-      options        = options,
+      flags          = flags,
       sid            = sid,
       creation_time  = creation_time,
       rolling_offset = rolling_offset,
@@ -1092,7 +1101,7 @@ local function save(self, state, remember)
     self.state = state or STATE_OPEN
     self.meta = {
       timestamp      = current_time,
-      options        = options,
+      flags          = flags,
       sid            = sid,
       creation_time  = creation_time,
       rolling_offset = rolling_offset,
@@ -1334,12 +1343,12 @@ end
 
 
 local function get_remember(self)
-  local options = self.meta.options
-  if options and has_flag(options, OPTION_NO_REMEMBER) then
+  local flags = self.meta.flags
+  if flags and has_flag(flags, FLAG_FORGET) then
     return false
   end
 
-  if has_flag(self.options, OPTION_NO_REMEMBER) then
+  if has_flag(self.flags, FLAG_FORGET) then
     return false
   end
 
@@ -1356,6 +1365,10 @@ local function set_meta_header(self, header, set_header)
   local value = get_meta(self, header)
   if not value then
     return
+  end
+
+  if header == "id" then
+    value = encode_base64url(value)
   end
 
   set_header(name, value)
@@ -1776,9 +1789,9 @@ function metatable:set_remember(value)
   assert(self.state ~= STATE_CLOSED, "unable to set remember on closed session")
   assert(type(value) == "boolean", "invalid remember value")
   if value == false then
-    set_flag(self.options, OPTION_NO_REMEMBER)
+    set_flag(self.flags, FLAG_FORGET)
   else
-    unset_flag(self.options, OPTION_NO_REMEMBER)
+    unset_flag(self.flags, FLAG_FORGET)
   end
 
   self.remember = value
@@ -1911,10 +1924,10 @@ function metatable:touch()
   local cookie_flags = self.cookie_flags
   local cookie_name = self.cookie_name
   local cookie_data
-  if has_flag(meta.options, OPTION_STATELESS) then
-    cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, meta.initial_chunk, cookie_flags)
-  else
+  if self.storage then
     cookie_data = fmt("%s=%s%s", cookie_name, payload_header, cookie_flags)
+  else
+    cookie_data = fmt("%s=%s%s%s", cookie_name, payload_header, meta.initial_chunk, cookie_flags)
   end
 
   header["Set-Cookie"] = merge_cookies(header["Set-Cookie"], #cookie_name, cookie_name, cookie_data)
@@ -2528,17 +2541,12 @@ function session.new(configuration)
     response_headers = DEFAULT_RESPONSE_HEADERS
   end
 
-  local options = OPTIONS_NONE
   local t = type(storage)
   if t == "string" then
     storage = load_storage(storage, configuration)
 
   elseif t ~= "table" then
     assert(storage == nil, "invalid session storage")
-  end
-
-  if not storage then
-    options = set_flag(options, OPTION_STATELESS)
   end
 
   local self = setmetatable({
@@ -2558,7 +2566,7 @@ function session.new(configuration)
     remember_cookie_name      = remember_cookie_name,
     remember_safety           = remember_safety,
     remember                  = remember,
-    options                   = options,
+    flags                     = FLAGS_NONE,
     storage                   = storage,
     ikm                       = ikm,
     ikm_fallbacks             = ikm_fallbacks,

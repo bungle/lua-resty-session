@@ -953,14 +953,14 @@ end
 -- Helper to turn on a flag.
 --
 -- @function utils.set_flag
--- @tparam   number  options  options on which the flag is applied
+-- @tparam   number  flags  flags on which the flag is applied
 -- @tparam   number  flag  flag that is applied
--- @treturn  number  options with the flag applied
+-- @treturn  number  flags with the flag applied
 --
 -- @usage
--- local options = 0x0000
+-- local flags = 0x0000
 -- local FLAG_DOG = 0x001
--- options = utils.set_flag(options, FLAG_DOG)
+-- flags = utils.set_flag(flags, FLAG_DOG)
 local function set_flag(options, flag)
   return bor(options, flag)
 end
@@ -970,17 +970,17 @@ end
 -- Helper to turn off a flag.
 --
 -- @function utils.unset_flag
--- @tparam   number  options  options on which the flag is removed
+-- @tparam   number  flags  flags on which the flag is removed
 -- @tparam   number  flag  flag that is removed
--- @treturn  number  options with the flag removed
+-- @treturn  number  flags with the flag removed
 --
 -- @usage
 -- local options = 0x0000
 -- local FLAG_DOG = 0x001
--- options = utils.set_flag(options, FLAG_DOG)
--- options = utils.unset_flag(options, FLAG_DOG)
-local function unset_flag(options, flag)
-  return band(options, bnot(flag))
+-- flags = utils.set_flag(options, FLAG_DOG)
+-- flags = utils.unset_flag(options, FLAG_DOG)
+local function unset_flag(flags, flag)
+  return band(flags, bnot(flag))
 end
 
 
@@ -988,19 +988,19 @@ end
 -- Helper to check if flag is enabled.
 --
 -- @function utils.has_flag
--- @tparam   number  options  options on which the flag is checked
+-- @tparam   number  flags  flags on which the flag is checked
 -- @tparam   number  flag  flag that is checked
 -- @treturn  boolean  true if flag has is present, otherwise false
 --
 -- @usage
--- local options = 0x0000
+-- local flags = 0x0000
 -- local FLAG_DOG = 0x001
 -- local FLAG_BONE = 0x010
--- options = utils.set_flag(options, FLAG_DOG)
--- options = utils.set_flag(options, FLAG_BONE)
--- print(utils.has_flag(options, FLAG_BONE)
-local function has_flag(options, flag)
-  return band(options, flag) ~= 0
+-- flags = utils.set_flag(flags, FLAG_DOG)
+-- flags = utils.set_flag(flags, FLAG_BONE)
+-- print(utils.has_flag(flags, FLAG_BONE)
+local function has_flag(flags, flag)
+  return band(flags, flag) ~= 0
 end
 
 
