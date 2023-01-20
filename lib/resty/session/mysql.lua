@@ -34,9 +34,10 @@
 -- CREATE TABLE IF NOT EXISTS sessions_meta (
 --   aud TINYTEXT,
 --   sub TINYTEXT,
---   sid CHAR(43) REFERENCES sessions (sid) ON DELETE CASCADE ON UPDATE CASCADE,
+--   sid CHAR(43),
 --   exp DATETIME,
---   PRIMARY KEY (aud, sub, sid)
+--   PRIMARY KEY (aud, sub, sid),
+--   CONSTRAINT  FOREIGN KEY (sid) REFERENCES sessions(sid) ON DELETE CASCADE ON UPDATE CASCADE
 -- ) CHARACTER SET ascii;
 -- @table metadata
 

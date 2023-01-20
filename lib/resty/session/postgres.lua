@@ -245,7 +245,11 @@ function metatable:read_metadata(name, audience, subject)
     return nil, "not found"
   end
   for _, v in ipairs(t) do
-    res[v["sid"]] = v["exp"]
+    local sid = v["sid"]
+    sid = sid and sid:gsub("%s+", "")
+    if sid then
+      res[sid] = v["exp"]
+    end
   end
 
   return res
