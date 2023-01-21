@@ -36,7 +36,7 @@ local function set_sid_exp(dshmc, aud_sub_key, sid, exp)
   return dshmc:set(aud_sub_key, buf:tostring(), max_exp - now)
 end
 
-local function READ_METADATA(self, dshmc, name, audience, subject)
+local function READ_METADATA(self, dshmc, audience, subject)
   local pattern     = ".-:.-;"
   local sessions    = {}
 

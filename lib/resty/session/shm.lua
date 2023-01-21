@@ -193,7 +193,7 @@ function metatable:delete(name, key, metadata)
   return true
 end
 
-function metatable:read_metadata(name, audience, subject)
+function metatable:read_metadata(audience, subject)
   local aud_sub_key = get_meta_key(self, audience, subject)
   return read_metadata(self, aud_sub_key)
 end

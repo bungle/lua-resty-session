@@ -11,6 +11,7 @@ local utils       = require "resty.session.utils"
 local run_worker_thread = file_utils.run_worker_thread
 local get_latest_valid = utils.get_latest_valid
 local get_meta_el_val  = utils.get_meta_el_val
+local get_path_meta = file_utils.get_path_meta
 local get_meta_key     = utils.get_meta_key
 local should_cleanup = utils.should_cleanup
 local get_path = file_utils.get_path
@@ -38,12 +39,12 @@ local DEFAULT_PATH do
   DEFAULT_PATH = path:sub(1, pos)
 end
 
-local function file_get(storage, name, key)
+local function file_get(storage, path)
   local ok, res, err = run_worker_thread(
     storage.pool,
     "resty.session.file.file-thread",
     "get",
-    get_path(storage, name, key)
+    path
   )
   return ok, res, err
 end
@@ -70,30 +71,31 @@ end
 
 -- not safe for concurrent access
 -- sets one sid:exp; in the metadata of some audience/subject
-local function set_sid_exp(storage, name, aud_sub_key, sid, exp)
-  local now     = time()
-  local max_exp = now
-
-  local _, res = file_get(storage, name, aud_sub_key)
+local function set_sid_exp(storage, aud_sub_key, sid, exp)
+  local now      = time()
+  local max_exp  = now
+  local path     = get_path_meta(storage, aud_sub_key)
+  local _, res   = file_get(storage, path)
   local sessions = get_latest_valid(res)
-  local buf = buffer.new()
+  local buf      = buffer.new()
+
   sessions[sid] = exp > 0 and exp or nil
   for s, e in pairs(sessions) do
     buf = buf:put(get_meta_el_val(s, e))
     max_exp = math.max(max_exp, e)
   end
 
-  local path = get_path(storage, name, aud_sub_key)
   file_set(storage, path, buf:tostring())
   lfs.touch(path, nil, max_exp)
 end
 
-local function read_metadata(storage, name, audience, subject)
+local function read_metadata(storage, audience, subject)
   local pattern     = ".-:.-;"
   local sessions    = {}
 
   local aud_sub_key = get_meta_key(storage, audience, subject)
-  local _, res      = file_get(storage, name, aud_sub_key)
+  local path        = get_path_meta(storage, aud_sub_key)
+  local _, res      = file_get(storage, path)
   if not res then
     return nil, "not found"
   end
@@ -212,10 +214,10 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     local subjects  = metadata.subjects
     for i = 1, #audiences do
       local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
-      set_sid_exp(self, name, aud_sub_key, key, current_time + ttl)
+      set_sid_exp(self, aud_sub_key, key, current_time + ttl)
 
       if old_key then
-        set_sid_exp(self, name, aud_sub_key, old_key, 0)
+        set_sid_exp(self, aud_sub_key, old_key, 0)
       end
     end
   end
@@ -241,7 +243,7 @@ function metatable:get(name, key)
     return nil, "expired"
   end
 
-  local _, res, err = file_get(self, name, key)
+  local _, res, err = file_get(self, path)
   return res, err
 end
 
@@ -268,14 +270,14 @@ function metatable:delete(name, key, metadata)
   local subjects  = metadata.subjects
   for i = 1, #audiences do
     local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
-    set_sid_exp(self, name, aud_sub_key, key, 0)
+    set_sid_exp(self, aud_sub_key, key, 0)
   end
 
   return true
 end
 
-function metatable:read_metadata(name, audience, subject)
-  return read_metadata(self, name, audience, subject)
+function metatable:read_metadata(audience, subject)
+  return read_metadata(self, audience, subject)
 end
 
 

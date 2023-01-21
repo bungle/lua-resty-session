@@ -238,7 +238,7 @@ function metatable:delete(name, key, metadata)
 end
 
 
-function metatable:read_metadata(name, audience, subject)
+function metatable:read_metadata(audience, subject)
   local res = {}
   local t = exec(self, fmt(GET_META, self.table_meta, audience, subject, ngx.time()))
 

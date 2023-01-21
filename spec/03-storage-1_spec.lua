@@ -84,7 +84,8 @@ for _, st in ipairs({ "file", "shm" }) do
         assert.is_not_nil(ok)
         ngx.sleep(1)
         for i = 1, #audiences do
-          local meta_values = storage:read_metadata(name, audiences[i], subjects[i])
+          local meta_values = storage:read_metadata(audiences[i], subjects[i])
+          assert.is_not_nil(meta_values)
           assert.truthy(meta_values[key ])
           assert.truthy(meta_values[key1])
           assert.truthy(meta_values[key2])
@@ -101,7 +102,7 @@ for _, st in ipairs({ "file", "shm" }) do
         assert.is_not_nil(ok)
         ngx.sleep(1)
         for i = 1, #audiences do
-          local meta_values = storage:read_metadata(name, audiences[i], subjects[i])
+          local meta_values = storage:read_metadata(audiences[i], subjects[i])
           assert.falsy(meta_values[key])
           assert.truthy(meta_values[key1])
         end
@@ -172,12 +173,12 @@ for _, st in ipairs({ "file", "shm" }) do
         assert.is_not_nil(ok)
         ngx.sleep(1)
         for i = 1, #audiences do
-          local meta_values = storage:read_metadata(name, audiences[i], subjects[i])
+          local meta_values = storage:read_metadata(audiences[i], subjects[i])
           assert.truthy(meta_values[key1])
           ok = storage:delete(name, key1, metadata)
           assert.is_not_nil(ok)
           ngx.sleep(2)
-          meta_values = storage:read_metadata(name, audiences[i], subjects[i])
+          meta_values = storage:read_metadata(audiences[i], subjects[i])
           assert.falsy(meta_values[key1])
         end
       end)

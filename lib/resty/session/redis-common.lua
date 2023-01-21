@@ -1,5 +1,8 @@
-local get_name = require "resty.session.utils".get_name
-local time     = ngx.time
+local utils = require "resty.session.utils"
+
+local get_meta_key = utils.get_meta_key
+local get_name     = utils.get_name
+local time         = ngx.time
 
 local _REDIS_COMMON = {}
 
@@ -45,7 +48,7 @@ function _REDIS_COMMON.SET(storage, red, name, key, value, ttl, current_time, ol
     local score = current_time - 1
     local new_score = current_time + ttl
     for i = 1, #audiences do
-      local k = get_name(storage, name, audiences[i], subjects[i])
+      local k = get_meta_key(storage, audiences[i], subjects[i])
       red:zremrangebyscore(k, 0, score)
       red:zadd(k, new_score, key)
       if old_key then
@@ -73,16 +76,16 @@ function _REDIS_COMMON.UNLINK(storage, red, name, key, metadata)
   local subjects  = metadata.subjects
   local score = time() - 1
   for i = 1, #audiences do
-    local k = get_name(storage, name, audiences[i], subjects[i])
+    local k = get_meta_key(storage, audiences[i], subjects[i])
     red:zremrangebyscore(k, 0, score)
     red:zrem(k, key)
   end
   return red:commit_pipeline()
 end
 
-function _REDIS_COMMON.READ_METADATA(storage, red, name, audience, subject)
+function _REDIS_COMMON.READ_METADATA(storage, red, audience, subject)
   local sessions = {}
-  local k = get_name(storage, name, audience, subject)
+  local k = get_meta_key(storage, audience, subject)
   local res = red:zrangebyscore(k, ngx.time(), "+inf")
   if not res then
     return nil
