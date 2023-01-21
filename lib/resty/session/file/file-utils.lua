@@ -26,7 +26,24 @@ local function get_path(storage, name, key)
   end
 end
 
+local function get_path_meta(storage, key)
+  local path   = storage.path
+  local prefix = storage.prefix
+  local suffix = storage.suffix
+
+  if prefix and suffix then
+    return fmt("%s%s_%s.%s", path, prefix, key, suffix)
+  elseif prefix then
+    return fmt("%s%s_%s", path, prefix, key)
+  elseif suffix then
+    return fmt("%s%s.%s", path, key, suffix)
+  else
+    return fmt("%s%s", path, key)
+  end
+end
+
 return {
   run_worker_thread = run_worker_thread,
-  get_path = get_path
+  get_path_meta = get_path_meta,
+  get_path = get_path,
 }

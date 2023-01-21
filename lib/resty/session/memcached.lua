@@ -45,7 +45,7 @@ local function metadata_cleanup(self, memc, aud_sub_key)
   return ok
 end
 
-local function read_metadata(self, memc, name, audience, subject)
+local function read_metadata(self, memc, audience, subject)
   local aud_sub_key = get_meta_key(self, audience, subject)
   local res, _, err = memc:get(aud_sub_key)
   if not res then

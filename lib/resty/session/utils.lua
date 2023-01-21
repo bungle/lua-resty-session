@@ -1045,8 +1045,12 @@ end
 -- @tparam   string  subject subject for this key
 -- @treturn  string  the key to store the metadata collection
 local function get_meta_key(storage, audience, subject)
-  local prefix = storage.prefix or "_"
-  return fmt("%s:%s:%s", prefix, audience, subject)
+  local prefix = storage.prefix
+  if prefix then
+    return fmt("%s:%s:%s", prefix, audience, subject)
+  else
+    return fmt("%s:%s", audience, subject)
+  end
 end
 
 ---

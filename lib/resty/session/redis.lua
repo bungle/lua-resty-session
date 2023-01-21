@@ -5,7 +5,7 @@
 
 
 local redis = require "resty.redis"
-local redis_utils = require "resty.session.redis-common"
+local redis_common = require "resty.session.redis-common"
 
 
 local setmetatable = setmetatable
@@ -17,10 +17,10 @@ local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 6379
 
 
-local SET           = redis_utils.SET
-local GET           = redis_utils.GET
-local UNLINK        = redis_utils.UNLINK
-local READ_METADATA = redis_utils.READ_METADATA
+local SET           = redis_common.SET
+local GET           = redis_common.GET
+local UNLINK        = redis_common.UNLINK
+local READ_METADATA = redis_common.READ_METADATA
 
 
 local function exec(self, func, ...)
