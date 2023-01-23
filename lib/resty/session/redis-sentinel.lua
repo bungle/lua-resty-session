@@ -27,6 +27,7 @@ local function exec(self, func, ...)
   local ok, err = func(self, red, ...)
   if err then
     red:close()
+    return nil, err
   end
 
   if ok == null then

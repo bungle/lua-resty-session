@@ -263,7 +263,7 @@ end
 -- @tparam[opt]  table  metadata  session meta data
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
-function metatable:delete(name, key, metadata, current_time)
+function metatable:delete(name, key, current_time, metadata)
   cleanup_check(self)
   local path = get_path(self, name, key)
 

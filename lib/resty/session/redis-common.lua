@@ -65,7 +65,7 @@ function _REDIS_COMMON.GET(storage, red, name, key)
   return red:get(get_name(storage, name, key))
 end
 
-function _REDIS_COMMON.UNLINK(storage, red, name, key, metadata)
+function _REDIS_COMMON.UNLINK(storage, red, name, key, current_time, metadata)
   if not metadata then
     return red:unlink(get_name(storage, name, key))
   end

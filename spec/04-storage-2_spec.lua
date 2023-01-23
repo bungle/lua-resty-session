@@ -106,9 +106,9 @@ for _, st in ipairs({
 
       after_each(function()
         local now = ngx.time()
-        storage:delete(name, key, metadata, now)
-        storage:delete(name, key1, metadata, now)
-        storage:delete(name, key2, metadata, now)
+        storage:delete(name, key, now, metadata)
+        storage:delete(name, key1, now, metadata)
+        storage:delete(name, key2, now, metadata)
       end)
 
       it("SET: simple set does not return errors, GET fetches value correctly", function()
@@ -221,7 +221,7 @@ for _, st in ipairs({
         local ok = storage:set(name, key, value, short_ttl, current_time)
         assert.is_not_nil(ok)
 
-        storage:delete(name, key, nil, current_time)
+        storage:delete(name, key, current_time, nil)
 
         local v = storage:get(name, key, current_time)
         assert.is_nil(v)
@@ -235,7 +235,7 @@ for _, st in ipairs({
         for i = 1, #audiences do
           local meta_values = storage:read_metadata(audiences[i], subjects[i], ngx.time())
           assert.truthy(meta_values[key1])
-          ok = storage:delete(name, key1, metadata, ngx.time())
+          ok = storage:delete(name, key1, ngx.time(), metadata)
           assert.is_not_nil(ok)
           ngx.sleep(2)
           meta_values = storage:read_metadata(audiences[i], subjects[i], ngx.time()) or {}
