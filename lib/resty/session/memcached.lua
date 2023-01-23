@@ -12,49 +12,47 @@ local buffer      = require "string.buffer"
 local setmetatable = setmetatable
 local error        = error
 local null         = ngx.null
-local time         = ngx.time
 local get_name     = utils.get_name
 local get_meta_key = utils.get_meta_key
 local get_meta_el_val = utils.get_meta_el_val
 local get_latest_valid = utils.get_latest_valid
 
+-- 1/10
+local CLEANUP_PROBABILITY = 0.1
 
-local function metadata_cleanup(self, memc, aud_sub_key)
-  local now     = time()
-  local retry   = 10
+
+local function metadata_cleanup(self, memc, aud_sub_key, now)
   local max_exp = now
   local ok      = false
 
-  while(retry > 0 and not ok) do
-    retry = retry - 1
-    local res, _, cas_u, err = memc:gets(aud_sub_key)
-    if not res then
-      return nil, err
-    end
-
-    local sessions = get_latest_valid(res)
-    local buf  = buffer.new()
-
-    for s, exp in pairs(sessions) do
-      buf = buf:put(get_meta_el_val(s, exp))
-      max_exp = math.max(max_exp, exp)
-    end
-
-    ok, err = memc:cas(aud_sub_key, buf:tostring(), cas_u, max_exp - now)
+  local res, _, cas_u, err = memc:gets(aud_sub_key)
+  if not res then
+    return nil, err
   end
+
+  local sessions = get_latest_valid(res, now)
+  local buf = buffer.new()
+
+  for s, exp in pairs(sessions) do
+    buf = buf:put(get_meta_el_val(s, exp))
+    max_exp = math.max(max_exp, exp)
+  end
+
+  ok, err = memc:cas(aud_sub_key, buf:tostring(), cas_u, max_exp - now)
   return ok
 end
 
-local function read_metadata(self, memc, audience, subject)
+local function read_metadata(self, memc, audience, subject, now)
   local aud_sub_key = get_meta_key(self, audience, subject)
   local res, _, err = memc:get(aud_sub_key)
   if not res then
     return nil, err
   end
 
-  return get_latest_valid(res)
+  return get_latest_valid(res, now)
 end
 
+-- TODO possible improvement: when available in the lib, use pipelines
 local function SET(self, memc, name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
   local inferred_key = get_name(self, name, key)
 
@@ -92,8 +90,8 @@ local function SET(self, memc, name, key, value, ttl, current_time, old_key, sta
       end
       -- no need to clean up every time we write
       -- it is just beneficial when a key is used a lot
-      if math.random() < 0.1 then
-        metadata_cleanup(self, memc, aud_sub_key)
+      if math.random() < CLEANUP_PROBABILITY then
+        metadata_cleanup(self, memc, aud_sub_key, current_time)
       end
     end
   end
@@ -108,7 +106,7 @@ local function GET(self, memc, name, key)
   return res
 end
 
-local function DELETE(self, memc, name, key, metadata)
+local function DELETE(self, memc, name, key, metadata, current_time)
   local key_name = get_name(self, name, key)
   local ok, err = memc:delete(key_name)
 
@@ -122,7 +120,7 @@ local function DELETE(self, memc, name, key, metadata)
     local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
     local meta_el_val = get_meta_el_val(key, 0)
     memc:append(aud_sub_key, meta_el_val)
-    metadata_cleanup(self, memc, aud_sub_key)
+    metadata_cleanup(self, memc, aud_sub_key, current_time)
   end
 
   return ok, err
@@ -239,7 +237,7 @@ end
 -- @tparam[opt]  table  metadata  session meta data
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
-function metatable:delete(...)--name, key, metadata)
+function metatable:delete(...)
   return exec(self, DELETE, ...)
 end
 

@@ -4,7 +4,7 @@
 -- @module resty.session.file
 
 local lfs         = require "lfs"
-local file_utils  = require "resty.session.file.file-utils"
+local file_utils  = require "resty.session.file.utils"
 local buffer      = require "string.buffer"
 local utils       = require "resty.session.utils"
 
@@ -13,16 +13,18 @@ local get_latest_valid = utils.get_latest_valid
 local get_meta_el_val  = utils.get_meta_el_val
 local get_path_meta = file_utils.get_path_meta
 local get_meta_key     = utils.get_meta_key
-local should_cleanup = utils.should_cleanup
 local get_path = file_utils.get_path
 
 local setmetatable = setmetatable
+local random = math.random
 local byte = string.byte
 local time = ngx.time
 local error = error
 
 
 local SLASH_BYTE = byte("/")
+-- 1/5000
+local CLEANUP_PROBABILITY = 0.0002
 
 local DEFAULT_POOL = "default"
 local DEFAULT_SUFFIX = "ses"
@@ -42,7 +44,7 @@ end
 local function file_get(storage, path)
   local ok, res, err = run_worker_thread(
     storage.pool,
-    "resty.session.file.file-thread",
+    "resty.session.file.thread",
     "get",
     path
   )
@@ -52,7 +54,7 @@ end
 local function file_set(storage, path, value)
   local ok, res, err = run_worker_thread(
     storage.pool,
-    "resty.session.file.file-thread",
+    "resty.session.file.thread",
     "set",
     path,
     value
@@ -63,20 +65,19 @@ end
 local function file_delete(storage, path)
   run_worker_thread(
     storage.pool,
-    "resty.session.file.file-thread",
+    "resty.session.file.thread",
     "delete",
     path
   )
 end
 
 -- not safe for concurrent access
--- sets one sid:exp; in the metadata of some audience/subject
-local function set_sid_exp(storage, aud_sub_key, sid, exp)
-  local now      = time()
+-- updates sid:exp; in the metadata of the audience/subject
+local function update_sid_exp(storage, aud_sub_key, sid, exp, now)
   local max_exp  = now
   local path     = get_path_meta(storage, aud_sub_key)
   local _, res   = file_get(storage, path)
-  local sessions = get_latest_valid(res)
+  local sessions = get_latest_valid(res, now)
   local buf      = buffer.new()
 
   sessions[sid] = exp > 0 and exp or nil
@@ -85,8 +86,13 @@ local function set_sid_exp(storage, aud_sub_key, sid, exp)
     max_exp = math.max(max_exp, e)
   end
 
-  file_set(storage, path, buf:tostring())
-  lfs.touch(path, nil, max_exp)
+  local ser = buf:tostring()
+  if #ser > 0 then
+    file_set(storage, path, ser)
+    lfs.touch(path, nil, max_exp)
+  else
+    file_delete(storage, path)
+  end
 end
 
 local function read_metadata(storage, audience, subject)
@@ -112,7 +118,7 @@ local function read_metadata(storage, audience, subject)
 end
 
 local function cleanup_check(storage)
-  if not should_cleanup() then
+  if random() > CLEANUP_PROBABILITY then
     return false
   end
   local now     = time()
@@ -214,10 +220,10 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     local subjects  = metadata.subjects
     for i = 1, #audiences do
       local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
-      set_sid_exp(self, aud_sub_key, key, current_time + ttl)
+      update_sid_exp(self, aud_sub_key, key, current_time + ttl, current_time)
 
       if old_key then
-        set_sid_exp(self, aud_sub_key, old_key, 0)
+        update_sid_exp(self, aud_sub_key, old_key, 0, current_time)
       end
     end
   end
@@ -257,7 +263,7 @@ end
 -- @tparam[opt]  table  metadata  session meta data
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
-function metatable:delete(name, key, metadata)
+function metatable:delete(name, key, metadata, current_time)
   cleanup_check(self)
   local path = get_path(self, name, key)
 
@@ -270,7 +276,7 @@ function metatable:delete(name, key, metadata)
   local subjects  = metadata.subjects
   for i = 1, #audiences do
     local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
-    set_sid_exp(self, aud_sub_key, key, 0)
+    update_sid_exp(self, aud_sub_key, key, 0, current_time)
   end
 
   return true
