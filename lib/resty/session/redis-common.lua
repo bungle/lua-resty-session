@@ -83,10 +83,10 @@ function _REDIS_COMMON.UNLINK(storage, red, name, key, metadata)
   return red:commit_pipeline()
 end
 
-function _REDIS_COMMON.READ_METADATA(storage, red, audience, subject)
+function _REDIS_COMMON.READ_METADATA(storage, red, audience, subject, now)
   local sessions = {}
   local k = get_meta_key(storage, audience, subject)
-  local res = red:zrangebyscore(k, ngx.time(), "+inf")
+  local res = red:zrangebyscore(k, now, "+inf")
   if not res then
     return nil
   end

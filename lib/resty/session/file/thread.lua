@@ -1,7 +1,7 @@
 ---
 -- File storage backend worker thread module
 --
--- @module resty.session.file-thread
+-- @module resty.session.thread
 
 
 local open = io.open

@@ -14,17 +14,15 @@ local get_latest_valid = utils.get_latest_valid
 local setmetatable     = setmetatable
 local error            = error
 local null             = ngx.null
-local time             = ngx.time
 local get_name         = utils.get_name
 
 
 -- not safe for concurrent access
-local function set_sid_exp(dshmc, aud_sub_key, sid, exp)
-  local now     = time()
+local function update_sid_exp(dshmc, aud_sub_key, sid, exp, now)
   local max_exp = now
 
   local res = dshmc:get(aud_sub_key)
-  local sessions = get_latest_valid(res)
+  local sessions = get_latest_valid(res, now)
   local buf = buffer.new()
 
   sessions[sid] = exp > 0 and exp or nil
@@ -33,7 +31,12 @@ local function set_sid_exp(dshmc, aud_sub_key, sid, exp)
     max_exp = math.max(max_exp, e)
   end
 
-  return dshmc:set(aud_sub_key, buf:tostring(), max_exp - now)
+  local ser = buf:tostring()
+  if #ser > 0 then
+    return dshmc:set(aud_sub_key, ser, max_exp - now)
+  else
+    return dshmc:delete(aud_sub_key)
+  end
 end
 
 local function READ_METADATA(self, dshmc, audience, subject)
@@ -83,10 +86,10 @@ local function SET(self, dshmc, name, key, value, ttl, current_time, old_key, st
     local subjects  = metadata.subjects
     for i = 1, #audiences do
       local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
-      set_sid_exp(dshmc, aud_sub_key, key, current_time + ttl)
+      update_sid_exp(dshmc, aud_sub_key, key, current_time + ttl, current_time)
 
       if old_key then
-        set_sid_exp(dshmc, aud_sub_key, old_key, 0)
+        update_sid_exp(dshmc, aud_sub_key, old_key, 0, current_time)
       end
     end
   end
@@ -101,7 +104,7 @@ local function GET(self, dshmc, name, key)
   return res
 end
 
-local function DELETE(self, dshmc, name, key, metadata)
+local function DELETE(self, dshmc, name, key, metadata, current_time)
   local key_name = get_name(self, name, key)
   local ok, err = dshmc:delete(key_name)
 
@@ -113,7 +116,7 @@ local function DELETE(self, dshmc, name, key, metadata)
   local subjects  = metadata.subjects
   for i = 1, #audiences do
     local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
-    set_sid_exp(dshmc, aud_sub_key, key, 0)
+    update_sid_exp(dshmc, aud_sub_key, key, 0, current_time)
   end
 
   return ok, err

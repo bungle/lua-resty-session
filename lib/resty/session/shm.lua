@@ -19,9 +19,11 @@ local error = error
 
 local DEFAULT_ZONE = "sessions"
 
+-- 1/10
+local CLEANUP_PROBABILITY = 0.1
 
-local function latest_valid_exp(dict, aud_sub_key)
-  local now      = ngx.time()
+
+local function latest_valid_exp(dict, aud_sub_key, now)
   local size    =  dict:llen(aud_sub_key)
   local sess     = {}
 
@@ -35,6 +37,7 @@ local function latest_valid_exp(dict, aud_sub_key)
     local sid = string.sub(el,     1,   i - 1)
     local exp = string.sub(el, i + 1, #el - 1)
     exp = exp and tonumber(exp)
+
     if exp > now then
       sess[sid] = exp
     else
@@ -45,11 +48,10 @@ local function latest_valid_exp(dict, aud_sub_key)
   return sess
 end
 
-local function metadata_cleanup(self, aud_sub_key)
-  local now      = ngx.time()
+local function metadata_cleanup(self, aud_sub_key, now)
   local dict     = self.dict
-  local max_exp  = time()
-  local sessions = latest_valid_exp(dict, aud_sub_key)
+  local max_exp  = now
+  local sessions = latest_valid_exp(dict, aud_sub_key, now)
 
   for s, exp in pairs(sessions) do
     local meta_el = get_meta_el_val(s, exp)
@@ -60,8 +62,8 @@ local function metadata_cleanup(self, aud_sub_key)
   return ok, err
 end
 
-local function read_metadata(self, aud_sub_key)
-  return latest_valid_exp(self.dict, aud_sub_key)
+local function read_metadata(self, aud_sub_key, now)
+  return latest_valid_exp(self.dict, aud_sub_key, now)
 end
 
 ---
@@ -133,15 +135,15 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
       local meta_el_val = get_meta_el_val(key, current_time + ttl)
 
       ok, err = self.dict:rpush(aud_sub_key, meta_el_val)
-      
+
       if old_key then
         meta_el_val = get_meta_el_val(old_key, 0)
         ok, err = self.dict:rpush(aud_sub_key, meta_el_val)
       end
       -- no need to clean up every time we write
       -- it is just beneficial when a key is used a lot
-      if math.random() < 0.1 then
-        metadata_cleanup(self, aud_sub_key)
+      if math.random() < CLEANUP_PROBABILITY then
+        metadata_cleanup(self, aud_sub_key, current_time)
       end
     end
   end
@@ -175,7 +177,7 @@ end
 -- @tparam[opt]  table  metadata  session meta data
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
-function metatable:delete(name, key, metadata)
+function metatable:delete(name, key, metadata, current_time)
   self.dict:delete(get_name(self, name, key))
   if not metadata then
     return true
@@ -187,15 +189,15 @@ function metatable:delete(name, key, metadata)
     local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
     local meta_el_val = get_meta_el_val(key, 0)
     self.dict:rpush(aud_sub_key, meta_el_val)
-    metadata_cleanup(self, aud_sub_key)
+    metadata_cleanup(self, aud_sub_key, current_time)
   end
 
   return true
 end
 
-function metatable:read_metadata(audience, subject)
+function metatable:read_metadata(audience, subject, current_time)
   local aud_sub_key = get_meta_key(self, audience, subject)
-  return read_metadata(self, aud_sub_key)
+  return read_metadata(self, aud_sub_key, current_time)
 end
 
 local storage = {}

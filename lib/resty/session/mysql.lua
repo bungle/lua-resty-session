@@ -44,12 +44,13 @@
 
 local buffer = require "string.buffer"
 local mysql = require "resty.mysql"
-local should_cleanup = require "resty.session.utils".should_cleanup
 
 
 local setmetatable = setmetatable
 local error = error
 local fmt = string.format
+local random = math.random
+local time = ngx.time
 
 
 local DEFAULT_HOST = "127.0.0.1"
@@ -72,6 +73,8 @@ local CLEANUP = "DELETE FROM %s WHERE exp < FROM_UNIXTIME(%d)"
 local SQL = buffer.new()
 local STM_DELIM = ";\n"
 local VAL_DELIM = ", "
+-- 1/1000
+local CLEANUP_PROBABILITY = 0.001
 
 
 local function exec(self, query)
@@ -100,14 +103,6 @@ local function exec(self, query)
   end
 
   return ok, err
-end
-
-local function cleanup_check(storage)
-  if should_cleanup() then
-    local now = ngx.time()
-    exec(storage, fmt(CLEANUP, storage.table,      now))
-    exec(storage, fmt(CLEANUP, storage.table_meta, now))
-  end
 end
 
 
@@ -143,7 +138,6 @@ end
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
-  cleanup_check(self)
   local table = self.table
   local exp = ttl + current_time
 
@@ -194,6 +188,11 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     end
   end
 
+  if random() < CLEANUP_PROBABILITY then
+    SQL:put(STM_DELIM):putf(CLEANUP, self.table,      current_time)
+    SQL:put(STM_DELIM):putf(CLEANUP, self.table_meta, current_time)
+  end
+
   return exec(self, SQL:tostring())
 end
 
@@ -232,15 +231,21 @@ end
 -- @tparam[opt]  table  metadata  session meta data
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
-function metatable:delete(name, key, metadata)
-  cleanup_check(self)
-  return exec(self, fmt(DELETE, self.table, key))
+function metatable:delete(name, key, metadata, current_time)
+  SQL:reset():putf(DELETE, self.table, key)
+
+  if random() < CLEANUP_PROBABILITY then
+    SQL:put(STM_DELIM):putf(CLEANUP, self.table,      current_time)
+    SQL:put(STM_DELIM):putf(CLEANUP, self.table_meta, current_time)
+  end
+
+  return exec(self, SQL:tostring())
 end
 
 
-function metatable:read_metadata(audience, subject)
+function metatable:read_metadata(audience, subject, current_time)
   local res = {}
-  local t = exec(self, fmt(GET_META, self.table_meta, audience, subject, ngx.time()))
+  local t = exec(self, fmt(GET_META, self.table_meta, audience, subject, current_time))
 
   if not t then
     return nil, "not found"

@@ -1005,37 +1005,6 @@ end
 
 
 ---
--- Function to determine if the storage should be cleaned up.
---
--- @function utils.should_cleanup
--- @treturn  boolean  true if storage should be cleaned up, false otherwise
--- Cleanup probability varies between 0.01 (1/100) and inf, based on last
--- cleanup timestamp
-local should_cleanup do
-  local last_cleanup_time
-  local max    = math.max
-  local random = math.random
-  local time   = ngx.time
-  local ref    = 120
-
-  should_cleanup = function()
-    local elapsed, x, MIN_X, now
-
-    now     = time()
-    elapsed = last_cleanup_time and now - last_cleanup_time
-    MIN_X   = 2
-    x       = elapsed and (ref / elapsed) or MIN_X
-    x       = max(MIN_X, x)
-
-    local cleanup = random() < 0.1 ^ x
-    if cleanup then
-      last_cleanup_time = now
-    end
-    return cleanup
-  end
-end
-
----
 -- Helper get the key used to store metadata for a certain aud and sub
 --
 -- @function utils.get_meta_key
@@ -1070,8 +1039,8 @@ end
 -- @function utils.get_latest_valid
 -- @tparam   string sessions list of sid:exp;
 -- @treturn  table  valid sessions and their exp
-local function get_latest_valid(sessions)
-  local now      = ngx.time()
+local function get_latest_valid(sessions, current_time)
+  local now      = current_time or ngx.time()
   local pattern  = ".-:.-;"
   local sess     = {}
 
@@ -1117,7 +1086,6 @@ return {
   set_flag = set_flag,
   unset_flag = unset_flag,
   has_flag = has_flag,
-  should_cleanup = should_cleanup,
   get_meta_key = get_meta_key,
   get_meta_el_val = get_meta_el_val,
   get_latest_valid = get_latest_valid,
