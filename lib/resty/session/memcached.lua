@@ -106,7 +106,7 @@ local function GET(self, memc, name, key)
   return res
 end
 
-local function DELETE(self, memc, name, key, metadata, current_time)
+local function DELETE(self, memc, name, key, current_time, metadata)
   local key_name = get_name(self, name, key)
   local ok, err = memc:delete(key_name)
 

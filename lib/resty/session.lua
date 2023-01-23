@@ -1197,7 +1197,7 @@ local function destroy(self, remember)
         return nil, err
       end
 
-      local ok, err = storage:delete(cookie_name, key, get_store_metadata(self), meta.timestamp)
+      local ok, err = storage:delete(cookie_name, key, meta.timestamp, get_store_metadata(self))
       if not ok then
         return nil, errmsg(err, "unable to destroy session")
       end

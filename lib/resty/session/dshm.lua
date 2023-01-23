@@ -104,12 +104,12 @@ local function GET(self, dshmc, name, key)
   return res
 end
 
-local function DELETE(self, dshmc, name, key, metadata, current_time)
+local function DELETE(self, dshmc, name, key, current_time, metadata)
   local key_name = get_name(self, name, key)
   local ok, err = dshmc:delete(key_name)
 
   if not metadata then
-    return ok
+    return ok, err
   end
 
   local audiences = metadata.audiences
@@ -132,7 +132,7 @@ local function exec(self, func, ...)
   local send_timeout = self.send_timeout
   local read_timeout = self.read_timeout
   if connect_timeout or send_timeout or read_timeout then
-      dshmc.sock:settimeouts(connect_timeout, send_timeout, read_timeout)
+    dshmc.sock:settimeouts(connect_timeout, send_timeout, read_timeout)
   end
 
   local ok, err = dshmc:connect(self.host, self.port, self.options)
