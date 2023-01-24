@@ -1,7 +1,7 @@
 ---
 -- Redis Sentinel backend for session library
 --
--- @module resty.session.redis-sentinel
+-- @module resty.session.redis.sentinel
 
 
 local common = require "resty.session.redis.common"

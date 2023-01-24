@@ -1,7 +1,7 @@
 ---
 -- File storage backend worker thread module
 --
--- @module resty.session.thread
+-- @module resty.session.file.thread
 
 
 local remove = os.remove

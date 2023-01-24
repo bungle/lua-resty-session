@@ -1,3 +1,10 @@
+---
+-- Common Redis functions shared between Redis,
+-- Redis Cluster and Redis Sentinel implementations.
+--
+-- @module resty.session.redis.cluster
+
+
 local utils = require "resty.session.utils"
 
 

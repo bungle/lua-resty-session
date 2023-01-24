@@ -1,4 +1,11 @@
+---
+-- File storage utilities
+--
+-- @module resty.session.file.utils
+
+
 local fmt = string.format
+
 
 local run_worker_thread do
   run_worker_thread = ngx.run_worker_thread
