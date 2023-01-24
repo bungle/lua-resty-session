@@ -97,7 +97,7 @@ end
 local function READ_METADATA(storage, red, audience, subject, current_time)
   local sessions = {}
   local k = get_meta_key(storage, audience, subject)
-  local res = red:zrangebyscore(k, current_time, "+inf")
+  local res = red:zrange(k, current_time, "+inf", "BYSCORE")
   if not res then
     return nil
   end
