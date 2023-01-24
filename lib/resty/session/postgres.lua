@@ -138,7 +138,6 @@ end
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
-  local cleanup = random() < CLEANUP_PROBABILITY
   local table = self.table
   local exp = ttl + current_time
 
@@ -178,10 +177,6 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
 
       SQL:putf(SET_META_SUFFIX, stale_exp)
     end
-
-    if cleanup then
-      SQL:put(STM_DELIM):putf(CLEANUP, self.table_meta, current_time)
-    end
   end
 
   if old_key then
@@ -193,7 +188,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     end
   end
 
-  if cleanup then
+  if random() < CLEANUP_PROBABILITY then
     SQL:put(STM_DELIM):putf(CLEANUP, self.table, current_time)
   end
 
@@ -242,10 +237,6 @@ function metatable:delete(name, key, current_time, metadata)
   SQL:reset():putf(DELETE, self.table, key)
 
   if random() < CLEANUP_PROBABILITY then
-    if metadata then
-      SQL:put(STM_DELIM):putf(CLEANUP, self.table_meta, current_time)
-    end
-
     SQL:put(STM_DELIM):putf(CLEANUP, self.table, current_time)
   end
 
