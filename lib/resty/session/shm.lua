@@ -13,7 +13,6 @@ local setmetatable = setmetatable
 local get_name = utils.get_name
 local shared = ngx.shared
 local assert = assert
-local time = ngx.time
 local error = error
 
 
@@ -23,12 +22,13 @@ local DEFAULT_ZONE = "sessions"
 local CLEANUP_PROBABILITY = 0.1
 
 
-local function latest_valid_exp(dict, aud_sub_key, now)
-  local size    =  dict:llen(aud_sub_key)
-  local sess     = {}
+local function keep_latest_valid(dict, aud_sub_key, now, preserve_el)
+  local size    = dict:llen(aud_sub_key)
+  local max_exp = now
+  local sess    = {}
 
   for _ = 1, size do
-    local el  = dict:lpop(aud_sub_key)
+    local el = dict:lpop(aud_sub_key)
     if not el then
       break
     end
@@ -43,27 +43,27 @@ local function latest_valid_exp(dict, aud_sub_key, now)
     else
       sess[sid] = nil
     end
+    max_exp = math.max(max_exp, exp)
   end
 
+  if preserve_el then
+    for sid, exp in pairs(sess) do
+      local el = get_meta_el_val(sid, exp)
+      dict:rpush(aud_sub_key, el)
+    end
+  end
+
+  dict:expire(aud_sub_key, max_exp - now)
   return sess
 end
 
 local function metadata_cleanup(self, aud_sub_key, now)
-  local dict     = self.dict
-  local max_exp  = now
-  local sessions = latest_valid_exp(dict, aud_sub_key, now)
-
-  for s, exp in pairs(sessions) do
-    local meta_el = get_meta_el_val(s, exp)
-    dict:rpush(aud_sub_key, meta_el)
-    max_exp = math.max(max_exp, exp)
-  end
-  local ok, err = dict:expire(aud_sub_key, max_exp - now)
-  return ok, err
+  local dict = self.dict
+  keep_latest_valid(dict, aud_sub_key, now, true)
 end
 
 local function read_metadata(self, aud_sub_key, now)
-  return latest_valid_exp(self.dict, aud_sub_key, now)
+  return keep_latest_valid(self.dict, aud_sub_key, now, true)
 end
 
 ---
