@@ -16,7 +16,7 @@
 --
 -- @usage
 -- CREATE TABLE IF NOT EXISTS sessions (
---   sid  CHAR(43) PRIMARY KEY,
+--   sid  TEXT PRIMARY KEY,
 --   name TEXT,
 --   data TEXT,
 --   exp  TIMESTAMP WITH TIME ZONE
@@ -34,7 +34,7 @@
 -- CREATE TABLE IF NOT EXISTS sessions_meta (
 --   aud TEXT,
 --   sub TEXT,
---   sid CHAR(43) REFERENCES sessions (sid) ON DELETE CASCADE ON UPDATE CASCADE,
+--   sid TEXT REFERENCES sessions (sid) ON DELETE CASCADE ON UPDATE CASCADE,
 --   exp TIMESTAMP WITH TIME ZONE,
 --   PRIMARY KEY (aud, sub, sid)
 -- );
