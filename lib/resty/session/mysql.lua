@@ -18,7 +18,7 @@
 -- CREATE TABLE IF NOT EXISTS sessions (
 --   sid  CHAR(43) PRIMARY KEY,
 --   name TINYTEXT,
---   data LONGTEXT,
+--   data MEDIUMTEXT,
 --   exp  DATETIME,
 --   INDEX (exp)
 -- ) CHARACTER SET ascii;
