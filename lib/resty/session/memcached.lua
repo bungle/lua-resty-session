@@ -4,53 +4,57 @@
 -- @module resty.session.memcached
 
 
-local memcached   = require "resty.memcached"
-local utils       = require "resty.session.utils"
-local buffer      = require "string.buffer"
+local memcached = require "resty.memcached"
+local buffer = require "string.buffer"
+local utils = require "resty.session.utils"
+
+
+local get_latest_valid = utils.get_latest_valid
+local get_meta_el_val = utils.get_meta_el_val
+local get_meta_key = utils.get_meta_key
+local get_name = utils.get_name
 
 
 local setmetatable = setmetatable
-local error        = error
-local null         = ngx.null
-local get_name     = utils.get_name
-local get_meta_key = utils.get_meta_key
-local get_meta_el_val = utils.get_meta_el_val
-local get_latest_valid = utils.get_latest_valid
-
--- 1/10
-local CLEANUP_PROBABILITY = 0.1
+local random = math.random
+local error = error
+local pairs = pairs
+local null = ngx.null
+local max = math.max
 
 
-local function metadata_cleanup(self, memc, aud_sub_key, now)
-  local max_exp = now
-  local ok      = false
+local CLEANUP_PROBABILITY = 0.1 -- 1 / 10
 
+
+local function metadata_cleanup(memc, aud_sub_key, current_time)
+  local max_exp = current_time
   local res, _, cas_u, err = memc:gets(aud_sub_key)
   if not res then
     return nil, err
   end
 
-  local sessions = get_latest_valid(res, now)
+  local sessions = get_latest_valid(res, current_time)
   local buf = buffer.new()
 
   for s, exp in pairs(sessions) do
     buf = buf:put(get_meta_el_val(s, exp))
-    max_exp = math.max(max_exp, exp)
+    max_exp = max(max_exp, exp)
   end
 
-  ok, err = memc:cas(aud_sub_key, buf:tostring(), cas_u, max_exp - now)
-  return ok
+  return memc:cas(aud_sub_key, buf:tostring(), cas_u, max_exp - current_time)
 end
 
-local function read_metadata(self, memc, audience, subject, now)
+
+local function read_metadata(self, memc, audience, subject, current_time)
   local aud_sub_key = get_meta_key(self, audience, subject)
   local res, _, err = memc:get(aud_sub_key)
   if not res then
     return nil, err
   end
 
-  return get_latest_valid(res, now)
+  return get_latest_valid(res, current_time)
 end
+
 
 -- TODO possible improvement: when available in the lib, use pipelines
 local function SET(self, memc, name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
@@ -74,29 +78,36 @@ local function SET(self, memc, name, key, value, ttl, current_time, old_key, sta
     end
   end
 
-  if metadata then
-    local audiences = metadata.audiences
-    local subjects  = metadata.subjects
-    for i = 1, #audiences do
-      local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
-      local meta_el_val = get_meta_el_val(key, current_time + ttl)
-      ok, err = memc:add(aud_sub_key, meta_el_val)
-      if not ok then
-        ok, err = memc:append(aud_sub_key, meta_el_val)
-      end
-      if old_key then
-        meta_el_val = get_meta_el_val(old_key, 0)
-        ok, err = memc:append(aud_sub_key, meta_el_val)
-      end
-      -- no need to clean up every time we write
-      -- it is just beneficial when a key is used a lot
-      if math.random() < CLEANUP_PROBABILITY then
-        metadata_cleanup(self, memc, aud_sub_key, current_time)
-      end
+  if not metadata then
+    return ok
+  end
+
+  local audiences = metadata.audiences
+  local subjects  = metadata.subjects
+  for i = 1, #audiences do
+    local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
+    local meta_el_val = get_meta_el_val(key, current_time + ttl)
+
+    ok, err = memc:add(aud_sub_key, meta_el_val)
+    if not ok then
+      ok, err = memc:append(aud_sub_key, meta_el_val)
+    end
+
+    if old_key then
+      meta_el_val = get_meta_el_val(old_key, 0)
+      ok, err = memc:append(aud_sub_key, meta_el_val)
+    end
+
+    -- no need to clean up every time we write
+    -- it is just beneficial when a key is used a lot
+    if random() < CLEANUP_PROBABILITY then
+      metadata_cleanup(memc, aud_sub_key, current_time)
     end
   end
+
   return ok
 end
+
 
 local function GET(self, memc, name, key)
   local res, _, err = memc:get(get_name(self, name, key))
@@ -106,12 +117,12 @@ local function GET(self, memc, name, key)
   return res
 end
 
+
 local function DELETE(self, memc, name, key, current_time, metadata)
   local key_name = get_name(self, name, key)
   local ok, err = memc:delete(key_name)
-
   if not metadata then
-    return ok
+    return ok, err
   end
 
   local audiences = metadata.audiences
@@ -120,11 +131,12 @@ local function DELETE(self, memc, name, key, current_time, metadata)
     local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
     local meta_el_val = get_meta_el_val(key, 0)
     memc:append(aud_sub_key, meta_el_val)
-    metadata_cleanup(self, memc, aud_sub_key, current_time)
+    metadata_cleanup(memc, aud_sub_key, current_time)
   end
 
   return ok, err
 end
+
 
 local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 11211

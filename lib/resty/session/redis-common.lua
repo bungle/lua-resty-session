@@ -1,12 +1,12 @@
 local utils = require "resty.session.utils"
 
+
 local get_meta_key = utils.get_meta_key
-local get_name     = utils.get_name
-local time         = ngx.time
+local get_name = utils.get_name
+local ipairs = ipairs
 
-local _REDIS_COMMON = {}
 
-function _REDIS_COMMON.SET(storage, red, name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
+local function SET(storage, red, name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
   if not metadata and not old_key then
     return red:set(get_name(storage, name, key), value, "EX", ttl)
   end
@@ -61,11 +61,13 @@ function _REDIS_COMMON.SET(storage, red, name, key, value, ttl, current_time, ol
   return red:commit_pipeline()
 end
 
-function _REDIS_COMMON.GET(storage, red, name, key)
+
+local function GET(storage, red, name, key)
   return red:get(get_name(storage, name, key))
 end
 
-function _REDIS_COMMON.UNLINK(storage, red, name, key, current_time, metadata)
+
+local function UNLINK(storage, red, name, key, current_time, metadata)
   if not metadata then
     return red:unlink(get_name(storage, name, key))
   end
@@ -74,22 +76,25 @@ function _REDIS_COMMON.UNLINK(storage, red, name, key, current_time, metadata)
   red:unlink(get_name(storage, name, key))
   local audiences = metadata.audiences
   local subjects  = metadata.subjects
-  local score = time() - 1
+  local score = current_time - 1
   for i = 1, #audiences do
     local k = get_meta_key(storage, audiences[i], subjects[i])
     red:zremrangebyscore(k, 0, score)
     red:zrem(k, key)
   end
+
   return red:commit_pipeline()
 end
 
-function _REDIS_COMMON.READ_METADATA(storage, red, audience, subject, now)
+
+local function READ_METADATA(storage, red, audience, subject, current_time)
   local sessions = {}
   local k = get_meta_key(storage, audience, subject)
-  local res = red:zrangebyscore(k, now, "+inf")
+  local res = red:zrangebyscore(k, current_time, "+inf")
   if not res then
     return nil
   end
+
   for _, v in ipairs(res) do
     sessions[v] = -1 -- fetch the score if needed
   end
@@ -97,4 +102,10 @@ function _REDIS_COMMON.READ_METADATA(storage, red, audience, subject, now)
   return sessions
 end
 
-return _REDIS_COMMON
+
+return {
+  SET = SET,
+  GET = GET,
+  UNLINK = UNLINK,
+  READ_METADATA = READ_METADATA,
+}

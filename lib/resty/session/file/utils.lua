@@ -11,6 +11,7 @@ local run_worker_thread do
   end
 end
 
+
 local function get_path(storage, name, key)
   local path = storage.path
   local prefix = storage.prefix
@@ -25,6 +26,7 @@ local function get_path(storage, name, key)
     return fmt("%s%s_%s", path, name, key)
   end
 end
+
 
 local function get_path_meta(storage, key)
   local path   = storage.path
@@ -41,6 +43,7 @@ local function get_path_meta(storage, key)
     return fmt("%s%s", path, key)
   end
 end
+
 
 return {
   run_worker_thread = run_worker_thread,

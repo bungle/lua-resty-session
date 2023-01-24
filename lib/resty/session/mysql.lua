@@ -47,9 +47,10 @@ local mysql = require "resty.mysql"
 
 
 local setmetatable = setmetatable
+local random = math.random
+local ipairs = ipairs
 local error = error
 local fmt = string.format
-local random = math.random
 
 
 local DEFAULT_HOST = "127.0.0.1"
@@ -72,8 +73,9 @@ local CLEANUP = "DELETE FROM %s WHERE exp < FROM_UNIXTIME(%d)"
 local SQL = buffer.new()
 local STM_DELIM = ";\n"
 local VAL_DELIM = ", "
--- 1/1000
-local CLEANUP_PROBABILITY = 0.001
+
+
+local CLEANUP_PROBABILITY = 0.001 -- 1 / 1000
 
 
 local function exec(self, query)
@@ -213,14 +215,17 @@ function metatable:get(name, key, current_time)
   if not res then
     return nil, err
   end
+
   local row = res[1]
   if not row then
     return nil, "session not found"
   end
+
   local data = row.data
   if not row.data then
     return nil, "session not found"
   end
+
   return data
 end
 
@@ -235,6 +240,8 @@ end
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
 function metatable:delete(name, key, current_time, metadata)
+  SQL:reset():putf(DELETE, self.table, key)
+
   if random() < CLEANUP_PROBABILITY then
     if metadata then
       SQL:put(STM_DELIM):putf(CLEANUP, self.table_meta, current_time)
@@ -242,19 +249,17 @@ function metatable:delete(name, key, current_time, metadata)
     SQL:put(STM_DELIM):putf(CLEANUP, self.table, current_time)
   end
 
-  SQL:reset():putf(DELETE, self.table, key)
-
-  return exec(self, SQL:tostring())
+  return exec(self, SQL:get())
 end
 
 
 function metatable:read_metadata(audience, subject, current_time)
   local res = {}
   local t = exec(self, fmt(GET_META, self.table_meta, audience, subject, current_time))
-
   if not t then
     return nil, "not found"
   end
+
   for _, v in ipairs(t) do
     res[v["sid"]] = v["exp"]
   end

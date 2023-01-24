@@ -7,24 +7,30 @@
 local utils  = require "resty.session.utils"
 
 
-local get_meta_key = utils.get_meta_key
 local get_meta_el_val = utils.get_meta_el_val
-local setmetatable = setmetatable
+local get_meta_key = utils.get_meta_key
 local get_name = utils.get_name
+
+
+local setmetatable = setmetatable
+local tonumber = tonumber
 local shared = ngx.shared
+local random = math.random
 local assert = assert
 local error = error
+local pairs = pairs
+local find = string.find
+local sub = string.sub
+local max = math.max
 
 
 local DEFAULT_ZONE = "sessions"
-
--- 1/10
-local CLEANUP_PROBABILITY = 0.1
+local CLEANUP_PROBABILITY = 0.1 -- 1 / 10
 
 
-local function keep_latest_valid(dict, aud_sub_key, now, preserve_el)
+local function keep_latest_valid(dict, aud_sub_key, current_time, preserve_el)
   local size    = dict:llen(aud_sub_key)
-  local max_exp = now
+  local max_exp = current_time
   local sess    = {}
 
   for _ = 1, size do
@@ -33,17 +39,17 @@ local function keep_latest_valid(dict, aud_sub_key, now, preserve_el)
       break
     end
 
-    local i   = string.find(el, ":")
-    local sid = string.sub(el,     1,   i - 1)
-    local exp = string.sub(el, i + 1, #el - 1)
+    local i = find(el, ":")
+    local sid = sub(el, 1, i - 1)
+    local exp = sub(el, i + 1, #el - 1)
     exp = exp and tonumber(exp)
 
-    if exp > now then
+    if exp > current_time then
       sess[sid] = exp
     else
       sess[sid] = nil
     end
-    max_exp = math.max(max_exp, exp)
+    max_exp = max(max_exp, exp)
   end
 
   if preserve_el then
@@ -53,17 +59,19 @@ local function keep_latest_valid(dict, aud_sub_key, now, preserve_el)
     end
   end
 
-  dict:expire(aud_sub_key, max_exp - now)
+  dict:expire(aud_sub_key, max_exp - current_time)
   return sess
 end
 
-local function metadata_cleanup(self, aud_sub_key, now)
+
+local function metadata_cleanup(self, aud_sub_key, current_time)
   local dict = self.dict
-  keep_latest_valid(dict, aud_sub_key, now, true)
+  keep_latest_valid(dict, aud_sub_key, current_time, true)
 end
 
-local function read_metadata(self, aud_sub_key, now)
-  return keep_latest_valid(self.dict, aud_sub_key, now, true)
+
+local function read_metadata(self, aud_sub_key, current_time)
+  return keep_latest_valid(self.dict, aud_sub_key, current_time, true)
 end
 
 ---
@@ -142,7 +150,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
       end
       -- no need to clean up every time we write
       -- it is just beneficial when a key is used a lot
-      if math.random() < CLEANUP_PROBABILITY then
+      if random() < CLEANUP_PROBABILITY then
         metadata_cleanup(self, aud_sub_key, current_time)
       end
     end
@@ -195,10 +203,12 @@ function metatable:delete(name, key, current_time, metadata)
   return true
 end
 
+
 function metatable:read_metadata(audience, subject, current_time)
   local aud_sub_key = get_meta_key(self, audience, subject)
   return read_metadata(self, aud_sub_key, current_time)
 end
+
 
 local storage = {}
 

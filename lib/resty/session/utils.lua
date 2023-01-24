@@ -11,8 +11,12 @@ local buffer = require "string.buffer"
 local bit = require "bit"
 
 
+local tonumber = tonumber
 local select = select
+local gmatch = string.gmatch
+local time = ngx.time
 local ceil = math.ceil
+local find = string.find
 local byte = string.byte
 local band = bit.band
 local bnot = bit.bnot
@@ -61,8 +65,8 @@ local bpack, bunpack do
       value = value .. "\0"
     end
 
-    local _, value = binunpack(value, SIZE_TO_FORMAT[size])
-    return value
+    local _, unpacked_value = binunpack(value, SIZE_TO_FORMAT[size])
+    return unpacked_value
   end
 
 
@@ -1033,24 +1037,27 @@ local function get_meta_el_val(sid, exp)
   return fmt("%s:%s;", sid, exp)
 end
 
+
 ---
 -- Function to filter out the latest valid sid:exp from a
 -- serialized list, used to store session metadata
+--
 -- @function utils.get_latest_valid
 -- @tparam   string sessions list of sid:exp;
 -- @treturn  table  valid sessions and their exp
 local function get_latest_valid(sessions, current_time)
-  local now      = current_time or ngx.time()
+  current_time = current_time or time()
+
   local pattern  = ".-:.-;"
-  local sess     = {}
+  local sess = {}
 
   sessions = sessions or ""
-  for s in string.gmatch(sessions, pattern) do
-    local i = string.find(s, ":")
-    local sid = string.sub(s,     1,  i - 1)
-    local exp = string.sub(s, i + 1, #s - 1)
+  for s in gmatch(sessions, pattern) do
+    local i = find(s, ":", nil, true)
+    local sid = sub(s, 1,  i - 1)
+    local exp = sub(s, i + 1, #s - 1)
     exp = tonumber(exp)
-    if exp > now then
+    if exp > current_time then
       sess[sid] = exp
     else
       sess[sid] = nil
@@ -1059,6 +1066,7 @@ local function get_latest_valid(sessions, current_time)
 
   return sess
 end
+
 
 return {
   bpack = bpack,

@@ -11,14 +11,14 @@ local require = require
 
 
 local table_new = require "table.new"
-local buffer = require "string.buffer"
 local isempty = require "table.isempty"
+local buffer = require "string.buffer"
 local utils = require "resty.session.utils"
 
 
-local setmetatable = setmetatable
 local clear_request_header = ngx.req.clear_header
 local set_request_header = ngx.req.set_header
+local setmetatable = setmetatable
 local http_time = ngx.http_time
 local tonumber = tonumber
 local select = select
@@ -302,11 +302,11 @@ local function get_store_metadata(self)
   local data = self.data
   local count = #data
   if count == 1 then
-    local sub = data[1][3]
-    if sub then
+    local subject = data[1][3]
+    if subject then
       return {
         audiences = { data[1][2] },
-        subjects  = { sub },
+        subjects = { subject },
       }
     end
 
@@ -317,15 +317,15 @@ local function get_store_metadata(self)
   local subjects
   local index = 0
   for i = 1, count do
-    local sub = data[i][3]
-    if sub then
+    local subject = data[i][3]
+    if subject then
       if not audiences then
         audiences = table_new(count, 0)
         subjects  = table_new(count, 0)
       end
 
       index = index + 1
-      subjects[index]  = sub
+      subjects[index] = subject
       audiences[index] = data[i][2]
     end
   end
@@ -336,7 +336,7 @@ local function get_store_metadata(self)
 
   return {
     audiences = audiences,
-    subjects  = subjects,
+    subjects = subjects,
   }
 end
 
@@ -525,7 +525,6 @@ local function open(self, remember, meta_only)
     else
       local rolling_timeout = self.rolling_timeout
       if rolling_timeout ~= 0 then
-        local rolling_elapsed = current_time - creation_time - rolling_offset
         if rolling_elapsed > rolling_timeout then
           return nil, "session rolling timeout exceeded"
         end
@@ -725,19 +724,19 @@ local function open(self, remember, meta_only)
     return true
   end
 
-  local key, err, iv
+  local encryption_key, err, iv
   if remember then
-    key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
+    encryption_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
   else
-    key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
+    encryption_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
   end
 
-  if not key then
+  if not encryption_key then
     return nil, errmsg(err, "unable to derive session decryption key")
   end
 
   local aad = sub(header_decoded, 1, HEADER_TAG_SIZE)
-  local plaintext, err = decrypt_aes_256_gcm(key, iv, ciphertext, aad, tag)
+  local plaintext, err = decrypt_aes_256_gcm(encryption_key, iv, ciphertext, aad, tag)
   if not plaintext then
     return nil, errmsg(err, "unable to decrypt session data")
   end
@@ -904,18 +903,18 @@ local function save(self, state, remember)
   HEADER_BUFFER:put(COOKIE_TYPE, packed_flags, sid, packed_creation_time, packed_rolling_offset, packed_data_size)
 
   local ikm = self.ikm
-  local key, iv
+  local encryption_key, iv
   if remember then
-    key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
+    encryption_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
   else
-    key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
+    encryption_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
   end
 
-  if not key then
+  if not encryption_key then
     return nil, errmsg(err, "unable to derive session encryption key")
   end
 
-  local ciphertext, err, tag = encrypt_aes_256_gcm(key, iv, data, HEADER_BUFFER:tostring())
+  local ciphertext, err, tag = encrypt_aes_256_gcm(encryption_key, iv, data, HEADER_BUFFER:tostring())
   if not ciphertext then
     return nil, errmsg(err, "unable to encrypt session data")
   end
@@ -1356,18 +1355,18 @@ local function get_remember(self)
 end
 
 
-local function set_meta_header(self, header, set_header)
-  local name = HEADERS[header]
+local function set_meta_header(self, meta_header, set_header)
+  local name = HEADERS[meta_header]
   if not name then
     return
   end
 
-  local value = get_meta(self, header)
+  local value = get_meta(self, meta_header)
   if not value then
     return
   end
 
-  if header == "id" then
+  if meta_header == "id" then
     value = encode_base64url(value)
   end
 
@@ -1407,8 +1406,8 @@ local function set_meta_headers_vararg(self, set_header, ...)
   end
 
   for i = 1, count do
-    local header = select(i, ...)
-    set_meta_header(self, header, set_header)
+    local meta_header = select(i, ...)
+    set_meta_header(self, meta_header, set_header)
   end
 end
 
@@ -1996,13 +1995,13 @@ function metatable:logout()
   end
 
   local data_index = self.data_index
-  local info = self.info
-  local info_data = info and info.data
+  local info_store = self.info
+  local info_data = info_store and info_store.data
   if info_data then
     local audience = data[data_index][2]
     info_data[audience] = nil
     if isempty(info_data) then
-      info.data = false
+      info_store.data = false
     end
   end
 

@@ -46,9 +46,11 @@ local pgmoon = require "pgmoon"
 
 
 local setmetatable = setmetatable
-local error = error
-local fmt = string.format
 local random = math.random
+local ipairs = ipairs
+local error = error
+local gsub = string.gsub
+local fmt = string.format
 
 
 local DEFAULT_HOST  = "127.0.0.1"
@@ -67,12 +69,12 @@ local DELETE = "DELETE FROM %s WHERE sid = '%s'"
 local CLEANUP = "DELETE FROM %s WHERE exp < TO_TIMESTAMP(%d)"
 
 
-
 local SQL = buffer.new()
 local STM_DELIM = ";\n"
 local VAL_DELIM = ", "
--- 1/1000
-local CLEANUP_PROBABILITY = 0.001
+
+
+local CLEANUP_PROBABILITY = 0.001 -- 1 / 1000
 
 
 local function exec(self, query)
@@ -192,7 +194,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
   end
 
   if cleanup then
-    SQL:put(STM_DELIM):putf(CLEANUP, self.table,      current_time)
+    SQL:put(STM_DELIM):putf(CLEANUP, self.table, current_time)
   end
 
   return exec(self, SQL:tostring())
@@ -212,14 +214,17 @@ function metatable:get(name, key, current_time)
   if not res then
     return nil, err
   end
+
   local row = res[1]
   if not row then
     return nil
   end
+
   local data = row.data
   if not row.data then
     return nil
   end
+
   return data
 end
 
@@ -234,29 +239,30 @@ end
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
 function metatable:delete(name, key, current_time, metadata)
+  SQL:reset():putf(DELETE, self.table, key)
+
   if random() < CLEANUP_PROBABILITY then
     if metadata then
       SQL:put(STM_DELIM):putf(CLEANUP, self.table_meta, current_time)
     end
+
     SQL:put(STM_DELIM):putf(CLEANUP, self.table, current_time)
   end
 
-  SQL:reset():putf(DELETE, self.table, key)
-
-  return exec(self, SQL:tostring())
+  return exec(self, SQL:get())
 end
 
 
 function metatable:read_metadata(audience, subject, current_time)
   local res = {}
   local t = exec(self, fmt(GET_META, self.table_meta, audience, subject, current_time))
-
   if not t then
     return nil, "not found"
   end
+
   for _, v in ipairs(t) do
     local sid = v["sid"]
-    sid = sid and sid:gsub("%s+", "")
+    sid = sid and gsub(sid, "%s+", "")
     if sid then
       res[sid] = v["exp"]
     end
@@ -336,8 +342,7 @@ function storage.new(configuration)
 
   return setmetatable({
     table = table_name,
-    table_meta = table_name_meta or (table_name .. "_meta"), -- TODO: better name for table that is collecting
-                                                             --       information about audiences and subjects
+    table_meta = table_name_meta or (table_name .. "_meta"),
     connect_timeout = connect_timeout,
     send_timeout = send_timeout,
     read_timeout = read_timeout,

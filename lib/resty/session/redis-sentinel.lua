@@ -4,18 +4,19 @@
 -- @module resty.session.redis-sentinel
 
 
+local common = require "resty.session.redis-common"
 local redis = require "resty.redis.connector"
-local redis_common = require "resty.session.redis-common"
 
 
 local setmetatable = setmetatable
 local error = error
 local null = ngx.null
 
-local SET           = redis_common.SET
-local GET           = redis_common.GET
-local UNLINK        = redis_common.UNLINK
-local READ_METADATA = redis_common.READ_METADATA
+
+local SET = common.SET
+local GET = common.GET
+local UNLINK = common.UNLINK
+local READ_METADATA = common.READ_METADATA
 
 
 local function exec(self, func, ...)

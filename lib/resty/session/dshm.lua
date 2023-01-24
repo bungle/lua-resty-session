@@ -4,61 +4,76 @@
 -- @module resty.session.dshm
 
 
-local dshm        = require "resty.dshm"
-local buffer      = require "string.buffer"
-local utils       = require "resty.session.utils"
+local buffer = require "string.buffer"
+local utils = require "resty.session.utils"
+local dshm = require "resty.dshm"
 
-local get_meta_key     = utils.get_meta_key
-local get_meta_el_val  = utils.get_meta_el_val
+
 local get_latest_valid = utils.get_latest_valid
-local setmetatable     = setmetatable
-local error            = error
-local null             = ngx.null
-local get_name         = utils.get_name
+local get_meta_el_val  = utils.get_meta_el_val
+local get_meta_key = utils.get_meta_key
+local get_name = utils.get_name
+
+
+local setmetatable = setmetatable
+local tonumber = tonumber
+local gmatch = string.gmatch
+local error = error
+local pairs = pairs
+local null = ngx.null
+local find = string.find
+local sub = string.sub
+local max = math.max
+
+
+local DEFAULT_HOST = "127.0.0.1"
+local DEFAULT_PORT = 4321
 
 
 -- not safe for concurrent access
-local function update_sid_exp(dshmc, aud_sub_key, sid, exp, now)
-  local max_exp = now
+local function update_sid_exp(dshmc, aud_sub_key, sid, exp, current_time)
+  local max_exp = current_time
 
   local res = dshmc:get(aud_sub_key)
-  local sessions = get_latest_valid(res, now)
+  local sessions = get_latest_valid(res, current_time)
   local buf = buffer.new()
 
   sessions[sid] = exp > 0 and exp or nil
   for s, e in pairs(sessions) do
     buf = buf:put(get_meta_el_val(s, e))
-    max_exp = math.max(max_exp, e)
+    max_exp = max(max_exp, e)
   end
 
-  local ser = buf:tostring()
+  local ser = buf:get()
   if #ser > 0 then
-    return dshmc:set(aud_sub_key, ser, max_exp - now)
+    return dshmc:set(aud_sub_key, ser, max_exp - current_time)
   else
     return dshmc:delete(aud_sub_key)
   end
 end
 
-local function READ_METADATA(self, dshmc, audience, subject)
-  local pattern     = ".-:.-;"
-  local sessions    = {}
 
+local function READ_METADATA(self, dshmc, audience, subject)
   local aud_sub_key = get_meta_key(self, audience, subject)
-  local res         = dshmc:get(aud_sub_key)
+  local res  = dshmc:get(aud_sub_key)
   if not res then
     return nil, "not found"
   end
 
-  for s in string.gmatch(res, pattern) do
-    local i = string.find(s, ":")
-    local sid = string.sub(s,     1,  i - 1)
-    local exp = string.sub(s, i + 1, #s - 1)
+  local pattern = ".-:.-;"
+  local sessions = {}
+
+  for s in gmatch(res, pattern) do
+    local i = find(s, ":", nil, true)
+    local sid = sub(s, 1,  i - 1)
+    local exp = sub(s, i + 1, #s - 1)
     exp = tonumber(exp)
     sessions[sid] = exp
   end
 
   return sessions
 end
+
 
 local function SET(self, dshmc, name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
   local inferred_key = get_name(self, name, key)
@@ -96,6 +111,7 @@ local function SET(self, dshmc, name, key, value, ttl, current_time, old_key, st
   return ok
 end
 
+
 local function GET(self, dshmc, name, key)
   local res, err = dshmc:get(get_name(self, name, key))
   if err then
@@ -103,6 +119,7 @@ local function GET(self, dshmc, name, key)
   end
   return res
 end
+
 
 local function DELETE(self, dshmc, name, key, current_time, metadata)
   local key_name = get_name(self, name, key)
@@ -121,9 +138,6 @@ local function DELETE(self, dshmc, name, key, current_time, metadata)
 
   return ok, err
 end
-
-local DEFAULT_HOST = "127.0.0.1"
-local DEFAULT_PORT = 4321
 
 
 local function exec(self, func, ...)

@@ -3,26 +3,41 @@
 --
 -- @module resty.session.file
 
-local lfs         = require "lfs"
+
 local file_utils  = require "resty.session.file.utils"
-local utils       = require "resty.session.utils"
+local utils = require "resty.session.utils"
+local lfs = require "lfs"
+
 
 local run_worker_thread = file_utils.run_worker_thread
-local get_meta_el_val  = utils.get_meta_el_val
+local get_meta_el_val = utils.get_meta_el_val
 local get_path_meta = file_utils.get_path_meta
-local get_meta_key     = utils.get_meta_key
+local get_meta_key = utils.get_meta_key
 local get_path = file_utils.get_path
 
+
+local attributes = lfs.attributes
+local touch = lfs.touch
+local dir = lfs.dir
+
+
 local setmetatable = setmetatable
+local tonumber = tonumber
 local random = math.random
-local byte = string.byte
-local time = ngx.time
+local gmatch = string.gmatch
 local error = error
+local byte = string.byte
+local find = string.find
+local max = math.max
+local sub = string.sub
+local log = ngx.log
 
 
 local SLASH_BYTE = byte("/")
--- 1/5000
-local TTL_CLEAN_PROBABILITY = 0.0002
+local DEBUG = ngx.DEBUG
+
+
+local TTL_CLEAN_PROBABILITY = 0.0002 -- 1 / 5000
 
 
 local DEFAULT_POOL = "default"
@@ -40,6 +55,7 @@ local DEFAULT_PATH do
   DEFAULT_PATH = path:sub(1, pos)
 end
 
+
 local function file_get(storage, path)
   local ok, res, err = run_worker_thread(
     storage.pool,
@@ -49,6 +65,7 @@ local function file_get(storage, path)
   )
   return ok, res, err
 end
+
 
 local function file_set(storage, path, value)
   local ok, res, err = run_worker_thread(
@@ -61,6 +78,7 @@ local function file_set(storage, path, value)
   return ok, res, err
 end
 
+
 local function file_delete(storage, path)
   run_worker_thread(
     storage.pool,
@@ -69,6 +87,7 @@ local function file_delete(storage, path)
     path
   )
 end
+
 
 local function file_append(storage, path, value)
   local ok, res, err = run_worker_thread(
@@ -81,38 +100,42 @@ local function file_append(storage, path, value)
   return ok, res, err
 end
 
--- note: this metadata is always appended to the specific aud:sub key
--- TODO: atomically trim the file to avoid indefinite growth
-local function update_sid_exp(storage, aud_sub_key, sid, exp, now)
-  local path = get_path_meta(storage, aud_sub_key)
-  local meta_el = get_meta_el_val(sid, exp)
 
-  if meta_el then
-    file_append(storage, path, meta_el)
-    local attr = lfs.attributes(path)
-    local curr_exp = attr and attr.modification or now
-    local new_exp = math.max(curr_exp, exp)
-    lfs.touch(path, nil, new_exp)
+-- note: this metadata is always appended to the specific aud:sub key
+-- TODO: atomically trim the file to avoid infinite growth
+local function update_sid_exp(storage, aud_sub_key, sid, exp, current_time)
+  local path = get_path_meta(storage, aud_sub_key)
+
+  local meta_el = get_meta_el_val(sid, exp)
+  if not meta_el then
+    return
   end
+
+  file_append(storage, path, meta_el)
+  local attr = attributes(path)
+  local curr_exp = attr and attr.modification or current_time
+  local new_exp = max(curr_exp, exp)
+  touch(path, nil, new_exp)
 end
 
-local function read_metadata(storage, audience, subject, now)
-  local pattern     = ".-:.-;"
-  local sessions    = {}
 
+local function read_metadata(storage, audience, subject, current_time)
   local aud_sub_key = get_meta_key(storage, audience, subject)
-  local path        = get_path_meta(storage, aud_sub_key)
-  local _, res      = file_get(storage, path)
+  local path = get_path_meta(storage, aud_sub_key)
+  local _, res = file_get(storage, path)
   if not res then
     return nil, "not found"
   end
 
-  for s in string.gmatch(res, pattern) do
-    local i = string.find(s, ":")
-    local sid = string.sub(s,     1,  i - 1)
-    local exp = string.sub(s, i + 1, #s - 1)
+  local pattern = ".-:.-;"
+  local sessions = {}
+
+  for s in gmatch(res, pattern) do
+    local i = find(s, ":", nil, true)
+    local sid = sub(s, 1,  i - 1)
+    local exp = sub(s, i + 1, #s - 1)
     exp = tonumber(exp)
-    if exp > now then
+    if exp > current_time then
       sessions[sid] = exp
     else
       sessions[sid] = nil
@@ -122,23 +145,24 @@ local function read_metadata(storage, audience, subject, now)
   return sessions
 end
 
-local function cleanup_check(storage)
+
+local function cleanup_check(storage, current_time)
   if random() > TTL_CLEAN_PROBABILITY then
     return false
   end
-  local now     = time()
-  local path    = storage.path
-  local suffix  = storage.suffix
+
+  local path = storage.path
+  local suffix = storage.suffix
   local deleted = 0
 
-  ngx.log(ngx.DEBUG, "expired keys cleanup initiated")
+  log(DEBUG, "[session] expired keys cleanup initiated")
 
-  for file in lfs.dir(path) do
+  for file in dir(path) do
     if file ~= "." and file ~= ".." then
       if #file > #suffix and file:sub(#file - #suffix + 1, #file) == suffix then
-        local attr = lfs.attributes(path .. file)
+        local attr = attributes(path .. file)
         local exp = attr and attr.modification
-        if exp < now then
+        if exp < current_time then
           file = path .. file
           file_delete(storage, file)
           deleted = deleted + 1
@@ -146,9 +170,12 @@ local function cleanup_check(storage)
       end
     end
   end
-  ngx.log(ngx.DEBUG, string.format("deleted %s files", deleted))
+
+  log(DEBUG, "[session] deleted ", deleted, " files")
+
   return true
 end
+
 
 ---
 -- Storage
@@ -182,13 +209,14 @@ end
 -- @treturn true|nil ok
 -- @treturn string   error message
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
-  cleanup_check(self)
+  cleanup_check(self, current_time)
+
   local path = get_path(self, name, key)
   if not metadata and not old_key then
     local _, res, err = file_set(self, path, value)
     -- use mtime to hold the value of the expiration time of the file (and session)
     if current_time and ttl then
-      lfs.touch(path, nil, current_time + ttl)
+      touch(path, nil, current_time + ttl)
     end
     return res, err
   end
@@ -197,7 +225,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
   if old_key then
     old_path = get_path(self, name, old_key)
     if not remember then
-      local attr = lfs.attributes(old_path)
+      local attr = attributes(old_path)
       local exp = attr and attr.modification
       old_ttl = exp - current_time
     end
@@ -210,13 +238,13 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
   end
 
   if current_time and ttl then
-    lfs.touch(path, nil, current_time + ttl)
+    touch(path, nil, current_time + ttl)
   end
   if old_path then
     if remember then
       file_delete(self, old_path)
     elseif (not old_ttl or old_ttl > stale_ttl) then
-      lfs.touch(old_path, nil, current_time + stale_ttl)
+      touch(old_path, nil, current_time + stale_ttl)
     end
   end
 
@@ -231,8 +259,10 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
       end
     end
   end
+
   return ok
 end
+
 
 ---
 -- Retrieve session data.
@@ -242,14 +272,13 @@ end
 -- @tparam  string     key  session key
 -- @treturn string|nil      session data
 -- @treturn string          error message
-function metatable:get(name, key)
-  local now  = time()
+function metatable:get(name, key, current_time)
   local path = get_path(self, name, key)
 
-  local attr = lfs.attributes(path)
+  local attr = attributes(path)
   local exp = attr and attr.modification
 
-  if exp and exp < now then
+  if exp and exp < current_time then
     return nil, "expired"
   end
 
@@ -268,9 +297,9 @@ end
 -- @treturn boolean|nil      session data
 -- @treturn string           error message
 function metatable:delete(name, key, current_time, metadata)
-  cleanup_check(self)
-  local path = get_path(self, name, key)
+  cleanup_check(self, current_time)
 
+  local path = get_path(self, name, key)
   file_delete(self, path)
   if not metadata then
     return true
@@ -285,6 +314,7 @@ function metatable:delete(name, key, current_time, metadata)
 
   return true
 end
+
 
 function metatable:read_metadata(audience, subject, current_time)
   return read_metadata(self, audience, subject, current_time)
@@ -325,8 +355,8 @@ function storage.new(configuration)
   local prefix = configuration and configuration.prefix
   local suffix = configuration and configuration.suffix or DEFAULT_SUFFIX
 
-  local pool   = configuration and configuration.pool or DEFAULT_POOL
-  local path   = configuration and configuration.path or DEFAULT_PATH
+  local pool   = configuration and configuration.pool   or DEFAULT_POOL
+  local path   = configuration and configuration.path   or DEFAULT_PATH
 
   if byte(path, -1) ~= SLASH_BYTE then
     path = path .. "/"

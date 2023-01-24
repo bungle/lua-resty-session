@@ -4,8 +4,9 @@
 -- @module resty.session.thread
 
 
-local open = io.open
 local remove = os.remove
+local open = io.open
+
 
 
 ---
