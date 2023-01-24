@@ -5,11 +5,9 @@
 
 local lfs         = require "lfs"
 local file_utils  = require "resty.session.file.utils"
-local buffer      = require "string.buffer"
 local utils       = require "resty.session.utils"
 
 local run_worker_thread = file_utils.run_worker_thread
-local get_latest_valid = utils.get_latest_valid
 local get_meta_el_val  = utils.get_meta_el_val
 local get_path_meta = file_utils.get_path_meta
 local get_meta_key     = utils.get_meta_key
@@ -24,7 +22,8 @@ local error = error
 
 local SLASH_BYTE = byte("/")
 -- 1/5000
-local CLEANUP_PROBABILITY = 0.0002
+local TTL_CLEAN_PROBABILITY = 0.0002
+
 
 local DEFAULT_POOL = "default"
 local DEFAULT_SUFFIX = "ses"
@@ -71,31 +70,33 @@ local function file_delete(storage, path)
   )
 end
 
--- not safe for concurrent access
--- updates sid:exp; in the metadata of the audience/subject
+local function file_append(storage, path, value)
+  local ok, res, err = run_worker_thread(
+    storage.pool,
+    "resty.session.file.thread",
+    "append",
+    path,
+    value
+  )
+  return ok, res, err
+end
+
+-- note: this metadata is always appended to the specific aud:sub key
+-- TODO: atomically trim the file to avoid indefinite growth
 local function update_sid_exp(storage, aud_sub_key, sid, exp, now)
-  local max_exp  = now
-  local path     = get_path_meta(storage, aud_sub_key)
-  local _, res   = file_get(storage, path)
-  local sessions = get_latest_valid(res, now)
-  local buf      = buffer.new()
+  local path = get_path_meta(storage, aud_sub_key)
+  local meta_el = get_meta_el_val(sid, exp)
 
-  sessions[sid] = exp > 0 and exp or nil
-  for s, e in pairs(sessions) do
-    buf = buf:put(get_meta_el_val(s, e))
-    max_exp = math.max(max_exp, e)
-  end
-
-  local ser = buf:tostring()
-  if #ser > 0 then
-    file_set(storage, path, ser)
-    lfs.touch(path, nil, max_exp)
-  else
-    file_delete(storage, path)
+  if meta_el then
+    file_append(storage, path, meta_el)
+    local attr = lfs.attributes(path)
+    local curr_exp = attr and attr.modification or now
+    local new_exp = math.max(curr_exp, exp)
+    lfs.touch(path, nil, new_exp)
   end
 end
 
-local function read_metadata(storage, audience, subject)
+local function read_metadata(storage, audience, subject, now)
   local pattern     = ".-:.-;"
   local sessions    = {}
 
@@ -111,14 +112,18 @@ local function read_metadata(storage, audience, subject)
     local sid = string.sub(s,     1,  i - 1)
     local exp = string.sub(s, i + 1, #s - 1)
     exp = tonumber(exp)
-    sessions[sid] = exp
+    if exp > now then
+      sessions[sid] = exp
+    else
+      sessions[sid] = nil
+    end
   end
 
   return sessions
 end
 
 local function cleanup_check(storage)
-  if random() > CLEANUP_PROBABILITY then
+  if random() > TTL_CLEAN_PROBABILITY then
     return false
   end
   local now     = time()
@@ -221,7 +226,6 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     for i = 1, #audiences do
       local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
       update_sid_exp(self, aud_sub_key, key, current_time + ttl, current_time)
-
       if old_key then
         update_sid_exp(self, aud_sub_key, old_key, 0, current_time)
       end
@@ -282,8 +286,8 @@ function metatable:delete(name, key, current_time, metadata)
   return true
 end
 
-function metatable:read_metadata(audience, subject)
-  return read_metadata(self, audience, subject)
+function metatable:read_metadata(audience, subject, current_time)
+  return read_metadata(self, audience, subject, current_time)
 end
 
 
