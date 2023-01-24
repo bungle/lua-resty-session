@@ -36,6 +36,33 @@ end
 
 
 ---
+-- Append data in file.
+--
+-- @function append
+-- @tparam  string   path     file path
+-- @tparam  string   data  file data
+-- @treturn true|nil ok
+-- @treturn string   error message
+local function append(path, data)
+  local file, err = open(path, "a")
+  if not file then
+    return nil, err
+  end
+
+  local ok, err = file:write(data)
+
+  file:close()
+
+  if not ok then
+    remove(path)
+    return nil, err
+  end
+
+  return true
+end
+
+
+---
 -- Read data from a file.
 --
 -- @function get
@@ -76,4 +103,5 @@ return {
   set = set,
   get = get,
   delete = delete,
+  append = append,
 }
