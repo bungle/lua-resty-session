@@ -4,7 +4,7 @@
 -- @module resty.session.redis-cluster
 
 
-local common = require "resty.session.redis-common"
+local common = require "resty.session.redis.common"
 local redis = require "resty.rediscluster"
 
 

@@ -850,13 +850,13 @@ local load_storage do
       if cfg then
         if cfg.nodes then
           if not REDIS_CLUSTER then
-            REDIS_CLUSTER = require("resty.session.redis-cluster")
+            REDIS_CLUSTER = require("resty.session.redis.cluster")
           end
           return REDIS_CLUSTER.new(cfg)
 
         elseif cfg.sentinels then
           if not REDIS_SENTINEL then
-            REDIS_SENTINEL = require("resty.session.redis-sentinel")
+            REDIS_SENTINEL = require("resty.session.redis.sentinel")
           end
           return REDIS_SENTINEL.new(cfg)
         end

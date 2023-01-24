@@ -28,10 +28,10 @@ build = {
     ["resty.session.mysql"] = "lib/resty/session/mysql.lua",
     ["resty.session.postgres"] = "lib/resty/session/postgres.lua",
     ["resty.session.redis"] = "lib/resty/session/redis.lua",
-    ["resty.session.redis-cluster"] = "lib/resty/session/redis-cluster.lua",
-    ["resty.session.redis-sentinel"] = "lib/resty/session/redis-sentinel.lua",
+    ["resty.session.redis.cluster"] = "lib/resty/session/redis/cluster.lua",
+    ["resty.session.redis.sentinel"] = "lib/resty/session/redis/sentinel.lua",
+    ["resty.session.redis.common"] = "lib/resty/session/redis/common.lua",
     ["resty.session.shm"] = "lib/resty/session/shm.lua",
     ["resty.session.utils"] = "lib/resty/session/utils.lua",
-    ["resty.session.redis-common"] = "lib/resty/session/redis-common.lua",
   },
 }
