@@ -17,7 +17,7 @@
 -- @usage
 -- CREATE TABLE IF NOT EXISTS sessions (
 --   sid  CHAR(43) PRIMARY KEY,
---   name TINYTEXT,
+--   name VARCHAR(255),
 --   data MEDIUMTEXT,
 --   exp  DATETIME,
 --   INDEX (exp)
@@ -32,10 +32,9 @@
 --
 -- @usage
 -- CREATE TABLE IF NOT EXISTS sessions_meta (
---   aud TINYTEXT,
---   sub TINYTEXT,
+--   aud VARCHAR(255),
+--   sub VARCHAR(255),
 --   sid CHAR(43),
---   exp DATETIME,
 --   PRIMARY KEY (aud, sub, sid),
 --   CONSTRAINT FOREIGN KEY (sid) REFERENCES sessions(sid) ON DELETE CASCADE ON UPDATE CASCADE
 -- ) CHARACTER SET ascii;
@@ -60,10 +59,10 @@ local DEFAULT_CHARSET = "ascii"
 
 
 local SET = "INSERT INTO %s (sid, name, data, exp) VALUES ('%s', '%s', '%s', FROM_UNIXTIME(%d)) AS new ON DUPLICATE KEY UPDATE data = new.data"
-local SET_META_PREFIX = "INSERT INTO %s (aud, sub, sid, exp) VALUES "
-local SET_META_VALUES = "('%s', '%s', '%s', FROM_UNIXTIME(%d))"
-local SET_META_SUFFIX = " ON DUPLICATE KEY UPDATE exp = FROM_UNIXTIME(%d)"
-local GET_META = "SELECT sid, exp FROM %s WHERE aud = '%s' AND sub = '%s' AND exp >= FROM_UNIXTIME(%d)"
+local SET_META_PREFIX = "INSERT INTO %s (aud, sub, sid) VALUES "
+local SET_META_VALUES = "('%s', '%s', '%s')"
+local SET_META_SUFFIX = " ON DUPLICATE KEY UPDATE sid = sid"
+local GET_META = "SELECT sid, exp FROM %s JOIN %s USING (sid) WHERE aud = '%s' AND sub = '%s' AND exp >= FROM_UNIXTIME(%d)"
 local GET = "SELECT data FROM %s WHERE sid = '%s' AND exp >= FROM_UNIXTIME(%d)"
 local EXPIRE = "UPDATE %s SET exp = FROM_UNIXTIME(%d) WHERE sid = '%s' AND exp > FROM_UNIXTIME(%d)"
 local DELETE = "DELETE FROM %s WHERE sid = '%s'"
@@ -148,6 +147,15 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
 
   SQL:reset():putf(SET, table, key, name, value, exp)
 
+  if old_key then
+    if remember then
+      SQL:put(STM_DELIM):putf(DELETE, table, old_key)
+    else
+      local stale_exp = stale_ttl + current_time
+      SQL:put(STM_DELIM):putf(EXPIRE, table, stale_exp, old_key, stale_exp)
+    end
+  end
+
   local table_meta = self.table_meta
   if metadata then
     local audiences = metadata.audiences
@@ -160,33 +168,10 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
       if i > 1 then
         SQL:put(VAL_DELIM)
       end
-      SQL:putf(SET_META_VALUES, audiences[i], subjects[i], key, exp)
+      SQL:putf(SET_META_VALUES, audiences[i], subjects[i], key)
     end
 
-    SQL:putf(SET_META_SUFFIX, exp)
-
-    if old_key then
-      local stale_exp = stale_ttl + current_time
-      SQL:put(STM_DELIM):putf(SET_META_PREFIX, table_meta)
-
-      for i = 1, count do
-        if i > 1 then
-          SQL:put(VAL_DELIM)
-        end
-        SQL:putf(SET_META_VALUES, audiences[i], subjects[i], old_key, stale_exp)
-      end
-
-      SQL:putf(SET_META_SUFFIX, stale_exp)
-    end
-  end
-
-  if old_key then
-    if remember then
-      SQL:put(STM_DELIM):putf(DELETE, table, old_key)
-    else
-      local stale_exp = stale_ttl + current_time
-      SQL:put(STM_DELIM):putf(EXPIRE, table, stale_exp, old_key, stale_exp)
-    end
+    SQL:putf(SET_META_SUFFIX)
   end
 
   if random() < CLEANUP_PROBABILITY then
@@ -245,9 +230,9 @@ function metatable:delete(name, key, current_time, metadata)
 end
 
 
-function metatable:read_metadata(audience, subject, current_time)
+function metatable:read_metadata(name, audience, subject, current_time)
   local res = {}
-  local t = exec(self, fmt(GET_META, self.table_meta, audience, subject, current_time))
+  local t = exec(self, fmt(GET_META, self.table_meta, self.table, audience, subject, current_time))
   if not t then
     return nil, "not found"
   end

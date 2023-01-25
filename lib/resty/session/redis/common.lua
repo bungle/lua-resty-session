@@ -8,7 +8,7 @@
 local utils = require "resty.session.utils"
 
 
-local get_meta_key = utils.get_meta_key
+local meta_get_key = utils.meta_get_key
 local get_name = utils.get_name
 local ipairs = ipairs
 
@@ -55,7 +55,7 @@ local function SET(storage, red, name, key, value, ttl, current_time, old_key, s
     local score = current_time - 1
     local new_score = current_time + ttl
     for i = 1, #audiences do
-      local k = get_meta_key(storage, audiences[i], subjects[i])
+      local k = meta_get_key(storage, name, audiences[i], subjects[i])
       red:zremrangebyscore(k, 0, score)
       red:zadd(k, new_score, key)
       if old_key then
@@ -85,7 +85,7 @@ local function UNLINK(storage, red, name, key, current_time, metadata)
   local subjects  = metadata.subjects
   local score = current_time - 1
   for i = 1, #audiences do
-    local k = get_meta_key(storage, audiences[i], subjects[i])
+    local k = meta_get_key(storage, name, audiences[i], subjects[i])
     red:zremrangebyscore(k, 0, score)
     red:zrem(k, key)
   end
@@ -94,18 +94,19 @@ local function UNLINK(storage, red, name, key, current_time, metadata)
 end
 
 
-local function READ_METADATA(storage, red, audience, subject, current_time)
+local function READ_METADATA(storage, red, name, audience, subject, current_time)
   local sessions = {}
-  local k = get_meta_key(storage, audience, subject)
-  local res = red:zrange(k, current_time, "+inf", "BYSCORE")
+  local k = meta_get_key(storage, name, audience, subject)
+  local res, err = red:zrange(k, current_time, "+inf", "BYSCORE", "WITHSCORES")
   if not res then
-    return nil
+    return nil, err
   end
 
-  for _, v in ipairs(res) do
-    sessions[v] = -1 -- fetch the score if needed
+  for i, v in ipairs(res) do
+    if i % 2 ~= 0 then
+      sessions[v] = res[i + 1]
+    end
   end
-
   return sessions
 end
 

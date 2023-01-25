@@ -230,7 +230,7 @@ function metatable:delete(name, key, current_time, metadata)
 end
 
 
-function metatable:read_metadata(audience, subject, current_time)
+function metatable:read_metadata(name, audience, subject, current_time)
   local res = {}
 
   local t = exec(self, fmt(GET_META, self.table_meta, self.table, audience, subject, current_time))

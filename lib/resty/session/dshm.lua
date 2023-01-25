@@ -9,20 +9,16 @@ local utils = require "resty.session.utils"
 local dshm = require "resty.dshm"
 
 
-local get_latest_valid = utils.get_latest_valid
-local get_meta_el_val  = utils.get_meta_el_val
-local get_meta_key = utils.get_meta_key
+local meta_filter_latest_valid = utils.meta_filter_latest_valid
+local meta_get_el_val  = utils.meta_get_el_val
+local meta_get_key = utils.meta_get_key
 local get_name = utils.get_name
 
 
 local setmetatable = setmetatable
-local tonumber = tonumber
-local gmatch = string.gmatch
 local error = error
 local pairs = pairs
 local null = ngx.null
-local find = string.find
-local sub = string.sub
 local max = math.max
 
 
@@ -32,15 +28,14 @@ local DEFAULT_PORT = 4321
 
 -- not safe for concurrent access
 local function update_sid_exp(dshmc, aud_sub_key, sid, exp, current_time)
-  local max_exp = current_time
-
   local res = dshmc:get(aud_sub_key)
-  local sessions = get_latest_valid(res, current_time)
+  local sessions = res and meta_filter_latest_valid(res, current_time) or {}
   local buf = buffer.new()
 
   sessions[sid] = exp > 0 and exp or nil
+  local max_exp = current_time
   for s, e in pairs(sessions) do
-    buf = buf:put(get_meta_el_val(s, e))
+    buf = buf:put(meta_get_el_val(s, e))
     max_exp = max(max_exp, e)
   end
 
@@ -53,25 +48,14 @@ local function update_sid_exp(dshmc, aud_sub_key, sid, exp, current_time)
 end
 
 
-local function READ_METADATA(self, dshmc, audience, subject)
-  local aud_sub_key = get_meta_key(self, audience, subject)
+local function READ_METADATA(self, dshmc, name, audience, subject, current_time)
+  local aud_sub_key = meta_get_key(self, name, audience, subject)
   local res  = dshmc:get(aud_sub_key)
   if not res then
     return nil, "not found"
   end
 
-  local pattern = ".-:.-;"
-  local sessions = {}
-
-  for s in gmatch(res, pattern) do
-    local i = find(s, ":", nil, true)
-    local sid = sub(s, 1,  i - 1)
-    local exp = sub(s, i + 1, #s - 1)
-    exp = tonumber(exp)
-    sessions[sid] = exp
-  end
-
-  return sessions
+  return meta_filter_latest_valid(res, current_time)
 end
 
 
@@ -100,7 +84,7 @@ local function SET(self, dshmc, name, key, value, ttl, current_time, old_key, st
     local audiences = metadata.audiences
     local subjects  = metadata.subjects
     for i = 1, #audiences do
-      local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
+      local aud_sub_key = meta_get_key(self, name, audiences[i], subjects[i])
       update_sid_exp(dshmc, aud_sub_key, key, current_time + ttl, current_time)
 
       if old_key then
@@ -132,7 +116,7 @@ local function DELETE(self, dshmc, name, key, current_time, metadata)
   local audiences = metadata.audiences
   local subjects  = metadata.subjects
   for i = 1, #audiences do
-    local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
+    local aud_sub_key = meta_get_key(self, name, audiences[i], subjects[i])
     update_sid_exp(dshmc, aud_sub_key, key, 0, current_time)
   end
 

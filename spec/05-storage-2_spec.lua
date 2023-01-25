@@ -1,13 +1,51 @@
 ---
+-- For now these tests don't run on CI.
 -- Ensure to keep the tests consistent with those in 04-storage-1_spec.lua
 
 local utils = require "resty.session.utils"
 
 local storage_configs = {
-  file = {
-    suffix = "session",
+  mysql = {
+    username = "root",
+    password = "password",
+    database = "test",
   },
-  shm = {
+  postgres = {
+    username = "postgres",
+    password = "password",
+    database = "test",
+  },
+  redis = {
+    prefix = "sessions",
+  },
+  redis_sentinel = {
+    prefix = "sessions",
+    password = "password",
+    sentinels = {
+      { host = "127.0.0.1", port = "26379" }
+    },
+    connect_timeout = 10000,
+    send_timeout    = 10000,
+    read_timeout    = 10000,
+  },
+  redis_cluster = {
+    password = "password",
+    nodes = {
+      { ip = "127.0.0.1", port = "6380" }
+    },
+    name = "somecluster",
+    lock_zone = "sessions",
+    connect_timeout = 10000,
+    send_timeout    = 10000,
+    read_timeout    = 10000,
+  },
+  memcached = {
+    prefix = "sessions",
+    connect_timeout = 10000,
+    send_timeout    = 10000,
+    read_timeout    = 10000,
+  },
+  dshm = {
     prefix = "sessions",
     connect_timeout = 10000,
     send_timeout = 10000,
@@ -15,15 +53,30 @@ local storage_configs = {
   }
 }
 
-for _, st in ipairs({ "file", "shm" }) do
-  describe("Storage tests 1", function()
+local function storage_type(ty)
+  if ty == "redis_cluster" or ty == "redis_sentinel" then
+    return "redis"
+  end
+  return ty
+end
+
+for _, st in ipairs({
+  "memcached",
+  "mysql",
+  "postgres",
+  "redis",
+  "redis_cluster",
+  "redis_sentinel",
+  "dshm"
+}) do
+  describe("Storage tests 2 #noci", function()
     local storage
     local long_ttl  = 60
     local short_ttl = 2
-    local key       = "test_key"
-    local key1      = "test_key_1"
-    local key2      = "test_key_2"
-    local old_key   = "old_test_key"
+    local key       = "test_key_1iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii"
+    local key1      = "test_key_2iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii"
+    local key2      = "test_key_3iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii"
+    local old_key   = "old_key_iiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiiii"
     local name      = "test_name"
     local value     = "test_value"
 
@@ -31,14 +84,9 @@ for _, st in ipairs({ "file", "shm" }) do
       local conf = {
         remember = true,
         store_metadata = true,
-        secret = "doge1",
-        secret_fallbacks = {
-          "cat",
-          "doge",
-        },
       }
-      conf[st] = storage_configs[st]
-      storage = utils.load_storage(st, conf)
+      conf[storage_type(st)] = storage_configs[st]
+      storage = utils.load_storage(storage_type(st), conf)
       assert.is_not_nil(storage)
     end)
 
@@ -87,7 +135,7 @@ for _, st in ipairs({ "file", "shm" }) do
         assert.is_not_nil(ok)
         ngx.sleep(1)
         for i = 1, #audiences do
-          local meta_values = storage:read_metadata(audiences[i], subjects[i], ngx.time())
+          local meta_values = storage:read_metadata(name, audiences[i], subjects[i], ngx.time())
           assert.is_not_nil(meta_values)
           assert.truthy(meta_values[key ])
           assert.truthy(meta_values[key1])
@@ -105,7 +153,7 @@ for _, st in ipairs({ "file", "shm" }) do
         assert.is_not_nil(ok)
         ngx.sleep(1)
         for i = 1, #audiences do
-          local meta_values = storage:read_metadata(audiences[i], subjects[i], ngx.time())
+          local meta_values = storage:read_metadata(name, audiences[i], subjects[i], ngx.time())
           assert.falsy(meta_values[key])
           assert.truthy(meta_values[key1])
         end
@@ -180,15 +228,16 @@ for _, st in ipairs({ "file", "shm" }) do
         assert.is_not_nil(ok)
         ngx.sleep(1)
         for i = 1, #audiences do
-          local meta_values = storage:read_metadata(audiences[i], subjects[i], ngx.time())
+          local meta_values = storage:read_metadata(name, audiences[i], subjects[i], ngx.time())
           assert.truthy(meta_values[key1])
           ok = storage:delete(name, key1, ngx.time(), metadata)
           assert.is_not_nil(ok)
           ngx.sleep(2)
-          meta_values = storage:read_metadata(audiences[i], subjects[i], ngx.time()) or {}
+          meta_values = storage:read_metadata(name, audiences[i], subjects[i], ngx.time()) or {}
           assert.falsy(meta_values[key1])
         end
       end)
     end)
   end)
 end
+

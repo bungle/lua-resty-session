@@ -7,20 +7,18 @@
 local utils  = require "resty.session.utils"
 
 
-local get_meta_el_val = utils.get_meta_el_val
-local get_meta_key = utils.get_meta_key
+local meta_get_next_sid_exp = utils.meta_get_next_sid_exp
+local meta_get_el_val = utils.meta_get_el_val
+local meta_get_key = utils.meta_get_key
 local get_name = utils.get_name
 
 
 local setmetatable = setmetatable
-local tonumber = tonumber
 local shared = ngx.shared
 local random = math.random
 local assert = assert
 local error = error
 local pairs = pairs
-local find = string.find
-local sub = string.sub
 local max = math.max
 
 
@@ -39,22 +37,22 @@ local function keep_latest_valid(dict, aud_sub_key, current_time, preserve_el)
       break
     end
 
-    local i = find(el, ":")
-    local sid = sub(el, 1, i - 1)
-    local exp = sub(el, i + 1, #el - 1)
-    exp = exp and tonumber(exp)
+    local sid, err, exp = meta_get_next_sid_exp(el, 1)
+    if err then
+      return nil, err
+    end
 
-    if exp > current_time then
+    if exp and exp > current_time then
       sess[sid] = exp
+      max_exp = max(max_exp, exp)
     else
       sess[sid] = nil
     end
-    max_exp = max(max_exp, exp)
   end
 
   if preserve_el then
     for sid, exp in pairs(sess) do
-      local el = get_meta_el_val(sid, exp)
+      local el = meta_get_el_val(sid, exp)
       dict:rpush(aud_sub_key, el)
     end
   end
@@ -139,13 +137,13 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     local audiences = metadata.audiences
     local subjects  = metadata.subjects
     for i = 1, #audiences do
-      local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
-      local meta_el_val = get_meta_el_val(key, current_time + ttl)
+      local aud_sub_key = meta_get_key(self, name, audiences[i], subjects[i])
+      local meta_el_val = meta_get_el_val(key, current_time + ttl)
 
       ok, err = self.dict:rpush(aud_sub_key, meta_el_val)
 
       if old_key then
-        meta_el_val = get_meta_el_val(old_key, 0)
+        meta_el_val = meta_get_el_val(old_key, 0)
         ok, err = self.dict:rpush(aud_sub_key, meta_el_val)
       end
       -- no need to clean up every time we write
@@ -194,8 +192,8 @@ function metatable:delete(name, key, current_time, metadata)
   local audiences = metadata.audiences
   local subjects  = metadata.subjects
   for i = 1, #audiences do
-    local aud_sub_key = get_meta_key(self, audiences[i], subjects[i])
-    local meta_el_val = get_meta_el_val(key, 0)
+    local aud_sub_key = meta_get_key(self, name, audiences[i], subjects[i])
+    local meta_el_val = meta_get_el_val(key, 0)
     self.dict:rpush(aud_sub_key, meta_el_val)
     metadata_cleanup(self, aud_sub_key, current_time)
   end
@@ -204,8 +202,8 @@ function metatable:delete(name, key, current_time, metadata)
 end
 
 
-function metatable:read_metadata(audience, subject, current_time)
-  local aud_sub_key = get_meta_key(self, audience, subject)
+function metatable:read_metadata(name, audience, subject, current_time)
+  local aud_sub_key = meta_get_key(self, name, audience, subject)
   return read_metadata(self, aud_sub_key, current_time)
 end
 

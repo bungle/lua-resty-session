@@ -11,12 +11,9 @@ local buffer = require "string.buffer"
 local bit = require "bit"
 
 
-local tonumber = tonumber
 local select = select
-local gmatch = string.gmatch
 local time = ngx.time
 local ceil = math.ceil
-local find = string.find
 local byte = string.byte
 local band = bit.band
 local bnot = bit.bnot
@@ -1009,32 +1006,78 @@ end
 
 
 ---
--- Helper get the key used to store metadata for a certain aud and sub
+-- Helper to get the key used to store metadata for a certain aud and sub
 --
--- @function utils.get_meta_key
+-- @function utils.meta_get_key
 -- @tparam   table   storage a storage instance
 -- @tparam   string  name name
 -- @tparam   string  audience audience for this key
 -- @tparam   string  subject subject for this key
 -- @treturn  string  the key to store the metadata collection
-local function get_meta_key(storage, audience, subject)
+local function meta_get_key(storage, name, audience, subject)
   local prefix = storage.prefix
   if prefix then
-    return fmt("%s:%s:%s", prefix, audience, subject)
+    return fmt("%s:%s:%s:%s", name, prefix, audience, subject)
   else
-    return fmt("%s:%s", audience, subject)
+    return fmt("%s:%s:%s", name, audience, subject)
   end
 end
 
 ---
--- Helper get the value used to store metadata for a certain aud and sub pair
+-- Helper to get the value used to store metadata for a certain aud and sub
+-- Empty exp means the session id has been invalidated
 --
--- @function utils.get_meta_el_val
+-- @function utils.meta_get_el_val
 -- @tparam   string  sid session id
 -- @tparam   string  exp expiration of session sid
 -- @treturn  string  the value to store in the metadata collection
-local function get_meta_el_val(sid, exp)
-  return fmt("%s:%s;", sid, exp)
+local function meta_get_el_val(sid, exp)
+  if not exp or exp == 0 then
+    return fmt("%s;", sid)
+  end
+  return fmt("%s:%s;", sid, encode_base64url(bpack(5, exp)))
+end
+
+
+local meta_get_next_sid_exp do
+  local sid_offset = 43
+  local del_offset = 1
+  local exp_offset = 7
+  local COLON      = byte(":")
+
+  ---
+  -- Function to extract the next sid and exp from a serialized
+  -- metadata list, starting from index
+  --
+  -- @function utils.meta_get_next_sid_exp
+  -- @tparam   string val        list of sid:exp;
+  -- @tparam   number index      start index
+  -- @treturn  sid    string     session id
+  -- @treturn  err    string     error
+  -- @treturn  exp    number     expiration
+  -- @treturn  index  number|nil index of the cursor
+  meta_get_next_sid_exp = function(val, index)
+    local exp, err
+
+    local sid = sub(val, index, index + sid_offset - 1)
+    index = index + sid_offset
+    local del = byte(val, index + del_offset - 1)
+    index = index + del_offset
+
+    if del ~= COLON then
+      return sid, err, exp, index
+    end
+
+    exp      = sub(val, index, index + exp_offset - 1)
+    index    = index + exp_offset + del_offset
+    exp, err = decode_base64url(exp)
+    if err then
+      return nil, err
+    end
+
+    exp = bunpack(5, exp)
+    return sid, err, exp, index
+  end
 end
 
 
@@ -1042,22 +1085,23 @@ end
 -- Function to filter out the latest valid sid:exp from a
 -- serialized list, used to store session metadata
 --
--- @function utils.get_latest_valid
+-- @function utils.meta_filter_latest_valid
 -- @tparam   string sessions list of sid:exp;
 -- @treturn  table  valid sessions and their exp
-local function get_latest_valid(sessions, current_time)
+local function meta_filter_latest_valid(sessions, current_time)
   current_time = current_time or time()
-
-  local pattern  = ".-:.-;"
   local sess = {}
+  local index = 1
+  local length = #sessions
 
-  sessions = sessions or ""
-  for s in gmatch(sessions, pattern) do
-    local i = find(s, ":", nil, true)
-    local sid = sub(s, 1,  i - 1)
-    local exp = sub(s, i + 1, #s - 1)
-    exp = tonumber(exp)
-    if exp > current_time then
+  while index < length do
+    local sid, err, exp
+    sid, err, exp, index = meta_get_next_sid_exp(sessions, index)
+    if err then
+      return nil, err
+    end
+
+    if exp and exp > current_time then
       sess[sid] = exp
     else
       sess[sid] = nil
@@ -1094,7 +1138,8 @@ return {
   set_flag = set_flag,
   unset_flag = unset_flag,
   has_flag = has_flag,
-  get_meta_key = get_meta_key,
-  get_meta_el_val = get_meta_el_val,
-  get_latest_valid = get_latest_valid,
+  meta_get_key = meta_get_key,
+  meta_get_el_val = meta_get_el_val,
+  meta_get_next_sid_exp = meta_get_next_sid_exp,
+  meta_filter_latest_valid = meta_filter_latest_valid,
 }
