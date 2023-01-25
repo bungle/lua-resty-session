@@ -233,7 +233,7 @@ end
 function metatable:read_metadata(audience, subject, current_time)
   local res = {}
 
-  local t = exec(self, fmt(GET_META, self.table_meta, self.table, self.audience, subject, current_time))
+  local t = exec(self, fmt(GET_META, self.table_meta, self.table, audience, subject, current_time))
   if not t then
     return nil, "not found"
   end
