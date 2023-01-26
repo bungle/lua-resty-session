@@ -118,6 +118,7 @@ local DEFAULT_META = {}
 local DEFAULT_IKM
 local DEFAULT_IKM_FALLBACKS
 local DEFAULT_HASH_STORAGE_KEY = true
+local DEFAULT_HASH_SUBJECT = false
 local DEFAULT_STORE_METADATA = false
 local DEFAULT_TOUCH_THRESHOLD = 60 -- 1 minute
 local DEFAULT_COMPRESSION_THRESHOLD = 1024 -- 1 kB
@@ -187,13 +188,13 @@ local HEADERS = {
 }
 
 
-local function set_response_header(name, value)
-  header[name] = value
+local function NOOP(...)
+  return ...
 end
 
 
-local function storage_key(sid)
-  return sid
+local function set_response_header(name, value)
+  header[name] = value
 end
 
 
@@ -213,6 +214,21 @@ local function sha256_storage_key(sid)
   end
 
   return key
+end
+
+
+local function sha256_subject(subject)
+  local hashed_subject, err = sha256(subject)
+  if not hashed_subject then
+    return nil, errmsg(err, "unable to sha256 hash subject")
+  end
+
+  hashed_subject, err = encode_base64url(sub(hashed_subject, 1, 16))
+  if not hashed_subject then
+    return nil, errmsg(err, "unable to base64url encode subject")
+  end
+
+  return hashed_subject
 end
 
 
@@ -304,6 +320,7 @@ local function get_store_metadata(self)
   if count == 1 then
     local subject = data[1][3]
     if subject then
+      subject = self.hash_subject(subject)
       return {
         audiences = { data[1][2] },
         subjects = { subject },
@@ -319,6 +336,7 @@ local function get_store_metadata(self)
   for i = 1, count do
     local subject = data[i][3]
     if subject then
+      self.hash_subject(subject)
       if not audiences then
         audiences = table_new(count, 0)
         subjects  = table_new(count, 0)
@@ -618,7 +636,7 @@ local function open(self, remember, meta_only)
   local audience = self.data[data_index][2]
   local initial_chunk, ciphertext, ciphertext_encoded, info_data do
     if storage then
-      local key, err = self.storage_key(sid)
+      local key, err = self.hash_storage_key(sid)
       if not key then
         return nil, err
       end
@@ -1011,7 +1029,7 @@ local function save(self, state, remember)
   end
 
   if storage then
-    local key, err = self.storage_key(sid)
+    local key, err = self.hash_storage_key(sid)
     if not key then
       return nil, err
     end
@@ -1044,7 +1062,7 @@ local function save(self, state, remember)
     local old_sid = meta.sid
     local old_key
     if old_sid then
-      old_key, err = self.storage_key(old_sid)
+      old_key, err = self.hash_storage_key(old_sid)
       if not old_key then
         log(WARN, "[session] ", err)
       end
@@ -1128,7 +1146,7 @@ local function save_info(self, data, remember)
     meta = self.meta
   end
 
-  local key, err = self.storage_key(meta.sid)
+  local key, err = self.hash_storage_key(meta.sid)
   if not key then
     return nil, err
   end
@@ -1200,7 +1218,7 @@ local function destroy(self, remember)
   if storage then
     local sid = meta.sid
     if sid then
-      local key, err = self.storage_key(sid)
+      local key, err = self.hash_storage_key(sid)
       if not key then
         return nil, err
       end
@@ -2175,6 +2193,7 @@ local session = {
 -- @field remember_rolling_timeout Remember timeout specifies how long the persistent session is considered valid, e.g. `604800` (defaults to `604800`, or a week) (in seconds)
 -- @field remember_absolute_timeout Remember absolute timeout limits how long the persistent session can be renewed, until re-authentication is required, e.g. `2592000` (defaults to `2592000`, or 30 days) (in seconds)
 -- @field hash_storage_key Whether to hash or not the storage key. With storage key hashed it is impossible to decrypt data on server side without having a cookie too (defaults to `true`).
+-- @field hash_subject Whether to hash or not the subject when `store_metadata` is enabled, e.g. for PII reasons (defaults to `false`).
 -- @field store_metadata Whether to also store metadata of sessions, such as collecting data of sessions for a specific audience belonging to a specific subject (defaults to `false`).
 -- @field touch_threshold Touch threshold controls how frequently or infrequently the `session:refresh` touches the cookie, e.g. `60` (defaults to `60`, or a minute) (in seconds)
 -- @field compression_threshold Compression threshold controls when the data is deflated, e.g. `1024` (defaults to `1024`, or a kilobyte) (in bytes)
@@ -2325,6 +2344,11 @@ function session.init(configuration)
       DEFAULT_HASH_STORAGE_KEY = hash_storage_key
     end
 
+    local hash_subject = configuration.hash_subject
+    if hash_subject ~= nil then
+      DEFAULT_HASH_SUBJECT = hash_subject
+    end
+
     local store_metadate = configuration.store_metadata
     if store_metadate ~= nil then
       DEFAULT_STORE_METADATA = store_metadate
@@ -2418,6 +2442,11 @@ function session.new(configuration)
   local hash_storage_key = configuration and configuration.hash_storage_key
   if hash_storage_key == nil then
     hash_storage_key = DEFAULT_HASH_STORAGE_KEY
+  end
+
+  local hash_subject = configuration and configuration.hash_subject
+  if hash_subject == nil then
+    hash_subject = DEFAULT_HASH_SUBJECT
   end
 
   local store_metadata = configuration and configuration.store_metadata
@@ -2557,7 +2586,8 @@ function session.new(configuration)
     remember_absolute_timeout = remember_absolute_timeout,
     touch_threshold           = touch_threshold,
     compression_threshold     = compression_threshold,
-    storage_key               = hash_storage_key and sha256_storage_key or storage_key,
+    hash_storage_key          = hash_storage_key and sha256_storage_key or NOOP,
+    hash_subject              = hash_subject and sha256_subject or NOOP,
     store_metadata            = store_metadata,
     enforce_same_subject      = enforce_same_subject,
     cookie_name               = cookie_name,
