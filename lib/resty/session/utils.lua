@@ -177,11 +177,11 @@ local trim do
     for i = 1, len do
       local b = byte(value, i)
       if b == SPACE_BYTE
-              or b == TAB_BYTE
-              or b == CR_BYTE
-              or b == LF_BYTE
-              or b == VTAB_BYTE
-              or b == FF_BYTE
+      or b == TAB_BYTE
+      or b == CR_BYTE
+      or b == LF_BYTE
+      or b == VTAB_BYTE
+      or b == FF_BYTE
       then
         s = s + 1
       else
@@ -193,11 +193,11 @@ local trim do
     for i = len, 1, -1 do
       local b = byte(value, i)
       if b == SPACE_BYTE
-              or b == TAB_BYTE
-              or b == CR_BYTE
-              or b == LF_BYTE
-              or b == VTAB_BYTE
-              or b == FF_BYTE
+      or b == TAB_BYTE
+      or b == CR_BYTE
+      or b == LF_BYTE
+      or b == VTAB_BYTE
+      or b == FF_BYTE
       then
         e = e - 1
       else
