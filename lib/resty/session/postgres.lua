@@ -260,24 +260,24 @@ local storage = {}
 
 ---
 -- Postgres storage backend configuration
--- @field host the host to connect (defaults to `"127.0.0.1"`)
--- @field port the port to connect (defaults to `5432`)
--- @field application set the name of the connection as displayed in pg_stat_activity (defaults to `"pgmoon"`)
--- @field username the database username to authenticate (defaults to `"postgres"`)
--- @field password password for authentication, may be required depending on server configuration
--- @field database the database name to connect
--- @field table_name name of database table to which to store session data (can be `database schema` prefixed) (defaults to `"sessions"`)
--- @field table_name_meta name of database meta data table to which to store session meta data (can be `database schema` prefixed) (defaults to `"sessions_meta"`)
--- @field connect_timeout controls the default timeout value used in TCP/unix-domain socket object's `connect` method
--- @field send_timeout controls the default timeout value used in TCP/unix-domain socket object's `send` method
--- @field read_timeout controls the default timeout value used in TCP/unix-domain socket object's `receive` method
--- @field keepalive_timeout controls the default maximal idle time of the connections in the connection pool
--- @field pool a custom name for the connection pool being used.
--- @field pool_size the size of the connection pool,
--- @field backlog a queue size to use when the connection pool is full (configured with @pool_size)
--- @field ssl enable ssl (defaults to `false`)
--- @field ssl_verify verify server certificate (defaults to `nil`)
--- @field ssl_required abort the connection if the server does not support SSL connections (defaults to `nil`)
+-- @field host The host to connect (defaults to `"127.0.0.1"`).
+-- @field port The port to connect (defaults to `5432`).
+-- @field application Set the name of the connection as displayed in pg_stat_activity (defaults to `"pgmoon"`).
+-- @field username The database username to authenticate (defaults to `"postgres"`).
+-- @field password Password for authentication, may be required depending on server configuration.
+-- @field database The database name to connect.
+-- @field table_name Name of database table to which to store session data (can be `database schema` prefixed) (defaults to `"sessions"`).
+-- @field table_name_meta Name of database meta data table to which to store session meta data (can be `database schema` prefixed) (defaults to `"sessions_meta"`).
+-- @field connect_timeout Controls the default timeout value used in TCP/unix-domain socket object's `connect` method.
+-- @field send_timeout Controls the default timeout value used in TCP/unix-domain socket object's `send` method.
+-- @field read_timeout Controls the default timeout value used in TCP/unix-domain socket object's `receive` method.
+-- @field keepalive_timeout Controls the default maximal idle time of the connections in the connection pool.
+-- @field pool A custom name for the connection pool being used.
+-- @field pool_size The size of the connection pool.
+-- @field backlog A queue size to use when the connection pool is full (configured with @pool_size).
+-- @field ssl Enable SSL (defaults to `false`).
+-- @field ssl_verify Verify server certificate (defaults to `nil`).
+-- @field ssl_required Abort the connection if the server does not support SSL connections (defaults to `nil`).
 -- @table configuration
 
 

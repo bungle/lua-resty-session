@@ -56,62 +56,84 @@ local DEFAULT_PATH do
 end
 
 
-local function file_get(storage, path)
+local function file_get(pool, path)
   local ok, res, err = run_worker_thread(
-    storage.pool,
+    pool,
     "resty.session.file.thread",
     "get",
     path
   )
-  return ok, res, err
+
+  if not ok then
+    return nil, res
+  end
+
+  return res, err
 end
 
 
-local function file_set(storage, path, value)
+local function file_set(pool, path, value)
   local ok, res, err = run_worker_thread(
-    storage.pool,
+    pool,
     "resty.session.file.thread",
     "set",
     path,
     value
   )
-  return ok, res, err
+
+  if not ok then
+    return nil, res
+  end
+
+  return res, err
 end
 
 
-local function file_delete(storage, path)
-  run_worker_thread(
-    storage.pool,
+local function file_delete(pool, path)
+  local ok, res, err = run_worker_thread(
+    pool,
     "resty.session.file.thread",
     "delete",
     path
   )
+
+  if not ok then
+    return nil, res
+  end
+
+  return res, err
 end
 
 
-local function file_append(storage, path, value)
+local function file_append(pool, path, value)
   local ok, res, err = run_worker_thread(
-    storage.pool,
+    pool,
     "resty.session.file.thread",
     "append",
     path,
     value
   )
-  return ok, res, err
+
+  if not ok then
+    return nil, res
+  end
+
+  return res, err
 end
 
 
 -- note: this metadata is always appended to the specific aud:sub key
 -- TODO: atomically trim the file to avoid infinite growth
 local function update_sid_exp(storage, aud_sub_key, sid, exp, current_time)
-  local path = get_path_meta(storage, aud_sub_key)
-
   local meta_el = get_meta_el_val(sid, exp)
   if not meta_el then
     return
   end
 
-  file_append(storage, path, meta_el)
+  local pool = storage.pool
+  local path = get_path_meta(storage, aud_sub_key)
+
+  file_append(pool, path, meta_el)
   local attr = attributes(path)
   local curr_exp = attr and attr.modification or current_time
   local new_exp = max(curr_exp, exp)
@@ -122,7 +144,7 @@ end
 local function read_metadata(storage, audience, subject, current_time)
   local aud_sub_key = get_meta_key(storage, audience, subject)
   local path = get_path_meta(storage, aud_sub_key)
-  local _, res = file_get(storage, path)
+  local res = file_get(storage.pool, path)
   if not res then
     return nil, "not found"
   end
@@ -151,6 +173,7 @@ local function cleanup_check(storage, current_time)
     return false
   end
 
+  local pool = storage.pool
   local path = storage.path
   local suffix = storage.suffix
   local deleted = 0
@@ -164,7 +187,7 @@ local function cleanup_check(storage, current_time)
         local exp = attr and attr.modification
         if exp < current_time then
           file = path .. file
-          file_delete(storage, file)
+          file_delete(pool, file)
           deleted = deleted + 1
         end
       end
@@ -211,9 +234,10 @@ end
 function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, metadata, remember)
   cleanup_check(self, current_time)
 
+  local pool = self.pool
   local path = get_path(self, name, key)
   if not metadata and not old_key then
-    local _, res, err = file_set(self, path, value)
+    local res, err = file_set(pool, path, value)
     -- use mtime to hold the value of the expiration time of the file (and session)
     if current_time and ttl then
       touch(path, nil, current_time + ttl)
@@ -232,7 +256,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
   end
 
 
-  local ok, res, err = file_set(self, path, value)
+  local res, err = file_set(pool, path, value)
   if not res then
     return nil, err or "set failed"
   end
@@ -242,7 +266,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
   end
   if old_path then
     if remember then
-      file_delete(self, old_path)
+      file_delete(pool, old_path)
     elseif (not old_ttl or old_ttl > stale_ttl) then
       touch(old_path, nil, current_time + stale_ttl)
     end
@@ -260,7 +284,7 @@ function metatable:set(name, key, value, ttl, current_time, old_key, stale_ttl, 
     end
   end
 
-  return ok
+  return true
 end
 
 
@@ -274,15 +298,14 @@ end
 -- @treturn string          error message
 function metatable:get(name, key, current_time)
   local path = get_path(self, name, key)
-
   local attr = attributes(path)
-  local exp = attr and attr.modification
 
+  local exp = attr and attr.modification
   if exp and exp < current_time then
     return nil, "expired"
   end
 
-  local _, res, err = file_get(self, path)
+  local res, err = file_get(self.pool, path)
   return res, err
 end
 
@@ -299,8 +322,9 @@ end
 function metatable:delete(name, key, current_time, metadata)
   cleanup_check(self, current_time)
 
+  local pool = self.pool
   local path = get_path(self, name, key)
-  file_delete(self, path)
+  file_delete(pool, path)
   if not metadata then
     return true
   end
@@ -331,10 +355,10 @@ local storage = {}
 
 ---
 -- File storage backend configuration
--- @field prefix file prefix for session file
--- @field suffix file suffix (or extension without `.`) for session file
--- @field pool name of the thread pool under which file writing happens (available on Linux only)
--- @field path path (or directory) under which session files are created
+-- @field prefix File prefix for session file.
+-- @field suffix File suffix (or extension without `.`) for session file.
+-- @field pool Name of the thread pool under which file writing happens (available on Linux only).
+-- @field path Path (or directory) under which session files are created.
 -- @table configuration
 
 

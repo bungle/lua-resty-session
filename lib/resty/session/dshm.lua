@@ -258,20 +258,20 @@ local storage = {}
 
 ---
 -- Distributed shared memory storage backend configuration
--- @field prefix prefix for the keys stored in DSHM
--- @field suffix suffix for the keys stored in DSHM
--- @field host the host to connect (defaults to `"127.0.0.1"`)
--- @field port the port to connect (defaults to `4321`)
--- @field connect_timeout controls the default timeout value used in TCP/unix-domain socket object's `connect` method
--- @field send_timeout controls the default timeout value used in TCP/unix-domain socket object's `send` method
--- @field read_timeout controls the default timeout value used in TCP/unix-domain socket object's `receive` method
--- @field keepalive_timeout controls the default maximal idle time of the connections in the connection pool
--- @field pool a custom name for the connection pool being used.
--- @field pool_size the size of the connection pool,
--- @field backlog a queue size to use when the connection pool is full (configured with @pool_size)
--- @field ssl enable ssl (defaults to `false`)
--- @field ssl_verify verify server certificate (defaults to `nil`)
--- @field server_name the server name for the new TLS extension Server Name Indication (SNI)
+-- @field prefix The prefix for the keys stored in DSHM.
+-- @field suffix The suffix for the keys stored in DSHM.
+-- @field host The host to connect (defaults to `"127.0.0.1"`).
+-- @field port The port to connect (defaults to `4321`).
+-- @field connect_timeout Controls the default timeout value used in TCP/unix-domain socket object's `connect` method.
+-- @field send_timeout Controls the default timeout value used in TCP/unix-domain socket object's `send` method.
+-- @field read_timeout Controls the default timeout value used in TCP/unix-domain socket object's `receive` method.
+-- @field keepalive_timeout Controls the default maximal idle time of the connections in the connection pool.
+-- @field pool A custom name for the connection pool being used.
+-- @field pool_size The size of the connection pool.
+-- @field backlog A queue size to use when the connection pool is full (configured with @pool_size).
+-- @field ssl Enable SSL (defaults to `false`).
+-- @field ssl_verify Verify server certificate (defaults to `nil`).
+-- @field server_name The server name for the new TLS extension Server Name Indication (SNI).
 -- @table configuration
 
 

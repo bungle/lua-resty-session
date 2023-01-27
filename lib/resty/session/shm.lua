@@ -220,9 +220,9 @@ local storage = {}
 
 ---
 -- Shared memory storage backend configuration
--- @field prefix prefix for the keys stored in SHM
--- @field suffix suffix for the keys stored in SHM
--- @field zone a name of shared memory zone (defaults to `sessions`)
+-- @field prefix Prefix for the keys stored in SHM.
+-- @field suffix Suffix for the keys stored in SHM.
+-- @field zone A name of shared memory zone (defaults to `sessions`).
 -- @table configuration
 
 

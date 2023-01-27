@@ -69,9 +69,9 @@ local WARN   = ngx.WARN
 local KEY_SIZE = 32
 
 
---[ HEADER ----------------------------------------------------------------------------------------------------------------------------------------------------][ PAYLOAD ----]
--- Type (1B) || Flags (2B) || Session ID (32) || Creation Time (5B) || Rolling Offset (4B) || Data Size (3B) || Tag (16B) || Idling Offset (3B) || Mac (16B) || [ Data (*B) ]
-
+--[ HEADER ----------------------------------------------------------------------------------------------------] || [ PAYLOAD --]
+--[ Type || Flags || Session ID || Creation Time || Rolling Offset || Data Size || Tag || Idling Offset || Mac ] || [ Data      ]
+--[ 1B   || 2B    || 32B        || 5B            || 4B             || 3B        || 16B || 3B            || 16B ] || [ *B        ]
 
 local COOKIE_TYPE_SIZE    = 1  --  1
 local FLAGS_SIZE          = 2  --  3
@@ -233,12 +233,12 @@ end
 
 
 local function calculate_mac(ikm, nonce, msg)
-  local auth_key, err = derive_hmac_sha256_key(ikm, nonce)
-  if not auth_key then
+  local mac_key, err = derive_hmac_sha256_key(ikm, nonce)
+  if not mac_key then
     return nil, errmsg(err, "unable to derive session message authentication key")
   end
 
-  local mac, err = hmac_sha256(auth_key, msg)
+  local mac, err = hmac_sha256(mac_key, msg)
   if not mac then
     return nil, errmsg(err, "unable to calculate session message authentication code")
   end
@@ -742,19 +742,19 @@ local function open(self, remember, meta_only)
     return true
   end
 
-  local encryption_key, err, iv
+  local aes_key, err, iv
   if remember then
-    encryption_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
+    aes_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
   else
-    encryption_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
+    aes_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
   end
 
-  if not encryption_key then
+  if not aes_key then
     return nil, errmsg(err, "unable to derive session decryption key")
   end
 
   local aad = sub(header_decoded, 1, HEADER_TAG_SIZE)
-  local plaintext, err = decrypt_aes_256_gcm(encryption_key, iv, ciphertext, aad, tag)
+  local plaintext, err = decrypt_aes_256_gcm(aes_key, iv, ciphertext, aad, tag)
   if not plaintext then
     return nil, errmsg(err, "unable to decrypt session data")
   end
@@ -876,7 +876,8 @@ local function save(self, state, remember)
 
     data_size = #data
 
-    if data_size > self.compression_threshold then
+    local compression_threshold = self.compression_threshold
+    if compression_threshold ~= 0 and data_size > compression_threshold then
       local deflated_data, err = deflate(data)
       if not deflated_data then
         log(NOTICE, "[session] unable to deflate session data (", err , ")")
@@ -921,18 +922,18 @@ local function save(self, state, remember)
   HEADER_BUFFER:put(COOKIE_TYPE, packed_flags, sid, packed_creation_time, packed_rolling_offset, packed_data_size)
 
   local ikm = self.ikm
-  local encryption_key, iv
+  local aes_key, iv
   if remember then
-    encryption_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
+    aes_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
   else
-    encryption_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
+    aes_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
   end
 
-  if not encryption_key then
+  if not aes_key then
     return nil, errmsg(err, "unable to derive session encryption key")
   end
 
-  local ciphertext, err, tag = encrypt_aes_256_gcm(encryption_key, iv, data, HEADER_BUFFER:tostring())
+  local ciphertext, err, tag = encrypt_aes_256_gcm(aes_key, iv, data, HEADER_BUFFER:tostring())
   if not ciphertext then
     return nil, errmsg(err, "unable to encrypt session data")
   end
@@ -2197,8 +2198,8 @@ local session = {
 -- @field store_metadata Whether to also store metadata of sessions, such as collecting data of sessions for a specific audience belonging to a specific subject (defaults to `false`).
 -- @field touch_threshold Touch threshold controls how frequently or infrequently the `session:refresh` touches the cookie, e.g. `60` (defaults to `60`, or a minute) (in seconds)
 -- @field compression_threshold Compression threshold controls when the data is deflated, e.g. `1024` (defaults to `1024`, or a kilobyte) (in bytes)
--- @field request_headers Set of headers to send to upstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` request headers.
--- @field response_headers Set of headers to send to downstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` response headers.
+-- @field request_headers Set of headers to send to upstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` request headers when `set_headers` is called.
+-- @field response_headers Set of headers to send to downstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` response headers when `set_headers` is called.
 -- @field storage Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface (defaults to `nil`)
 -- @field dshm Configuration for dshm storage, e.g. `{ prefix = "sessions" }`
 -- @field file Configuration for file storage, e.g. `{ path = "/tmp", suffix = "session" }`
@@ -2207,7 +2208,7 @@ local session = {
 -- @field postgres Configuration for Postgres storage, e.g. `{ database = "sessions" }`
 -- @field redis Configuration for Redis / Redis Sentinel / Redis Cluster storages, e.g. `{ prefix = "sessions" }`
 -- @field shm Configuration for shared memory storage, e.g. `{ zone = "sessions" }`
--- @field ["custom-storage"] custom storage (loaded with `require "custom-storage"`) configuration
+-- @field ["custom-storage"] Custom storage (loaded with `require "custom-storage"`) configuration
 -- @table configuration
 
 

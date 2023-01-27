@@ -117,27 +117,27 @@ local storage = {}
 
 ---
 -- Redis Cluster storage backend configuration
--- @field prefix prefix for the keys stored in redis
--- @field suffix suffix for the keys stored in redis
--- @field name redis cluster name
--- @field nodes redis cluster nodes
--- @field lock_zone shared dictionary name for locks
--- @field lock_prefix shared dictionary name prefix for lock
--- @field max_redirections maximum retry attempts for redirection
--- @field max_connection_attempts maximum retry attempts for connection
--- @field max_connection_timeout maximum connection timeout in total among the retries
--- @field username the database username to authenticate
--- @field password password for authentication
--- @field connect_timeout controls the default timeout value used in TCP/unix-domain socket object's `connect` method
--- @field send_timeout controls the default timeout value used in TCP/unix-domain socket object's `send` method
--- @field read_timeout controls the default timeout value used in TCP/unix-domain socket object's `receive` method
--- @field keepalive_timeout controls the default maximal idle time of the connections in the connection pool
--- @field pool a custom name for the connection pool being used.
--- @field pool_size the size of the connection pool,
--- @field backlog a queue size to use when the connection pool is full (configured with @pool_size)
--- @field ssl enable ssl (defaults to `false`)
--- @field ssl_verify verify server certificate (defaults to `nil`)
--- @field server_name the server name for the new TLS extension Server Name Indication (SNI)
+-- @field prefix Prefix for the keys stored in redis.
+-- @field suffix Suffix for the keys stored in redis.
+-- @field name Redis cluster name.
+-- @field nodes Redis cluster nodes.
+-- @field lock_zone Shared dictionary name for locks.
+-- @field lock_prefix Shared dictionary name prefix for lock.
+-- @field max_redirections Maximum retry attempts for redirection.
+-- @field max_connection_attempts Maximum retry attempts for connection.
+-- @field max_connection_timeout Maximum connection timeout in total among the retries.
+-- @field username The database username to authenticate.
+-- @field password Password for authentication.
+-- @field connect_timeout Controls the default timeout value used in TCP/unix-domain socket object's `connect` method.
+-- @field send_timeout controls The default timeout value used in TCP/unix-domain socket object's `send` method.
+-- @field read_timeout controls The default timeout value used in TCP/unix-domain socket object's `receive` method.
+-- @field keepalive_timeout Controls the default maximal idle time of the connections in the connection pool.
+-- @field pool A custom name for the connection pool being used.
+-- @field pool_size The size of the connection pool.
+-- @field backlog A queue size to use when the connection pool is full (configured with @pool_size).
+-- @field ssl Enable SSL (defaults to `false`).
+-- @field ssl_verify Verify server certificate (defaults to `nil`).
+-- @field server_name The server name for the new TLS extension Server Name Indication (SNI).
 -- @table configuration
 
 
@@ -151,8 +151,8 @@ local storage = {}
 
 ---
 -- Cluster Node
--- @field ip the ip address to connect (defaults to `"127.0.0.1"`)
--- @field port the port to connect (defaults to `6379`)
+-- @field ip The IP address to connect (defaults to `"127.0.0.1"`).
+-- @field port The port to connect (defaults to `6379`).
 -- @table node
 
 
