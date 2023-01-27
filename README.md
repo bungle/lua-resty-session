@@ -174,7 +174,7 @@ With file MySQL / MariaDB you can use the following settings (set the `storage` 
 
 You also need to create following tables in your database:
 
-```mysql
+```sql
 --
 -- Database table that stores session data.
 --
@@ -228,7 +228,7 @@ With file Postgres you can use the following settings (set the `storage` to `"po
 
 You also need to create following tables in your database:
 
-```postgres
+```plsql
 --
 -- Database table that stores session data.
 --
