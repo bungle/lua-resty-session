@@ -228,7 +228,7 @@ With file Postgres you can use the following settings (set the `storage` to `"po
 
 You also need to create following tables in your database:
 
-```plsql
+```sql
 --
 -- Database table that stores session data.
 --
