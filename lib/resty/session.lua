@@ -1269,7 +1269,10 @@ local function clear_request_cookie(self, remember)
   if self.storage then
     cookie_chunks = 1
   else
-    local data_size = remember and self.remember_meta.data_size or self.meta.data_size
+    local data_size = remember                     and
+                      self.remember_meta           and
+                      self.remember_meta.data_size or
+                      self.meta.data_size
     cookie_chunks = calculate_cookie_chunks(cookie_name_size, data_size) or 1
   end
 
@@ -2191,7 +2194,7 @@ end
 
 
 local session = {
-  _VERSION = "4.0.0",
+  _VERSION = "4.0.1",
   metatable = metatable,
 }
 
