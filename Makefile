@@ -3,8 +3,14 @@
 lint:
 	@luacheck -q ./lib
 
-test:
+unit:
+	busted --exclude-tags=noci
+
+unit-all:
 	busted
+
+prove:
+	prove
 
 docs:
 	ldoc .
