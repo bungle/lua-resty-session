@@ -1,4 +1,4 @@
-name: unit_tests
+name: integration_tests
 on: [push, pull_request]
 
 jobs:
@@ -16,4 +16,4 @@ jobs:
         run: docker build dev/ -t resty-session
 
       - name: Run tests
-        run: docker run -v $PWD:/test -w /test resty-session bash -c "luarocks make && make unit"
+        run: docker run -v $PWD:/test -w /test resty-session bash -c "luarocks make && make prove"
