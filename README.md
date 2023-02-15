@@ -1262,7 +1262,7 @@ Header fields explained:
    1. derive IKM from `secret` by hashing `secret` with SHA-256, or
    2. use 32 byte IKM when passed to library with `ikm`
 2. Generate 32 bytes of crypto random session id (`sid`) 
-3. Derive 32 byte encryption key and 12 byte initialization vector with HKDF using SHA-256 
+3. Derive 32 byte encryption key and 12 byte initialization vector with HKDF using SHA-256 (on FIPS-mode it uses PBKDF2 with SHA-256 instead)
    1. Use HKDF extract to derive a new key from `ikm` to get `key` (this step can be done just once per `ikm`):
       - output length: `32`
       - digest: `"sha256"`
@@ -1292,7 +1292,8 @@ Header fields explained:
       6. Data Size
 
 There is a variation for `remember` cookies on step 3, where we may use `PBKDF2`
-instead of `HKDF`, depending  on `remember_safety` setting. The `PBKDF2` settings:
+instead of `HKDF`, depending  on `remember_safety` setting (we also use it in FIPS-mode).
+The `PBKDF2` settings:
 
 - output length: `44`
 - digest: `"sha256"`
@@ -1306,7 +1307,7 @@ if `remember_safety` is set to `"None"`, we will use the HDKF as above.
 
 # Cookie Header Authentication
 
-1. Derive 32 byte authentication key (`mac_key`) with HKDF using SHA-256:
+1. Derive 32 byte authentication key (`mac_key`) with HKDF using SHA-256  (on FIPS-mode it uses PBKDF2 with SHA-256 instead):
     1. Use HKDF extract to derive a new key from `ikm` to get `key` (this step can be done just once per `ikm` and reused with encryption key generation):
         - output length: `32`
         - digest: `"sha256"`
