@@ -21,6 +21,29 @@ local fmt = string.format
 local sub = string.sub
 
 
+local is_fips_mode do
+  local IS_FIPS
+
+  local function is_fips_mode_real()
+    return IS_FIPS == true
+  end
+
+  ---
+  -- Returns whether OpenSSL is in FIPS-mode.
+  --
+  -- @function utils.is_fips_mode
+  -- @treturn boolean `true` if OpenSSL is in FIPS-mode, otherwise `false`
+  --
+  -- @usage
+  -- local is_fips = require "resty.session.utils".is_fips_mode()
+  is_fips_mode = function()
+    IS_FIPS = require("resty.openssl").get_fips_mode()
+    is_fips_mode = is_fips_mode_real
+    return is_fips_mode()
+  end
+end
+
+
 local bpack, bunpack do
   local binpack
   local binunpack
@@ -592,7 +615,7 @@ end
 -- Derive a new AES-256 GCM-mode key and initialization vector.
 --
 -- Safety can be:
--- * `nil` or `"None"`: key and iv will be derived using HKDF with SHA-256
+-- * `nil` or `"None"`: key and iv will be derived using HKDF with SHA-256, except on FIPS-mode uses PBKDF2 with SHA-256 (single iteration)
 -- * `Low`: key and iv will be derived using PBKDF2 with SHA-256 (1.000 iterations)
 -- * `Medium`: key and iv will be derived using PBKDF2 with SHA-256 (10.000 iterations)
 -- * `High`: key and iv will be derived using PBKDF2 with SHA-256 (100.000 iterations)
@@ -625,7 +648,11 @@ local function derive_aes_gcm_256_key_and_iv(ikm, nonce, safety)
     end
 
   else
-    bytes, err = derive_hkdf_sha256(ikm, nonce, "encryption", 44)
+    if is_fips_mode() then
+      bytes, err = derive_pbkdf2_hmac_sha256(ikm, nonce, "encryption", 44, 1)
+    else
+      bytes, err = derive_hkdf_sha256(ikm, nonce, "encryption", 44)
+    end
   end
 
   if not bytes then
@@ -640,7 +667,8 @@ end
 
 
 ---
--- Derive HMAC SHA-256 key for message authentication using HDKF with SHA-256.
+-- Derive HMAC SHA-256 key for message authentication using HDKF with SHA-256,
+-- except on FIPS-mode it uses PBKDF2 with SHA-256 (single iteration).
 --
 -- @function utils.derive_hmac_sha256_key
 -- @tparam string ikm initial key material
@@ -654,6 +682,10 @@ end
 -- local nonce = utils.rand_bytes(32)
 -- local key, err = utils.derive_hmac_sha256_key(ikm, nonce)
 local function derive_hmac_sha256_key(ikm, nonce)
+  if is_fips_mode() then
+    return derive_pbkdf2_hmac_sha256(ikm, nonce, "authentication", 32, 1)
+  end
+
   return derive_hkdf_sha256(ikm, nonce, "authentication", 32)
 end
 
@@ -1093,6 +1125,7 @@ end
 
 
 return {
+  is_fips_mode = is_fips_mode,
   bpack = bpack,
   bunpack = bunpack,
   trim = trim,
