@@ -2,6 +2,11 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [4.0.2] - 2023-02-15
+### Fixed
+- fix(*): hkdf is not approved by FIPS, use PBKDF2 instead on FIPS-mode
+
+
 ## [4.0.1] - 2023-02-05
 ### Fixed
 - fix(session): clear_request cookie to check remember_meta correctly before using it
