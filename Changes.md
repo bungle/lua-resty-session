@@ -2,6 +2,10 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [4.0.3] - 2023-02-21
+### Fixed
+- fix(*): redis authorization
+
 ## [4.0.2] - 2023-02-15
 ### Fixed
 - fix(*): hkdf is not approved by FIPS, use PBKDF2 instead on FIPS-mode
