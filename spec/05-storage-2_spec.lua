@@ -28,9 +28,6 @@ local storage_configs = {
     password = "password",
     database = "test",
   },
-  redis = {
-    prefix = "sessions",
-  },
   redis_sentinel = {
     prefix = "sessions",
     password = "password",
@@ -48,12 +45,6 @@ local storage_configs = {
     },
     name = "somecluster",
     lock_zone = "sessions",
-    connect_timeout = 10000,
-    send_timeout    = 10000,
-    read_timeout    = 10000,
-  },
-  memcached = {
-    prefix = "sessions",
     connect_timeout = 10000,
     send_timeout    = 10000,
     read_timeout    = 10000,
@@ -76,10 +67,8 @@ end
 
 
 for _, st in ipairs({
-  "memcached",
   "mysql",
   "postgres",
-  "redis",
   "redis_cluster",
   "redis_sentinel",
   "dshm"

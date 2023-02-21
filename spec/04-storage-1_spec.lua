@@ -25,11 +25,26 @@ local storage_configs = {
     connect_timeout = 10000,
     send_timeout = 10000,
     read_timeout = 10000,
-  }
+  },
+  redis = {
+    prefix = "sessions",
+    password = "password",
+  },
+  memcached = {
+    prefix = "sessions",
+    connect_timeout = 10000,
+    send_timeout    = 10000,
+    read_timeout    = 10000,
+  },
 }
 
 
-for _, st in ipairs({ "file", "shm" }) do
+for _, st in ipairs({
+  "file",
+  "shm",
+  "redis",
+  "memcached",
+}) do
   describe("Storage tests 1", function()
     local current_time
     local storage
