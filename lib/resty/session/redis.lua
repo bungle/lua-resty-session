@@ -45,7 +45,7 @@ local function exec(self, func, ...)
     return nil, err
   end
 
-  if red:getreusedtimes() == 0 then
+  if red:get_reused_times() == 0 then
     local password = self.password
     if password then
       local username = self.username
