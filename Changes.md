@@ -2,9 +2,15 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [4.0.4] - Unreleased
+### Changed
+- chore(utils): remove dependency for lua_pack
+
+
 ## [4.0.3] - 2023-02-21
 ### Fixed
 - fix(*): redis authorization
+
 
 ## [4.0.2] - 2023-02-15
 ### Fixed
