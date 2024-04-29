@@ -4,23 +4,73 @@
 -- @module resty.session.redis
 
 
+local utils = require "resty.session.utils"
 local common = require "resty.session.redis.common"
 local redis = require "resty.redis"
 
 
 local setmetatable = setmetatable
 local error = error
+local tostring = tostring
+local assert = assert
+
 local null = ngx.null
+local rand_bytes = utils.rand_bytes
 
 
 local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 6379
+local DEFAULT_DATABASE = 0
+
+local KEY_SIZE = 32
+local DEFAULT_IKM = rand_bytes(KEY_SIZE)
+local DEFAULT_NONCE = rand_bytes(KEY_SIZE)
 
 
 local SET = common.SET
 local GET = common.GET
 local UNLINK = common.UNLINK
 local READ_METADATA = common.READ_METADATA
+
+
+local get_pool do
+  local mac_sha256 = utils.mac_sha256
+  local derive_hmac_sha256_key = utils.derive_hmac_sha256_key
+
+  --- get connection pool name for the current session
+  -- must ensure the pool name of a session is unique for
+  -- each combination of host, port, database and password
+  get_pool = function(config)
+    local opts = config or {}
+    local mac do
+      if opts.password then
+        local key, err = derive_hmac_sha256_key(opts.ikm, opts.nonce)
+        if not key then
+          return nil, err
+        end
+
+        mac, err = mac_sha256(key, tostring(opts.password))
+        if not mac then
+          return nil, err
+        end
+      end
+    end
+
+    --- examples
+    -- with password: foo:redis-ssl-auth:6379:0:default:de0d22d975dcc57a721171fa079aa54a788df759c4a68ae75fd5f26c5490c9ca:true:false:redis:bar
+    -- without password: foo:redis-ssl-auth:6379:0:default::false:false:redis:bar
+    return (opts.prefix or "") .. ":" ..
+           (opts.host or "") .. ":" ..
+           (tostring(opts.port) or "") .. ":" ..
+           (tostring(opts.database) or "") .. ":" ..
+           (opts.username or "default") .. ":" ..
+           (mac or "") .. ":" ..
+           (tostring(opts.ssl) or "") .. ":" ..
+           (tostring(opts.ssl_verify) or "") .. ":" ..
+           (opts.server_name or "") .. ":" ..
+           (opts.suffix or "")
+  end
+end
 
 
 local function exec(self, func, ...)
@@ -35,6 +85,7 @@ local function exec(self, func, ...)
 
   local ok, err do
     local socket = self.socket
+    -- ngx.log(ngx.NOTICE, "pool_name = ", self.options.pool)
     if socket then
       ok, err = red:connect(socket, self.options)
     else
@@ -60,11 +111,12 @@ local function exec(self, func, ...)
         return nil, err
       end
     end
-  end
 
-  local database = self.database
-  if database then
-    ok, err = red:select(database)
+    --- select database for new connection in case
+    -- there is no need to select before every Redis
+    -- operation as the connection pool is only shared
+    -- clients that use the same database
+    ok, err = red:select(self.database)
     if not ok then
       return nil, err
     end
@@ -220,7 +272,7 @@ function storage.new(configuration)
 
   local username          = configuration and configuration.username
   local password          = configuration and configuration.password
-  local database          = configuration and configuration.database
+  local database          = configuration and configuration.database or DEFAULT_DATABASE
 
   local connect_timeout   = configuration and configuration.connect_timeout
   local send_timeout      = configuration and configuration.send_timeout
@@ -233,6 +285,32 @@ function storage.new(configuration)
   local ssl               = configuration and configuration.ssl
   local ssl_verify        = configuration and configuration.ssl_verify
   local server_name       = configuration and configuration.server_name
+
+  local ikm               = configuration and configuration.ikm
+
+  if ikm then
+    assert(#ikm == KEY_SIZE, "ikm size must be " .. KEY_SIZE)
+  end
+  local meta = {
+    ikm = ikm or DEFAULT_IKM,
+    nonce = DEFAULT_NONCE,
+  }
+  if not pool then
+    pool = get_pool {
+      host = host,
+      port = port,
+      database = database,
+      username = username,
+      password = password,
+      ssl = ssl,
+      ssl_verify = ssl_verify,
+      server_name = server_name,
+      ikm = meta.ikm,
+      nonce = meta.nonce,
+      prefix = prefix,
+      suffix = suffix,
+    }
+  end
 
   if ssl ~= nil or ssl_verify ~= nil or server_name or pool or pool_size or backlog then
     return setmetatable({
@@ -255,7 +333,8 @@ function storage.new(configuration)
         pool = pool,
         pool_size = pool_size,
         backlog = backlog,
-      }
+      },
+      meta = meta,
     }, metatable)
   end
 
@@ -272,6 +351,10 @@ function storage.new(configuration)
     send_timeout = send_timeout,
     read_timeout = read_timeout,
     keepalive_timeout = keepalive_timeout,
+    options = {
+      pool = pool,
+    },
+    meta = meta,
   }, metatable)
 end
 
