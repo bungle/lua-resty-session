@@ -1250,7 +1250,7 @@ Header fields explained:
 - SID: `32` bytes of crypto random data (Session ID).
 - Created at: binary packed secs from epoch in a little endian form, truncated to 5 bytes.
 - Rolling Offset: binary packed secs from creation time in a little endian form (integer). 
-- Size: binary packed data size (short) in a two byte little endian form.
+- Size: binary packed data size in a three byte little endian form.
 - Tag: `16` bytes of authentication tag from AES-256-GCM encryption of the data.
 - Idling Offset: binary packed secs from creation time + rolling offset in a little endian form, truncated to 3 bytes.
 - Mac: `16` bytes message authentication code of the header.
