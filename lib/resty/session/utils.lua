@@ -12,6 +12,7 @@ local bit = require "bit"
 
 
 local select = select
+local type = type
 local floor = math.floor
 local ceil = math.ceil
 local byte = string.byte
@@ -774,6 +775,56 @@ local hmac_sha256 do
   end
 end
 
+--- calculate MAC with SHA256 that is compatibile with OpenSSL FIPS mode
+local mac_sha256 do
+  local mac = require "resty.openssl.mac"
+  local to_hex = require "resty.string".to_hex
+
+  local MAC_ALGORITHM = "HMAC"
+  local DIGEST_ALGORITHM = "sha256"
+
+  -- @function utils.mac_sha256
+  -- @param string key HMAC key
+  -- @param string value payload
+  -- @return[1] string MAC in HEX format
+  -- @return[2] nil
+  -- @return[2] error message
+  --
+  -- @usage
+  -- local utils = require "resty.session.utils"
+  -- local ikm = utils.rand_bytes(32)
+  -- local nonce = utils.rand_bytes(32)
+  -- local key, err = utils.derive_hmac_sha256_key(ikm, nonce)
+  -- local mac, err = utils.mac_sha256(key, "hello world")
+  mac_sha256 = function(key, value)
+    if type(key) ~= "string" then
+      return nil, "key must be a string"
+    end
+    if type(value) ~= "string" then
+      return nil, "value must be a string"
+    end
+
+    local hmac, err = mac.new(key, MAC_ALGORITHM, nil, DIGEST_ALGORITHM)
+    if not hmac then
+      return nil, err
+    end
+
+    hmac:update(value)
+
+    local digest
+    digest, err = hmac:final()
+    if not digest then
+      return nil, err
+    end
+
+    local hex_mac
+    hex_mac, err = to_hex(digest)
+    if not hex_mac then
+      return nil, err
+    end
+    return hex_mac
+  end
+end
 
 
 local load_storage do
@@ -1109,6 +1160,7 @@ return {
   encrypt_aes_256_gcm = encrypt_aes_256_gcm,
   decrypt_aes_256_gcm = decrypt_aes_256_gcm,
   hmac_sha256 = hmac_sha256,
+  mac_sha256 = mac_sha256,
   load_storage = load_storage,
   errmsg = errmsg,
   get_name = get_name,
