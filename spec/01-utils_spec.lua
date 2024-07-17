@@ -145,7 +145,7 @@ describe("Testing utils", function()
             prefix = "oidc-storage",
             host = "redis",
             port = 6379,
-            database = db == "nil" and nil or db,
+            database = db ~= "nil" and db or nil,
             username = "default",
             password = "PaSsw0rd",
             connect_timeout = 1000,
