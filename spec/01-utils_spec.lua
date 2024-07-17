@@ -137,6 +137,34 @@ describe("Testing utils", function()
     end)
   end)
   describe("load_storage", function()
+    for _, db in ipairs { 1, 2, "nil" } do
+      it("set correct #redis database " .. db, function()
+        local strategy = "redis"
+        local storage = assert(utils.load_storage(strategy, {
+          [strategy] = {
+            prefix = "oidc-storage",
+            host = "redis",
+            port = 6379,
+            database = db == "nil" and nil or db,
+            username = "default",
+            password = "PaSsw0rd",
+            connect_timeout = 1000,
+            read_timeout = 1000,
+            send_timeout = 1000,
+            pool = "oidc:redis:6379",
+            pool_size = 10,
+            backlog = 20,
+          },
+        }))
+
+        assert.equal(db == "nil" and 0 or db, storage.database)
+        assert.equal("PaSsw0rd", storage.password)
+        assert.equal("oidc:redis:6379", storage.options.pool)
+        assert.equal(10, storage.options.pool_size)
+        assert.equal(20, storage.options.backlog)
+      end)
+    end
+
     -- "dshm" is disabled as it currently cannot be checked by CI
     for _, strategy in ipairs({ "memcached", "mysql", "postgres", "redis" }) do
       it("respects pool parameters #" .. strategy, function()
