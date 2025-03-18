@@ -81,7 +81,18 @@ local is_fips_mode do
   -- @usage
   -- local is_fips = require "resty.session.utils".is_fips_mode()
   is_fips_mode = function()
-    IS_FIPS = require("resty.openssl").get_fips_mode()
+    local openssl = require("resty.openssl")
+    if not openssl.get_fips_mode then
+      IS_FIPS = false
+
+    else
+      local ok
+      ok, IS_FIPS = pcall(openssl.get_fips_mode)
+      if not ok then
+        IS_FIPS = false
+      end
+    end
+
     is_fips_mode = is_fips_mode_real
     return is_fips_mode()
   end
