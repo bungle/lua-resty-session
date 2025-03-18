@@ -23,6 +23,48 @@ local fmt = string.format
 local sub = string.sub
 
 
+---
+-- Creates a pre-sized table, just like the C API equivalent lua_createtable().
+--
+-- @function utils.table_new
+-- @treturn table a pre-sized table
+--
+-- @usage
+-- local tbl = require "resty.session.utils".table_new(100, 0)
+local table_new do
+  local ok
+  ok, table_new = pcall(require, "table.new")
+  if not ok then
+    table_new = function() return {} end
+  end
+end
+
+
+---
+-- Returns `true` when the given Lua table contains neither non-nil array elements
+-- nor non-nil key-value pairs, or false otherwise.
+--
+-- @function utils.table_is_empty
+-- @treturn boolean `true` if table is empty, otherwise `false`
+--
+-- @usage
+-- local empty = require "resty.session.utils".table_is_empty({})
+local table_is_empty do
+  local ok
+  ok, table_is_empty = pcall(require, "table.isempty")
+  if not ok then
+    local assert = assert
+    local type = type
+    local next = next
+    table_is_empty = function(t)
+      local typ = type(t)
+      assert(typ == "table", "bad argument #1 to 'isempty' (table expected, got " .. typ .. ")")
+      return next(t) and true or false
+    end
+  end
+end
+
+
 local is_fips_mode do
   local IS_FIPS
 
@@ -1071,6 +1113,8 @@ end
 
 
 return {
+  table_new = table_new,
+  table_is_empty = table_is_empty,
   is_fips_mode = is_fips_mode,
   bpack = bpack,
   bunpack = bunpack,

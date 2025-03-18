@@ -10,8 +10,6 @@
 local require = require
 
 
-local table_new = require "table.new"
-local isempty = require "table.isempty"
 local buffer = require "string.buffer"
 local utils = require "resty.session.utils"
 
@@ -44,6 +42,7 @@ local encrypt_aes_256_gcm = utils.encrypt_aes_256_gcm
 local decrypt_aes_256_gcm = utils.decrypt_aes_256_gcm
 local encode_base64url = utils.encode_base64url
 local decode_base64url = utils.decode_base64url
+local table_is_empty = utils.is_empty_table
 local load_storage = utils.load_storage
 local encode_json = utils.encode_json
 local decode_json = utils.decode_json
@@ -51,6 +50,7 @@ local base64_size = utils.base64_size
 local hmac_sha256 = utils.hmac_sha256
 local rand_bytes = utils.rand_bytes
 local unset_flag = utils.unset_flag
+local table_new = utils.table_new
 local set_flag = utils.set_flag
 local has_flag = utils.has_flag
 local inflate = utils.inflate
@@ -2039,7 +2039,7 @@ function metatable:logout()
   if info_data then
     local audience = data[data_index][2]
     info_data[audience] = nil
-    if isempty(info_data) then
+    if table_is_empty(info_data) then
       info_store.data = false
     end
   end
