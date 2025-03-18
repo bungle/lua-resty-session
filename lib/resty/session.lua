@@ -309,6 +309,28 @@ local function merge_cookies(cookies, cookie_name_size, cookie_name, cookie_data
 end
 
 
+local function get_store_ttl(self, remember, current_time, creation_time, rolling_offset)
+  local ttl = MAX_TTL
+
+  local rolling_timeout = remember and self.remember_rolling_timeout or self.rolling_timeout
+  if rolling_timeout > 0 and rolling_timeout < MAX_TTL then
+    ttl = rolling_timeout
+  end
+
+  if rolling_offset then
+    ttl = ttl - (current_time - creation_time - rolling_offset)
+  end
+
+  local absolute_timeout = remember and self.remember_absolute_timeout or self.absolute_timeout
+  if absolute_timeout > 0 and absolute_timeout < MAX_TTL then
+    ttl = min(absolute_timeout - (current_time - creation_time), ttl)
+  end
+
+  return max(ttl, 1)
+end
+
+
+
 local function get_store_metadata(self)
   if not self.store_metadata then
     return
@@ -1080,14 +1102,10 @@ local function save(self, state, remember)
       end
     end
 
-    local ttl = remember and self.remember_rolling_timeout or self.rolling_timeout
-    if ttl == 0 or ttl > MAX_TTL then
-      ttl = MAX_TTL
-    end
-
+    local store_ttl = get_store_ttl(self, remember, creation_time, current_time)
     local store_metadata = get_store_metadata(self)
 
-    local ok, err = storage:set(cookie_name, key, data, ttl, current_time, old_key, self.stale_ttl, store_metadata, remember)
+    local ok, err = storage:set(cookie_name, key, data, store_ttl, current_time, old_key, self.stale_ttl, store_metadata, remember)
     if not ok then
       return nil, errmsg(err, "unable to store session data")
     end
@@ -1172,13 +1190,8 @@ local function save_info(self, data, remember)
   end
 
   local current_time = time()
-
-  local ttl = self.rolling_timeout
-  if ttl == 0 or ttl > MAX_TTL then
-    ttl = MAX_TTL
-  end
-  ttl = max(ttl - (current_time - meta.creation_time - meta.rolling_offset), 1)
-  local ok, err = self.storage:set(cookie_name, key, data, ttl, current_time)
+  local store_ttl = get_store_ttl(self, false, current_time, meta.creation_time, meta.rolling_offset)
+  local ok, err = self.storage:set(cookie_name, key, data, store_ttl, current_time)
   if not ok then
     return nil, errmsg(err, "unable to store session info")
   end
