@@ -126,9 +126,6 @@ local trim do
   local SPACE_BYTE = byte(" ")
   local TAB_BYTE   = byte("\t")
   local CR_BYTE    = byte("\r")
-  local LF_BYTE    = byte("\n")
-  local VTAB_BYTE  = byte("\v")
-  local FF_BYTE    = byte("\f")
 
   ---
   -- Trim whitespace from the start and from the end of string.
@@ -153,42 +150,27 @@ local trim do
       return ""
     end
 
-    local len = #value
-
-    local s = 1
-    for i = 1, len do
-      local b = byte(value, i)
-      if b == SPACE_BYTE
-      or b == TAB_BYTE
-      or b == CR_BYTE
-      or b == LF_BYTE
-      or b == VTAB_BYTE
-      or b == FF_BYTE
-      then
-        s = s + 1
-      else
-        break
-      end
+    local s = 1 -- position of the leftmost non-whitespace char
+    ::spos::
+    local b = byte(value, s)
+    if not b then -- reached the end of the all whitespace string
+      return ""
+    end
+    if b == SPACE_BYTE or (b >= TAB_BYTE and b <= CR_BYTE) then
+      s = s + 1
+      goto spos
     end
 
-    local e = len
-    for i = len, 1, -1 do
-      local b = byte(value, i)
-      if b == SPACE_BYTE
-      or b == TAB_BYTE
-      or b == CR_BYTE
-      or b == LF_BYTE
-      or b == VTAB_BYTE
-      or b == FF_BYTE
-      then
-        e = e - 1
-      else
-        break
-      end
+    local e = -1 -- position of the rightmost non-whitespace char
+    ::epos::
+    b = byte(value, e)
+    if b == SPACE_BYTE or (b >= TAB_BYTE and b <= CR_BYTE) then
+      e = e - 1
+      goto epos
     end
 
-    if s ~= 1 or e ~= len then
-      return sub(value, s, e)
+    if s ~= 1 or e ~= -1 then
+      value = sub(value, s, e)
     end
 
     return value
