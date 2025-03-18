@@ -1457,7 +1457,7 @@ for other users as well.
 `lua-resty-session` uses two clause BSD license.
 
 ```
-Copyright (c) 2014 – 2023 Aapo Talvensaari, 2022 – 2023 Samuele Illuminati
+Copyright (c) 2014 – 2025 Aapo Talvensaari, 2022 – 2025 Samuele Illuminati
 All rights reserved.
 
 Redistribution and use in source and binary forms, with or without modification,
