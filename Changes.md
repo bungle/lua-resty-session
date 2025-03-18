@@ -3,6 +3,11 @@
 All notable changes to `lua-resty-session` will be documented in this file.
 
 
+## [4.1.0] - Unreleased
+### Changed
+- chore(utils): safer utils.is_fips_mode (fix #176)
+
+
 ## [4.0.5] - 2023-08-16
 ### Fixed
 - fix(dshm/memcached): add a missing return parameter as otherwise pool parameters are not respected, fix #171
