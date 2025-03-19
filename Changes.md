@@ -9,6 +9,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
 
 ### Changed
 - chore(utils): safer utils.is_fips_mode (fix #176)
+- chore(session): a bit more relaxed assertions (fix #175)
 
 
 ## [4.0.5] - 2023-08-16

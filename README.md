@@ -1099,12 +1099,13 @@ end
 
 ### session:clear_request_cookie
 
-**syntax:** *session:clear_request_cookie()*
+**syntax:** *ok, err = session:clear_request_cookie()*
 
 Modifies the request headers by removing the session related
 cookies. This is useful when you use the session library on
 a proxy server and don't want the session cookies to be forwarded
-to the upstream service.
+to the upstream service. In error case it returns `nil` and an
+error message, otherwise `true` (which can be ignored).
 
 ```lua
 local session, err, exists = require "resty.session".open()
@@ -1116,9 +1117,11 @@ end
 
 ### session:set_headers
 
-**syntax:** *session:set_headers(arg1, arg2, ...)*
+**syntax:** *ok, err = session:set_headers(arg1, arg2, ...)*
 
 Sets request and response headers based on configuration.
+In error case it returns `nil` and an error message,
+otherwise `true` (that can be ignored).
 
 ```lua
 local session, err, exists = require "resty.session".open({
@@ -1138,9 +1141,10 @@ See [configuration](#configuration) for possible header names.
 
 ### session:set_request_headers
 
-**syntax:** *session:set_request_headers(arg1, arg2, ...)*
+**syntax:** *ok, err = session:set_request_headers(arg1, arg2, ...)*
 
-Set request headers.
+Set request headers. In error case it returns `nil` and an error message,
+otherwise `true` (that can be ignored).
 
 ```lua
 local session, err, exists = require "resty.session".open()
@@ -1156,9 +1160,10 @@ See [configuration](#configuration) for possible header names.
 
 ### session:set_response_headers
 
-**syntax:** *session:set_response_headers(arg1, arg2, ...)*
+**syntax:** *ok, err = session:set_response_headers(arg1, arg2, ...)*
 
-Set request headers.
+Set request headers. In error case it returns `nil` and an error message,
+otherwise `true` (that can be ignored).
 
 ```lua
 local session, err, exists = require "resty.session".open()
@@ -1212,7 +1217,7 @@ end
 
 ### session.info:save
 
-**syntax:** *value = session.info:save()*
+**syntax:** *ok, err = session.info:save()*
 
 Save information. Only updates backend storage. Does not send a new cookie (except with cookie storage).
 

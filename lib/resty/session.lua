@@ -1473,7 +1473,10 @@ end
 
 function fake_info_mt:save()
   local session = self.session
-  assert(session.state == STATE_OPEN, "unable to save session info on nonexistent or closed session")
+  assert(session.state ~= STATE_CLOSED, "unable to save session info on closed session")
+  if session.state ~= STATE_OPEN then
+    return nil, "unable to save session info on nonexistent session"
+  end
   return session:save()
 end
 
@@ -1563,7 +1566,11 @@ end
 -- @treturn string error message
 function info_mt:save()
   local session = self.session
-  assert(session.state == STATE_OPEN, "unable to save session info on nonexistent or closed session")
+  assert(session.state ~= STATE_CLOSED, "unable to save session info on closed session")
+  if session.state ~= STATE_OPEN then
+    return nil, "unable to save session info on nonexistent session"
+  end
+
   local data = self.data
   if not data then
     return true
@@ -1896,7 +1903,7 @@ function metatable:open()
   self.state = STATE_NEW
   self.meta = DEFAULT_META
 
-  local ok, err = save(self, STATE_OPEN)
+  ok, err = save(self, STATE_OPEN)
   if not ok then
     return nil, err
   end
@@ -1949,7 +1956,10 @@ end
 -- @treturn true|nil ok
 -- @treturn string error message
 function metatable:touch()
-  assert(self.state == STATE_OPEN, "unable to touch nonexistent or closed session")
+  assert(self.state ~= STATE_CLOSED, "unable to touch closed session")
+  if self.state ~= STATE_OPEN then
+    return nil, "unable to touch nonexistent session"
+  end
 
   local meta = self.meta
   local idling_offset = min(time() - meta.creation_time - meta.rolling_offset, MAX_IDLING_OFFSET)
@@ -2000,7 +2010,10 @@ end
 -- @treturn true|nil ok
 -- @treturn string error message
 function metatable:refresh()
-  assert(self.state == STATE_OPEN, "unable to refresh nonexistent or closed session")
+  assert(self.state ~= STATE_CLOSED, "unable to refresh closed session")
+  if self.state ~= STATE_OPEN then
+    return nil, "unable to refresh nonexistent session"
+  end
 
   local rolling_timeout = self.rolling_timeout
   local idling_timeout = self.idling_timeout
@@ -2039,7 +2052,10 @@ end
 -- @treturn true|nil ok
 -- @treturn string error message
 function metatable:logout()
-  assert(self.state == STATE_OPEN, "unable to logout nonexistent or closed session")
+  assert(self.state ~= STATE_CLOSED, "unable to logout closed session")
+  if self.state ~= STATE_OPEN then
+    return nil, "unable to logout nonexistent session"
+  end
 
   local data = self.data
   if #data == 1 then
@@ -2087,7 +2103,10 @@ end
 -- @treturn true|nil ok
 -- @treturn string error message
 function metatable:destroy()
-  assert(self.state == STATE_OPEN, "unable to destroy nonexistent or closed session")
+  assert(self.state ~= STATE_CLOSED, "unable to destroy closed session")
+  if self.state ~= STATE_OPEN then
+    return nil, "unable to destroy nonexistent session"
+  end
 
   local ok, err = destroy(self)
   if not ok then
@@ -2132,20 +2151,27 @@ end
 -- to the upstream service.
 --
 -- @function instance:clear_request_cookie
+-- @treturn true|nil ok
+-- @treturn string error message
 function metatable:clear_request_cookie()
-  assert(self.state == STATE_OPEN, "unable to hide nonexistent or closed session")
+  assert(self.state ~= STATE_CLOSED, "unable to clear session request cookie on closed session")
+  if self.state ~= STATE_OPEN then
+    return nil, "unable to clear session request cookie on nonexistent session"
+  end
 
   local ok = clear_request_cookie(self)
   if not ok then
-    log(NOTICE, "[session] unable to clear session request cookie")
+    return nil, "unable to clear session request cookie"
   end
 
   if get_remember(self) then
     ok = clear_request_cookie(self, true)
     if not ok then
-      log(NOTICE, "[session] unable to clear persistent session request cookie")
+      return nil, "unable to clear persistent session request cookie"
     end
   end
+
+  return true
 end
 
 
@@ -2154,18 +2180,25 @@ end
 --
 -- @function instance:set_headers
 -- @tparam[opt] string ...
+-- @treturn true|nil ok
+-- @treturn string error message
 function metatable:set_headers(...)
-  assert(self.state == STATE_OPEN, "unable to set request/response headers of nonexistent or closed session")
+  assert(self.state ~= STATE_CLOSED, "unable to set request/response headers on closed session")
+  if self.state ~= STATE_OPEN then
+    return nil, "unable to set request/response headers on nonexistent session"
+  end
 
   local count = select("#", ...)
   if count == 0 then
     set_property_headers(self, self.request_headers, set_request_header)
     set_property_headers(self, self.response_headers, set_response_header)
-    return
+    return true
   end
 
   set_property_headers_vararg(self, set_request_header, count, ...)
   set_property_headers_vararg(self, set_response_header, count, ...)
+
+  return true
 end
 
 
@@ -2174,16 +2207,22 @@ end
 --
 -- @function instance:set_request_headers
 -- @tparam[opt] string ...
+-- @treturn true|nil ok
+-- @treturn string error message
 function metatable:set_request_headers(...)
-  assert(self.state == STATE_OPEN, "unable to set request headers of nonexistent or closed session")
+  assert(self.state ~= STATE_CLOSED, "unable to set request headers on closed session")
+  if self.state ~= STATE_OPEN then
+    return nil, "unable to set request headers on nonexistent session"
+  end
 
   local count = select("#", ...)
   if count == 0 then
     set_property_headers(self, self.request_headers, set_request_header)
-    return
+    return true
   end
 
   set_property_headers_vararg(self, set_request_header, count, ...)
+  return true
 end
 
 
@@ -2192,16 +2231,22 @@ end
 --
 -- @function instance:set_response_headers
 -- @tparam[opt] string ...
+-- @treturn true|nil ok
+-- @treturn string error message
 function metatable:set_response_headers(...)
-  assert(self.state == STATE_OPEN, "unable to set response headers of nonexistent or closed session")
+  assert(self.state ~= STATE_CLOSED, "unable to set response headers on closed session")
+  if self.state ~= STATE_OPEN then
+    return nil, "unable to set response headers on nonexistent session"
+  end
 
   local count = select("#", ...)
   if count == 0 then
     set_property_headers(self, self.response_headers, set_response_header)
-    return
+    return true
   end
 
   set_property_headers_vararg(self, set_response_header, count, ...)
+  return true
 end
 
 
