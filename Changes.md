@@ -8,6 +8,9 @@ All notable changes to `lua-resty-session` will be documented in this file.
 - fix(session): take absolute timeout in account when calculating storage ttl
 - fix(session): remember function didn't store flags as expected
 
+### Added
+- feat(session): allow binding session to external data
+
 ### Changed
 - chore(utils): safer utils.is_fips_mode (fix #176)
 - chore(session): a bit more relaxed assertions (fix #175)

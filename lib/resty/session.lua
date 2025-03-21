@@ -106,10 +106,13 @@ local MAX_TTL            = 34560000                          --      400 days
 -- see: https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis-20#section-5.5
 
 
-local FLAGS_NONE   = 0x0000
-local FLAG_STORAGE = 0x0001
-local FLAG_FORGET  = 0x0002
-local FLAG_DEFLATE = 0x0010
+local FLAGS_NONE           = 0x0000 -- 0000 0000 0000 0000
+local FLAG_STORAGE         = 0x0001 -- 0000 0000 0000 0001
+local FLAG_FORGET          = 0x0002 -- 0000 0000 0000 0010
+local FLAG_DEFLATE         = 0x0010 -- 0000 0000 0001 0000
+local FLAG_BIND_IP         = 0x0100 -- 0000 0001 0000 0000
+local FLAG_BIND_SCHEME     = 0x0200 -- 0000 0010 0000 0000
+local FLAG_BIND_USER_AGENT = 0x0400 -- 0000 0100 0000 0000
 
 
 local DEFAULT_IKM
@@ -141,6 +144,7 @@ local DEFAULT_HASH_SUBJECT
 local DEFAULT_STORE_METADATA
 local DEFAULT_TOUCH_THRESHOLD
 local DEFAULT_COMPRESSION_THRESHOLD
+local DEFAULT_FLAGS
 local DEFAULT_REQUEST_HEADERS
 local DEFAULT_RESPONSE_HEADERS
 local DEFAULT_STORAGE
@@ -167,9 +171,18 @@ local HEADER_BUFFER = buffer.new(HEADER_SIZE)
 local FLAGS_BUFFER  = buffer.new(128)
 local DATA_BUFFER   = buffer.new(MAX_COOKIES_SIZE)
 local HIDE_BUFFER   = buffer.new(256)
+local BIND_BUFFER   = buffer.new(HEADER_SIZE + 256)
 
 
 local DATA = table_new(2, 0)
+
+
+local BINDS = {
+  ip                 = FLAG_BIND_IP,
+  scheme             = FLAG_BIND_SCHEME,
+  user_agent         = FLAG_BIND_USER_AGENT,
+  ["user-agent"]     = FLAG_BIND_USER_AGENT,
+}
 
 
 local HEADERS = {
@@ -222,6 +235,41 @@ local function sha256_subject(subject)
   end
 
   return hashed_subject
+end
+
+
+local function bind_append(value, bound)
+  if value and value ~= "" then
+    if not bound then
+      BIND_BUFFER:set(value)
+    else
+      BIND_BUFFER:put("|", value)
+    end
+    return true
+  end
+  return bound
+end
+
+
+local function bind(msg, flags)
+  if not flags then
+    return msg
+  end
+
+  local bind_ip = has_flag(flags, FLAG_BIND_IP)
+  local bind_scheme = has_flag(flags, FLAG_BIND_SCHEME)
+  local bind_user_agent = has_flag(flags, FLAG_BIND_USER_AGENT)
+  if bind_ip or bind_scheme or bind_user_agent then
+    local bound = false
+    if bind_ip         then bound = bind_append(var.remote_addr,     bound) end
+    if bind_scheme     then bound = bind_append(var.scheme,          bound) end
+    if bind_user_agent then bound = bind_append(var.http_user_agent, bound) end
+    if bound then
+      return msg .. "#" .. sha256(BIND_BUFFER:get())
+    end
+  end
+
+  return msg
 end
 
 
@@ -630,7 +678,7 @@ local function open(self, remember, meta_only)
       return nil, "invalid session message authentication code"
     end
 
-    local msg = sub(header_decoded, 1, HEADER_MAC_SIZE)
+    local msg = bind(sub(header_decoded, 1, HEADER_MAC_SIZE), flags)
     local expected_mac, err = calculate_mac(ikm, sid, msg)
     if mac ~= expected_mac then
       local fallback_keys = self.ikm_fallbacks
@@ -967,7 +1015,8 @@ local function save(self, state, remember)
 
   HEADER_BUFFER:put(tag, packed_idling_offset)
 
-  local mac, err = calculate_mac(ikm, sid, HEADER_BUFFER:tostring())
+  local msg = bind(HEADER_BUFFER:tostring(), flags)
+  local mac, err = calculate_mac(ikm, sid, msg)
   if not mac then
     return nil, err
   end
@@ -1961,7 +2010,8 @@ function metatable:touch()
   HEADER_BUFFER:reset():put(sub(meta.header, 1, HEADER_TOUCH_SIZE),
                             bpack(IDLING_OFFSET_SIZE, idling_offset))
 
-  local mac, err = calculate_mac(meta.ikm, meta.sid, HEADER_BUFFER:tostring())
+  local msg = bind(HEADER_BUFFER:tostring(), meta.flags)
+  local mac, err = calculate_mac(meta.ikm, meta.sid, msg)
   if not mac then
     return nil, err
   end
@@ -2289,6 +2339,7 @@ local session = {
 -- @field store_metadata Whether to also store metadata of sessions, such as collecting data of sessions for a specific audience belonging to a specific subject (defaults to `false`).
 -- @field touch_threshold Touch threshold controls how frequently or infrequently the `session:refresh` touches the cookie, e.g. `60` (defaults to `60`, or a minute) (in seconds)
 -- @field compression_threshold Compression threshold controls when the data is deflated, e.g. `1024` (defaults to `1024`, or a kilobyte) (in bytes)
+-- @field bind Bind the session to data acquired from the HTTP request or connection, use `ip`, `scheme`, `user-agent`. E.g. `{ "scheme", "user-agent" }` will calculate MAC utilizing also HTTP request `Scheme` and `User-Agent` header.
 -- @field request_headers Set of headers to send to upstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` request headers when `set_headers` is called.
 -- @field response_headers Set of headers to send to downstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` response headers when `set_headers` is called.
 -- @field storage Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface (defaults to `nil`)
@@ -2372,6 +2423,16 @@ local function opt(configuration, name, default)
     elseif name == "hash_subject" then
       value = value and sha256_subject or encode_base64url
 
+    elseif name == "bind" then
+      local count = #value
+      if count > 0 then
+        local flags = FLAGS_NONE
+        for i = 1, count do
+          flags = set_flag(flags, assert(BINDS[value[i]], "invalid bind"))
+        end
+        value = flags
+      end
+
     elseif name == "request_headers" or name == "response_headers" then
       local count = #value
       if count > 0 then
@@ -2429,6 +2490,7 @@ function session.init(configuration)
   DEFAULT_STORE_METADATA            = opt(configuration, "store_metadata", false)
   DEFAULT_TOUCH_THRESHOLD           = opt(configuration, "touch_threshold", 60)                --  1 minute
   DEFAULT_COMPRESSION_THRESHOLD     = opt(configuration, "compression_threshold", 1024)        --  1 kB
+  DEFAULT_FLAGS                     = opt(configuration, "bind", FLAGS_NONE)
   DEFAULT_REQUEST_HEADERS           = opt(configuration, "request_headers")
   DEFAULT_RESPONSE_HEADERS          = opt(configuration, "response_headers")
   DEFAULT_STORAGE                   = opt(configuration, "storage")
@@ -2484,6 +2546,7 @@ function session.new(configuration)
   local store_metadata            = opt(configuration, "store_metadata",            DEFAULT_STORE_METADATA)
   local touch_threshold           = opt(configuration, "touch_threshold",           DEFAULT_TOUCH_THRESHOLD)
   local compression_threshold     = opt(configuration, "compression_threshold",     DEFAULT_COMPRESSION_THRESHOLD)
+  local flags                     = opt(configuration, "bind",                      DEFAULT_FLAGS)
   local request_headers           = opt(configuration, "request_headers",           DEFAULT_REQUEST_HEADERS)
   local response_headers          = opt(configuration, "response_headers",          DEFAULT_RESPONSE_HEADERS)
   local storage                   = opt(configuration, "storage",                   DEFAULT_STORAGE)
@@ -2557,7 +2620,7 @@ function session.new(configuration)
     remember_cookie_name      = remember_cookie_name,
     remember_safety           = remember_safety,
     remember                  = remember,
-    flags                     = FLAGS_NONE,
+    flags                     = flags,
     storage                   = storage,
     ikm                       = ikm,
     ikm_fallbacks             = ikm_fallbacks,

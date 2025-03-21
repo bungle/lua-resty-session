@@ -5,9 +5,10 @@
 ## TL;DR;
 
 - Sessions are immutable (each save generates a new session), and lockless.
-- Session data is AES-256-GCM encrypted with a key derived using HKDF-SHA256.
+- Session data is AES-256-GCM encrypted with a key derived using HKDF-SHA256
+  (on FIPS-mode it uses PBKDF2 with SHA-256 instead.
 - Session has a fixed size header that is protected with HMAC-SHA256 MAC with
-  a key derived using HKDF-SHA256.
+  a key derived using HKDF-SHA256 (on FIPS-mode it uses PBKDF2 with SHA-256 instead).
 - Session data can be stored in a stateless cookie or in various backend storages.
 - A single session cookie can maintain multiple sessions across different audiences.
 
@@ -322,6 +323,7 @@ Here are the possible session configuration options:
 | `store_metadata`            |   `false`    | Whether to also store metadata of sessions, such as collecting data of sessions for a specific audience belonging to a specific subject.                                                                                                                                                             |
 | `touch_threshold`           |     `60`     | Touch threshold controls how frequently or infrequently the `session:refresh` touches the cookie, e.g. `60` (a minute) (in seconds)                                                                                                                                                                  |
 | `compression_threshold`     |    `1024`    | Compression threshold controls when the data is deflated, e.g. `1024` (a kilobyte) (in bytes), `0` disables compression.                                                                                                                                                                             |
+| `bind`                      |    `nil`     | Bind the session to data acquired from the HTTP request or connection, use `ip`, `scheme`, `user-agent`. E.g. `{ "scheme", "user-agent" }` will calculate MAC utilizing also HTTP request `Scheme` and `User-Agent` header.                                                                          |
 | `request_headers`           |    `nil`     | Set of headers to send to upstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` request headers when `set_headers` is called.                                        |
 | `response_headers`          |    `nil`     | Set of headers to send to downstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` response headers when `set_headers` is called.                                     |
 | `storage`                   |    `nil`     | Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface. |
