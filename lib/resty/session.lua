@@ -103,7 +103,7 @@ local MAX_ROLLING_OFFSET = 2 ^ (ROLLING_OFFSET_SIZE * 8) - 1 --     ~136 years
 local MAX_IDLING_OFFSET  = 2 ^ (IDLING_OFFSET_SIZE  * 8) - 1 --     ~194 days
 local MAX_DATA_SIZE      = 2 ^ (DATA_SIZE           * 8) - 1 -- 16777215 bytes
 local MAX_TTL            = 34560000                          --      400 days
--- see: https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis-11#section-4.1.2.1
+-- see: https://datatracker.ietf.org/doc/html/draft-ietf-httpbis-rfc6265bis-20#section-5.5
 
 
 local FLAGS_NONE   = 0x0000
