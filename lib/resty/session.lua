@@ -1842,9 +1842,9 @@ function metatable:set_remember(value)
   assert(self.state ~= STATE_CLOSED, "unable to set remember on closed session")
   assert(type(value) == "boolean", "invalid remember value")
   if value == false then
-    set_flag(self.flags, FLAG_FORGET)
+    self.flags = set_flag(self.flags, FLAG_FORGET)
   else
-    unset_flag(self.flags, FLAG_FORGET)
+    self.flags = unset_flag(self.flags, FLAG_FORGET)
   end
 
   self.remember = value

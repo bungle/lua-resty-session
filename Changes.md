@@ -6,6 +6,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
 ## [4.1.0] - Unreleased
 ### Fixed
 - fix(session): take absolute timeout in account when calculating storage ttl
+- fix(session): remember function didn't store flags as expected
 
 ### Changed
 - chore(utils): safer utils.is_fips_mode (fix #176)
