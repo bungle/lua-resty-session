@@ -497,6 +497,15 @@ local function get_property(self, name)
 end
 
 
+local function derive_aes_key(ikm, sid, remember_safety)
+  if remember_safety then
+    return derive_aes_gcm_256_key_and_iv(ikm, sid, remember_safety)
+  else
+    return derive_aes_gcm_256_key_and_iv(ikm, sid)
+  end
+end
+
+
 local function open(self, remember, meta_only)
   local storage = self.storage
   local current_time = time()
@@ -817,13 +826,7 @@ local function open(self, remember, meta_only)
     return true
   end
 
-  local aes_key, err, iv
-  if remember then
-    aes_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
-  else
-    aes_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
-  end
-
+  local aes_key, err, iv = derive_aes_key(ikm, sid, remember and self.remember_safety)
   if not aes_key then
     return nil, errmsg(err, "unable to derive session decryption key")
   end
@@ -997,13 +1000,8 @@ local function save(self, state, remember)
   HEADER_BUFFER:put(COOKIE_TYPE, packed_flags, sid, packed_creation_time, packed_rolling_offset, packed_data_size)
 
   local ikm = self.ikm
-  local aes_key, iv
-  if remember then
-    aes_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid, self.remember_safety)
-  else
-    aes_key, err, iv = derive_aes_gcm_256_key_and_iv(ikm, sid)
-  end
 
+  local aes_key, err, iv = derive_aes_key(ikm, sid, remember and self.remember_safety)
   if not aes_key then
     return nil, errmsg(err, "unable to derive session encryption key")
   end
