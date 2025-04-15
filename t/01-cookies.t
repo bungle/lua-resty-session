@@ -17,13 +17,11 @@ __DATA__
   }
 --- config
 location = /test {
-    content_by_lua_block {
-      local session = require "resty.session".new()
-      local ok = session:save()
-      if ok then
-        ngx.say("yay")
-      end
-    }
+  content_by_lua_block {
+    local session = require "resty.session".new()
+    local ok, err = session:save()
+    ngx.say(ok and "yay" or err)
+  }
 }
 
 --- request
@@ -47,14 +45,11 @@ Set-Cookie: .*session=.+;.*
   }
 --- config
 location = /test {
-    content_by_lua_block {
-      local session = require "resty.session".new()
-      local ok = session:save()
-     
-      if ok then
-        ngx.say("yay")
-      end
-    }
+  content_by_lua_block {
+    local session = require "resty.session".new()
+    local ok, err = session:save()
+    ngx.say(ok and "yay" or err)
+  }
 }
 
 --- request
@@ -83,14 +78,13 @@ extracted correctly
   }
 --- config
 location = /test {
-    content_by_lua_block {
-      local session = require "resty.session".open()
-      local sub     = session:get_subject()
-      local aud     = session:get_audience()
-      local quote   = session:get("quote")
-     
-      ngx.say(sub .. "|" .. aud .. "|" .. quote)
-    }
+  content_by_lua_block {
+    local session = require "resty.session".open()
+    local sub     = session:get_subject()
+    local aud     = session:get_audience()
+    local quote   = session:get("quote")
+    ngx.say(sub .. "|" .. aud .. "|" .. quote)
+  }
 }
 
 --- request
@@ -120,22 +114,21 @@ upstream
 
   server {
     listen unix:/$TEST_NGINX_NXSOCK/nginx.sock;
-
     location /t {
-        content_by_lua_block {
-          local headers = ngx.req.get_headers()
-          ngx.say("session_cookie: [", tostring(headers["Cookie"]), "]")
-        }
+      content_by_lua_block {
+        local headers = ngx.req.get_headers()
+        ngx.say("session_cookie: [", tostring(headers["Cookie"]), "]")
+      }
     }
   }
 
 --- config
 location = /test {
-    access_by_lua_block {
-      local session = require "resty.session".open()
-      session:clear_request_cookie()
-    }
-    proxy_pass http://unix:/$TEST_NGINX_NXSOCK/nginx.sock;
+  access_by_lua_block {
+    local session = require "resty.session".open()
+    session:clear_request_cookie()
+  }
+  proxy_pass http://unix:/$TEST_NGINX_NXSOCK/nginx.sock;
 }
 
 --- request
