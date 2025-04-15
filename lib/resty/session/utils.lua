@@ -30,7 +30,7 @@ local sub = string.sub
 -- @treturn table a pre-sized table
 --
 -- @usage
--- local tbl = require "resty.session.utils".table_new(100, 0)
+-- local tbl = require("resty.session.utils").table_new(100, 0)
 local table_new do
   local ok
   ok, table_new = pcall(require, "table.new")
@@ -48,7 +48,7 @@ end
 -- @treturn boolean `true` if table is empty, otherwise `false`
 --
 -- @usage
--- local empty = require "resty.session.utils".table_is_empty({})
+-- local empty = require("resty.session.utils").table_is_empty({})
 local table_is_empty do
   local ok
   ok, table_is_empty = pcall(require, "table.isempty")
@@ -79,7 +79,7 @@ local is_fips_mode do
   -- @treturn boolean `true` if OpenSSL is in FIPS-mode, otherwise `false`
   --
   -- @usage
-  -- local is_fips = require "resty.session.utils".is_fips_mode()
+  -- local is_fips = require("resty.session.utils").is_fips_mode()
   is_fips_mode = function()
     local openssl = require("resty.openssl")
     if not openssl.get_fips_mode then
@@ -124,8 +124,8 @@ local bpack, bunpack do
   -- @treturn string binary packed value
   --
   -- @usage
-  -- local packed_128 = require "resty.session.utils".bpack(1, 128)
-  -- local packed_now = require "resty.session.utils".bpack(8, ngx.time())
+  -- local packed_128 = require("resty.session.utils").bpack(1, 128)
+  -- local packed_now = require("resty.session.utils").bpack(8, ngx.time())
   bpack = function(size, value)
     buf:reset()
     for i = 1, size do
@@ -197,7 +197,7 @@ local trim do
   -- @treturn string a whitespace trimmed string
   --
   -- @usage
-  -- local trimmed = require "resty.session.utils".trim("  hello world  ")
+  -- local trimmed = require("resty.session.utils").trim("  hello world  ")
   trim = function(value)
     if value == nil or value == "" then
       return ""
@@ -242,10 +242,10 @@ local encode_json, decode_json do
   -- @treturn string json encoded value
   --
   -- @usage
-  -- local json = require "resty.session.utils".encode_json({ hello = "world" })
+  -- local json = require("resty.session.utils").encode_json({ hello = "world" })
   encode_json = function(value)
     if not cjson then
-      cjson = require "cjson.safe".new()
+      cjson = require("cjson.safe").new()
     end
     encode_json = cjson.encode
     return encode_json(value)
@@ -259,10 +259,10 @@ local encode_json, decode_json do
   -- @treturn any json decoded value
   --
   -- @usage
-  -- local tbl = require "resty.session.utils".decode_json('{ "hello": "world" }')
+  -- local tbl = require("resty.session.utils").decode_json('{ "hello": "world" }')
   decode_json = function(value)
     if not cjson then
-      cjson = require "cjson.safe".new()
+      cjson = require("cjson.safe").new()
     end
     decode_json = cjson.decode
     return decode_json(value)
@@ -281,7 +281,7 @@ local encode_base64url, decode_base64url, base64_size do
   -- @treturn string base64 url encoded value
   --
   -- @usage
-  -- local encoded = require "resty.session.utils".encode_base64url("test")
+  -- local encoded = require("resty.session.utils").encode_base64url("test")
   encode_base64url = function(value)
     if not base64 then
       base64 = require "ngx.base64"
@@ -303,7 +303,7 @@ local encode_base64url, decode_base64url, base64_size do
   -- local decoded = utils.decode_base64url(encoded)
   decode_base64url = function(value)
     if not base64 then
-      base64 = require "ngx.base64"
+      base64 = require("ngx.base64")
     end
     decode_base64url = base64.decode_base64url
     return decode_base64url(value)
@@ -318,7 +318,7 @@ local encode_base64url, decode_base64url, base64_size do
   --
   -- @usage
   -- local test = "test"
-  -- local b64len = require "resty.session.utils".base64_size(#test)
+  -- local b64len = require("resty.session.utils").base64_size(#test)
   base64_size = function(size)
     return ceil(4 * size / 3)
   end
@@ -379,10 +379,10 @@ local deflate, inflate do
   --
   -- @usage
   -- local test = "test"
-  -- local deflated = require "resty.session.utils".deflate(("a"):rep(100))
+  -- local deflated = require("resty.session.utils").deflate(("a"):rep(100))
   deflate = function(data)
     if not zlib then
-      zlib = require "ffi-zlib"
+      zlib = require("ffi-zlib")
     end
     deflate = deflate_real
     return deflate(data)
@@ -401,7 +401,7 @@ local deflate, inflate do
   -- local inflated = utils.inflate(deflated)
   inflate = function(data)
     if not zlib then
-      zlib = require "ffi-zlib"
+      zlib = require("ffi-zlib")
     end
     inflate = inflate_real
     return inflate(data)
@@ -421,10 +421,10 @@ local rand_bytes do
   -- @treturn string|nil error message
   --
   -- @usage
-  -- local bytes = require "resty.session.utils".rand_bytes(32)
+  -- local bytes = require("resty.session.utils").rand_bytes(32)
   rand_bytes = function(length)
     if not rand then
-      rand = require "resty.openssl.rand"
+      rand = require("resty.openssl.rand")
     end
     rand_bytes = rand.bytes
     return rand_bytes(length)
@@ -468,10 +468,10 @@ local sha256 do
   -- @treturn string|nil error message
   --
   -- @usage
-  -- local hash, err = require "resty.session.utils".sha256("hello world")
+  -- local hash, err = require("resty.session.utils").sha256("hello world")
   sha256 = function(value)
     if not digest then
-      digest = require "resty.openssl.digest"
+      digest = require("resty.openssl.digest")
     end
     sha256 = sha256_real
     return sha256(value)
@@ -529,7 +529,7 @@ local derive_hkdf_sha256 do
   -- local key, err = utils.derive_hkdf_sha256(ikm, nonce, "encryption", 32)
   derive_hkdf_sha256 = function(ikm, nonce, usage, size)
     if not kdf_derive then
-      local kdf = require "resty.openssl.kdf"
+      local kdf = require("resty.openssl.kdf")
       HKDF_SHA256_EXTRACT_OPTS = {
         type = kdf.HKDF,
         outlen = 32,
@@ -593,7 +593,7 @@ local derive_pbkdf2_hmac_sha256 do
   -- local key, err = utils.derive_pbkdf2_hmac_sha256(pass, salt, "encryption", 32, 10000)
   derive_pbkdf2_hmac_sha256 = function(pass, salt, usage, size, iterations)
     if not kdf_derive then
-      local kdf = require "resty.openssl.kdf"
+      local kdf = require("resty.openssl.kdf")
       PBKDF2_SHA256_OPTS = {
         type = kdf.PBKDF2,
         outlen = 44,
@@ -802,7 +802,7 @@ local hmac_sha256 do
   -- local mac, err = utils.hmac_sha256(key, "hello")
   hmac_sha256 = function(key, value)
     if not hmac then
-      hmac = require "resty.openssl.hmac"
+      hmac = require("resty.openssl.hmac")
     end
     hmac_sha256 = hmac_sha256_real
     return hmac_sha256(key, value)
@@ -833,7 +833,7 @@ local load_storage do
   -- @treturn string|nil error message
   --
   -- @usage
-  -- local postgres = require "resty.session.utils".load_storage("postgres", {
+  -- local postgres = require("resty.session.utils").load_storage("postgres", {
   --   postgres = {
   --     host = "127.0.0.1",
   --   }
