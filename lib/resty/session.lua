@@ -2440,11 +2440,16 @@ local function opt(configuration, name, default)
       end
 
     elseif name == "storage" then
-      local t = type(value)
-      if t == "string" then
-        value = load_storage(value, configuration)
+      if value == false then
+        value = nil
+
       else
-        assert(t == "table", "invalid session storage")
+        local t = type(value)
+        if t == "string" then
+          value = load_storage(value, configuration)
+        else
+          assert(t == "table", "invalid session storage")
+        end
       end
     end
   end

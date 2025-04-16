@@ -6,6 +6,8 @@ All notable changes to `lua-resty-session` will be documented in this file.
 ## [4.1.1] - 2025-04-15
 ### Fixed
 - fix(deps): bump minimum resty.openssl to 1.5.0 (fix #190)
+- fix(session): fix a backward incompatible change in 4.1.0 where storage was given as `false`
+  (the `false` is again a synonym to `"cookie"`)
 
 
 ## [4.1.0] - 2025-04-15
