@@ -3,6 +3,11 @@
 All notable changes to `lua-resty-session` will be documented in this file.
 
 
+## [4.1.1] - 2025-04-15
+### Fixed
+- fix(deps): bump minimum resty.openssl to 1.5.0 (fix #190)
+
+
 ## [4.1.0] - 2025-04-15
 ### Fixed
 - fix(session): take absolute timeout in account when calculating storage ttl
