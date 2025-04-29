@@ -1,4 +1,4 @@
-FROM openresty/openresty:1.27.1.2-0-jammy
+FROM openresty/openresty:1.27.1.2-0-noble
 
 ENV DEBIAN_FRONTEND noninteractive
 ENV TEST_NGINX_BINARY openresty
