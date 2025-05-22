@@ -816,27 +816,19 @@ end
 
 local hmac_sha256 do
   local mac
-  local hmac
   local MAC_MAC = "HMAC"
   local MAC_DIGEST = "sha256"
 
   local function hmac_sha256_real(key, value)
-    local _, err, output
-    if not hmac then
-      hmac, err = mac.new(key, MAC_MAC, nil, MAC_DIGEST)
-      if err then
-        return nil, err
-      end
+    local output
+    local hmac, err = mac.new(key, MAC_MAC, nil, MAC_DIGEST)
+    if err then
+      return nil, err
     end
 
     output, err = hmac:final(value)
     if not output then
       return nil, err
-    end
-
-    _, err = hmac:reset()
-    if err then
-      hmac = nil
     end
 
     return output
