@@ -2,7 +2,7 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
-## [4.1.2] - Unreleased
+## [4.1.2] - 2025-06-11
 ### Fixed
 - fix(sesssion): revert caching hmac instance (fix #194, #196)
 
