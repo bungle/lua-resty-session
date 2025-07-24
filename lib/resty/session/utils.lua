@@ -592,6 +592,11 @@ local derive_pbkdf2_hmac_sha256 do
     PBKDF2_SHA256_OPTS.salt = usage .. ":" .. salt
     PBKDF2_SHA256_OPTS.pass = pass
 
+    -- Disables the SP800-132 compliance checks on FIPS-mode. This checks has constraints for the iteration count is at least 1000.
+    if is_fips_mode() then
+      PBKDF2_SHA256_OPTS.pkcs5 = 1
+    end
+
     key, err = pbkdf2:derive(size or 44, PBKDF2_SHA256_OPTS)
     if not key then
       pbkdf2 = nil
