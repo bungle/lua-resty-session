@@ -1308,6 +1308,7 @@ The `PBKDF2` settings:
 - password: `<key>`
 - salt: `"encryption:<sid>"`
 - iterations: `<1000|10000|100000|1000000>`
+- pkcs5: `1` (FIPS compliant in our use case, but is needed to disable `SP800-132` based verifications, such as iteration count, see: https://docs.openssl.org/master/man7/provider-kdf/#kdf-parameters)
 
 Iteration counts are based on `remember_safety` setting (`"Low"`, `"Medium"`, `"High"`, `"Very High"`),
 if `remember_safety` is set to `"None"`, we will use the HDKF as above.
