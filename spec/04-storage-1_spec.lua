@@ -65,6 +65,9 @@ for _, st in ipairs({
       conf[st] = storage_configs[st]
       storage = utils.load_storage(st, conf)
       assert.is_not_nil(storage)
+      if st == "redis" then
+        assert.equals(0, storage.database)
+      end
     end)
 
     before_each(function()

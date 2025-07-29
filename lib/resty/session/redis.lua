@@ -15,6 +15,7 @@ local null = ngx.null
 
 local DEFAULT_HOST = "127.0.0.1"
 local DEFAULT_PORT = 6379
+local DEFAULT_DATABASE = 0
 
 
 local SET = common.SET
@@ -62,7 +63,7 @@ local function exec(self, func, ...)
     end
   end
 
-  local database = self.database
+  local database = self.database or DEFAULT_DATABASE
   if database then
     ok, err = red:select(database)
     if not ok then
@@ -220,7 +221,7 @@ function storage.new(configuration)
 
   local username          = configuration and configuration.username
   local password          = configuration and configuration.password
-  local database          = configuration and configuration.database
+  local database          = configuration and configuration.database or DEFAULT_DATABASE
 
   local connect_timeout   = configuration and configuration.connect_timeout
   local send_timeout      = configuration and configuration.send_timeout
