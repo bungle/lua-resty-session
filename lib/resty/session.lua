@@ -1146,7 +1146,7 @@ local function save(self, state, remember)
     local store_ttl = get_store_ttl(self, remember, creation_time, current_time)
     local store_metadata = get_store_metadata(self)
 
-    local ok, err = storage:set(cookie_name, key, data, store_ttl, current_time, old_key, self.stale_ttl, store_metadata, remember)
+    local ok, err = storage:set(cookie_name, key, data, store_ttl, current_time, old_key, self.stale_ttl, store_metadata)
     if not ok then
       return nil, errmsg(err, "unable to store session data")
     end
