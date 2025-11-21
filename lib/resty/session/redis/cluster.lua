@@ -50,11 +50,6 @@ local metatable = {}
 metatable.__index = metatable
 
 
-function metatable.__newindex()
-  error("attempt to update a read-only table", 2)
-end
-
-
 ---
 -- Store session data.
 --
@@ -206,6 +201,8 @@ function storage.new(configuration)
   local ssl_verify              = configuration and configuration.ssl_verify
   local server_name             = configuration and configuration.server_name
 
+  local force_auth              = configuration and configuration.force_auth
+
 
   local auth
   if not username then
@@ -235,6 +232,7 @@ function storage.new(configuration)
         auth = auth,
         username = username,
         password = password,
+        force_auth = force_auth,
         connect_opts = {
           ssl = ssl,
           ssl_verify = ssl_verify,
@@ -266,6 +264,7 @@ function storage.new(configuration)
       auth = auth,
       username = username,
       password = password,
+      force_auth = force_auth,
     },
   }, metatable)
 end
