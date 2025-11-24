@@ -9,7 +9,6 @@ local redis = require "resty.redis"
 
 
 local setmetatable = setmetatable
-local error = error
 local null = ngx.null
 
 
