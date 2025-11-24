@@ -45,7 +45,7 @@ local function exec(self, func, ...)
     return nil, err
   end
 
-  if red:get_reused_times() == 0 then
+  if self.force_auth == true or red:get_reused_times() == 0 then
     local password = self.password
     if password then
       local username = self.username
@@ -97,11 +97,6 @@ local metatable = {}
 
 
 metatable.__index = metatable
-
-
-function metatable.__newindex()
-  error("attempt to update a read-only table", 2)
-end
 
 
 ---
@@ -233,6 +228,8 @@ function storage.new(configuration)
   local ssl_verify        = configuration and configuration.ssl_verify
   local server_name       = configuration and configuration.server_name
 
+  local force_auth        = configuration and configuration.force_auth
+
   if ssl ~= nil or ssl_verify ~= nil or server_name or pool or pool_size or backlog then
     return setmetatable({
       prefix = prefix,
@@ -247,6 +244,7 @@ function storage.new(configuration)
       send_timeout = send_timeout,
       read_timeout = read_timeout,
       keepalive_timeout = keepalive_timeout,
+      force_auth = force_auth,
       options = {
         ssl = ssl,
         ssl_verify = ssl_verify,
@@ -271,6 +269,7 @@ function storage.new(configuration)
     send_timeout = send_timeout,
     read_timeout = read_timeout,
     keepalive_timeout = keepalive_timeout,
+    force_auth = force_auth,
   }, metatable)
 end
 
