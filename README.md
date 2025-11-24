@@ -363,7 +363,6 @@ With DHSM storage you can use the following settings (set the `storage` to `"dsh
 | `ssl`               |     `nil`     | Enable SSL.                                                                                  |
 | `ssl_verify`        |     `nil`     | Verify server certificate.                                                                   |
 | `server_name`       |     `nil`     | The server name for the new TLS extension Server Name Indication (SNI).                      |
-| `force_auth`        |     `nil`     | The flag controls whether to invoke auth after obtaining each Redis connection.              |
 
 Please refer to [ngx-distributed-shm](https://github.com/grrolland/ngx-distributed-shm) to get necessary
 dependencies installed.
