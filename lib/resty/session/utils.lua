@@ -246,6 +246,10 @@ local encode_json, decode_json do
   encode_json = function(value)
     if not cjson then
       cjson = require("cjson.safe").new()
+      -- decode arrays with the array metatable so an empty array round-trips
+      -- as `[]` instead of being re-encoded as `{}` (encode and decode share
+      -- this instance, so the option is set wherever it is created first).
+      cjson.decode_array_with_array_mt(true)
     end
     encode_json = cjson.encode
     return encode_json(value)
@@ -263,6 +267,10 @@ local encode_json, decode_json do
   decode_json = function(value)
     if not cjson then
       cjson = require("cjson.safe").new()
+      -- decode arrays with the array metatable so an empty array round-trips
+      -- as `[]` instead of being re-encoded as `{}` (encode and decode share
+      -- this instance, so the option is set wherever it is created first).
+      cjson.decode_array_with_array_mt(true)
     end
     decode_json = cjson.decode
     return decode_json(value)
