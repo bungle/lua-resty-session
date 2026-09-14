@@ -365,10 +365,12 @@ module names and pre-built storage tables are also supported. Setting
 On every `session:open`, the library checks a worker-local LRU cache for
 the hashed session identifier. On a cache miss, it checks whether the
 identifier is revoked in the configured store and caches the result for
-`revocation_cache_ttl` seconds. On `session:destroy`, the identifier is
-written to the selected storage with a TTL equal to the remaining session
-lifetime (rolling and absolute timeouts), then the local cache is updated
-immediately. The revocation mark is a lightweight sentinel; no session
+`revocation_cache_ttl` seconds. Store unavailability is cached the same way:
+`"open"` caches “not revoked”, and `"closed"` caches the error, so a burst of
+requests does not retry the store on every lookup. On `session:destroy`, the
+identifier is written to the selected storage with a TTL equal to the remaining
+session lifetime (rolling and absolute timeouts), then the local cache is
+updated immediately. The revocation mark is a lightweight sentinel; no session
 payload is stored.
 
 Use `revocation_fail_mode` to control behavior when the storage is unavailable:

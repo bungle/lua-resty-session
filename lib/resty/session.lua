@@ -409,8 +409,12 @@ local function is_session_revoked(self, sid, cookie_name)
   local cache_key = cookie_name .. "\0" .. key
   if cache_ttl > 0 then
     local cached = REVOCATION_CACHE:get(cache_key)
-    if cached ~= nil then
+    if cached == true or cached == false then
       return cached, nil
+    end
+
+    if cached then
+      return nil, cached
     end
   end
 
@@ -419,8 +423,17 @@ local function is_session_revoked(self, sid, cookie_name)
   if err then
     local ok, rerr = handle_revocation_error(self, err, "unable to check session revocation")
     if not ok then
+      if cache_ttl > 0 then
+        REVOCATION_CACHE:set(cache_key, rerr, cache_ttl)
+      end
+
       return nil, rerr
     end
+
+    if cache_ttl > 0 then
+      REVOCATION_CACHE:set(cache_key, false, cache_ttl)
+    end
+
     return false, nil
   end
 
