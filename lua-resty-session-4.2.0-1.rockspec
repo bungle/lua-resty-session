@@ -14,6 +14,7 @@ description = {
 dependencies = {
   "lua >= 5.1",
   "lua-ffi-zlib >= 0.5",
+  "lua-resty-lrucache >= 0.09",
   "lua-resty-openssl >= 1.5.0",
 }
 build = {
