@@ -200,6 +200,8 @@ http {
         * [session.start](#sessionstart)
         * [session.logout](#sessionlogout)
         * [session.destroy](#sessiondestroy)
+        * [session.revoke_subject](#sessionrevoke_subject)
+        * [session.revoke_sid](#sessionrevoke_sid)
     * [Instance Methods](#instance-methods)
         * [session:open](#sessionopen-1)
         * [session:save](#sessionsave)
@@ -216,6 +218,8 @@ http {
         * [session:get_audience](#sessionget_audience)
         * [session:set_subject](#sessionset_subject)
         * [session:get_subject](#sessionget_subject)
+        * [session:set_sid](#sessionset_sid)
+        * [session:get_sid](#sessionget_sid)
         * [session:get_property](#sessionget_property)
         * [session:set_remember](#sessionset_remember)
         * [session:get_remember](#sessionget_remember)
@@ -366,6 +370,27 @@ revoked. On `session:destroy`, the identifier is written to the selected
 storage with a TTL equal to the remaining session lifetime (rolling and
 absolute timeouts). The revocation mark is a lightweight sentinel; no session
 payload is stored.
+
+Sessions can also be revoked by their subject (`session:set_subject`) or by an
+identity provider session id (`session:set_sid`, e.g. the OpenID Connect `sid`
+claim). `session.revoke_subject(subject, ttl, configuration)` and
+`session.revoke_sid(sid, ttl, configuration)` write a mark without an open
+session; sessions carrying the value that were created at or before the mark
+are rejected on `session:open`, later ones are not. `ttl` must cover the
+sessions' absolute timeout (`remember_absolute_timeout` when remember cookies
+are used). Marks are stored under a `subject:` or `sid:` prefix and go through
+`hash_subject` and `hash_storage_key`, enable them when the values may contain
+personal data. Both functions always return write errors; `revocation_fail_mode`
+applies to `session:open` and `session:destroy` only.
+
+```lua
+-- On login
+session:set_subject(id_token.sub)
+session:set_sid(id_token.sid)
+
+-- In a back-channel logout handler, without an open session
+require("resty.session").revoke_sid(logout_token.sid, 86400)
+```
 
 Use `revocation_fail_mode` to control behavior when the storage is unavailable:
 
@@ -884,6 +909,40 @@ local ok, err, exists, destroyed = require "resty.session".destroy({
 See [configuration](#configuration) for possible configuration settings.
 
 
+### session.revoke_subject
+
+**syntax:** *ok, err = session.revoke_subject(subject, ttl, configuration)*
+
+It marks a subject (see `session:set_subject`) as revoked without an open
+session; sessions carrying the subject that were created at or before the mark
+are rejected on `session:open`. `ttl` (in seconds) must cover the sessions'
+absolute timeout (`remember_absolute_timeout` when remember cookies are used).
+Write errors are always returned.
+
+```lua
+local ok, err = require "resty.session".revoke_subject("john@doe.com", 86400)
+```
+
+See [configuration](#configuration) for possible configuration settings.
+
+
+### session.revoke_sid
+
+**syntax:** *ok, err = session.revoke_sid(sid, ttl, configuration)*
+
+It marks an identity provider session id (see `session:set_sid`) as revoked
+without an open session; sessions carrying the sid that were created at or
+before the mark are rejected on `session:open`. `ttl` (in seconds) must cover
+the sessions' absolute timeout (`remember_absolute_timeout` when remember
+cookies are used). Write errors are always returned.
+
+```lua
+local ok, err = require "resty.session".revoke_sid(logout_token.sid, 86400)
+```
+
+See [configuration](#configuration) for possible configuration settings.
+
+
 ## Instance Methods
 
 ### session:open
@@ -1113,6 +1172,33 @@ Get session subject.
 local session, err, exists = require "resty.session".open()
 if exists then
   local subject = session.get_subject()
+end
+```
+
+
+### session:set_sid
+
+**syntax:** *session:set_sid(sid)*
+
+Set an identity provider session id (e.g. the OpenID Connect `sid` claim) so
+that `session.revoke_sid` can revoke the session by it.
+
+```lua
+local session = require "resty.session".new()
+session:set_sid(id_token.sid)
+```
+
+
+### session:get_sid
+
+**syntax:** *sid = session:get_sid()*
+
+Get the identity provider session id.
+
+```lua
+local session, err, exists = require "resty.session".open()
+if exists then
+  local sid = session:get_sid()
 end
 ```
 
