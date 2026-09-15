@@ -329,8 +329,9 @@ Here are the possible session configuration options:
 | `response_headers`          |    `nil`     | Set of headers to send to downstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` response headers when `set_headers` is called.                                     |
 | `storage`                   |    `nil`     | Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface. |
 | `revocation`                |    `nil`     | Storage used for cookie session revocation records. Use `nil` or `false` to disable, a storage name such as `"shm"`, `"redis"`, `"mysql"`, or `"postgres"`, a custom storage module name, or a storage `table` with `set`/`get` methods.                                                                |
-| `revocation_fail_mode`      |   `"open"`   | Behavior when the revocation store is unreachable, use `"open"` (treat as not revoked) or `"closed"` (reject the session).                                                                                                                                                                           |
-| `revocation_cache_ttl`      |     `5`      | Worker-local cache TTL for revocation lookups (in seconds). Set to `0` to disable caching. This is the maximum stale window before a worker observes a revocation written elsewhere.                                                                                                                   |
+| `revocation_fail_mode`          |   `"open"`   | Behavior when the revocation store is unreachable, use `"open"` (treat as not revoked) or `"closed"` (reject the session).                                                                                                                                                                           |
+| `revocation_cache_ttl`          |     `5`      | Worker-local cache TTL for successful revocation lookups (`true`/`false`) (in seconds). Set to `0` to disable. This is the maximum stale window before a worker observes a revocation written elsewhere.                                                                                             |
+| `revocation_error_cache_ttl`    |     `5`      | Worker-local cache TTL for revocation store errors (in seconds). Set to `0` to disable. `"open"` caches not-revoked; `"closed"` caches the error.                                                                                                                                                  |
 | `dshm`                      |    `nil`     | Configuration for dshm storage, e.g. `{ prefix = "sessions" }` (see below)                                                                                                                                                                                                                           |
 | `file`                      |    `nil`     | Configuration for file storage, e.g. `{ path = "/tmp", suffix = "session" }` (see below)                                                                                                                                                                                                             |
 | `memcached`                 |    `nil`     | Configuration for memcached storage, e.g. `{ prefix = "sessions" }` (see below)                                                                                                                                                                                                                      |
@@ -363,15 +364,15 @@ module names and pre-built storage tables are also supported. Setting
 `revocation = false` or leaving it unset disables revocation.
 
 On every `session:open`, the library checks a worker-local LRU cache for
-the hashed session identifier. On a cache miss, it checks whether the
-identifier is revoked in the configured store and caches the result for
-`revocation_cache_ttl` seconds. Store unavailability is cached the same way:
-`"open"` caches “not revoked”, and `"closed"` caches the error, so a burst of
-requests does not retry the store on every lookup. On `session:destroy`, the
-identifier is written to the selected storage with a TTL equal to the remaining
-session lifetime (rolling and absolute timeouts), then the local cache is
-updated immediately. The revocation mark is a lightweight sentinel; no session
-payload is stored.
+the hashed session identifier. On a cache miss, it checks the configured store.
+A successful lookup (`true`/`false`) is cached for `revocation_cache_ttl`
+seconds. Store unavailability is cached for `revocation_error_cache_ttl`
+seconds: `"open"` caches not-revoked, and `"closed"` caches the error, so a
+burst of requests does not retry the store on every lookup. On
+`session:destroy`, the identifier is written to the selected storage with a
+TTL equal to the remaining session lifetime (rolling and absolute timeouts),
+then the local cache is updated immediately. The revocation mark is a
+lightweight sentinel; no session payload is stored.
 
 Use `revocation_fail_mode` to control behavior when the storage is unavailable:
 
