@@ -516,15 +516,41 @@ describe("session: revocation cache", function()
     s:close()
   end)
 
-  it("retries the store after a cached closed-mode error expires", function()
+  it("skips the revocation write when the lookup is already revoked", function()
+    local s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+
+    local other, ook, oerr = open_session()
+    assert.is_true(ook)
+    assert.is_nil(oerr)
+    assert.equals(1, get_count)
+
+    session.__set_ngx_header(cookies)
+    ok, err = s:destroy()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    assert.equals(1, set_count)
+
+    session.__set_ngx_header(cookies)
+    ook, oerr = other:destroy()
+    assert.is_true(ook)
+    assert.is_nil(oerr)
+    assert.equals(1, get_count)
+    assert.equals(1, set_count)
+  end)
+
+  it("caches a failed revocation write for later lookups", function()
     get_count = 0
+    set_count = 0
     store = {
       get = function()
         get_count = get_count + 1
-        return nil, "connection refused"
+        return nil
       end,
       set = function()
-        return true
+        set_count = set_count + 1
+        return nil, "connection refused"
       end,
     }
 
@@ -533,21 +559,29 @@ describe("session: revocation cache", function()
       storage = "cookie",
       revocation = store,
       revocation_fail_mode = "closed",
-      revocation_cache_ttl = 60,
-      revocation_error_cache_ttl = 1,
+      revocation_error_cache_ttl = 5,
     })
 
     local s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+
+    session.__set_ngx_header(cookies)
+    ok, err = s:destroy()
+    assert.is_nil(ok)
+    assert.matches("unable to mark session revoked", err)
+    assert.equals(1, set_count)
+
+    ok, err = s:destroy()
     assert.is_nil(ok)
     assert.matches("unable to check session revocation", err)
-    s:close()
+    assert.equals(1, set_count)
 
-    sleep(2)
-
-    s, ok, err = open_session()
+    local reopened
+    reopened, ok, err = open_session()
     assert.is_nil(ok)
     assert.matches("unable to check session revocation", err)
-    assert.equals(2, get_count)
-    s:close()
+    assert.equals(1, get_count)
+    reopened:close()
   end)
 end)

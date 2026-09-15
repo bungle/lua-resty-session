@@ -469,16 +469,37 @@ local function mark_session_revoked(self, remember, meta)
     return nil, herr
   end
 
+  local revoked, rerr = is_session_revoked(self, sid, cookie_name)
+  if rerr then
+    return nil, rerr
+  end
+
+  if revoked then
+    return true
+  end
+
+  local cache_key = cookie_name .. "\0" .. key
   local current_time = time()
   local ttl = get_store_ttl(self, remember, current_time, meta.creation_time, meta.rolling_offset)
   local ok, err = revocation:set(cookie_name, key, REVOCATION_MARK, ttl, current_time)
   if not ok then
+    local error_cache_ttl = self.revocation_error_cache_ttl
+    if error_cache_ttl > 0 then
+      local cached
+      if self.revocation_fail_mode == "open" then
+        cached = false
+      else
+        cached = errmsg(err, "unable to check session revocation")
+      end
+      REVOCATION_CACHE:set(cache_key, cached, error_cache_ttl)
+    end
+
     return handle_revocation_error(self, err, "unable to mark session revoked")
   end
 
   local cache_ttl = self.revocation_cache_ttl
   if cache_ttl > 0 then
-    REVOCATION_CACHE:set(cookie_name .. "\0" .. key, true, cache_ttl)
+    REVOCATION_CACHE:set(cache_key, true, cache_ttl)
   end
 
   return true
