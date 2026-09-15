@@ -368,11 +368,17 @@ the hashed session identifier. On a cache miss, it checks the configured store.
 A successful lookup (`true`/`false`) is cached for `revocation_cache_ttl`
 seconds. Store unavailability is cached for `revocation_error_cache_ttl`
 seconds: `"open"` caches not-revoked, and `"closed"` caches the error, so a
-burst of requests does not retry the store on every lookup. On
-`session:destroy`, the identifier is written to the selected storage with a
+burst of requests does not retry the store on every lookup.
+
+`session:destroy` (including a last-audience `session:logout`) runs the same
+cached lookup first. A cached `true` means the identifier is already revoked
+and no store write is made, and a cached error is returned without contacting
+the store. Otherwise the identifier is written to the selected storage with a
 TTL equal to the remaining session lifetime (rolling and absolute timeouts),
-then the local cache is updated immediately. The revocation mark is a
-lightweight sentinel; no session payload is stored.
+and the local cache is updated immediately. When the write fails, the failure
+is cached for the same identifier under `revocation_error_cache_ttl`, so the
+next lookup sees it instead of the store. The revocation mark is a lightweight
+sentinel; no session payload is stored.
 
 Use `revocation_fail_mode` to control behavior when the storage is unavailable:
 
