@@ -152,6 +152,7 @@ local DEFAULT_STORAGE
 local DEFAULT_REVOCATION
 local DEFAULT_REVOCATION_FAIL_MODE
 local DEFAULT_REVOCATION_CACHE_TTL
+local DEFAULT_REVOCATION_ERROR_CACHE_TTL
 
 
 local DUMMY_META = {}
@@ -406,8 +407,9 @@ local function is_session_revoked(self, sid, cookie_name)
   end
 
   local cache_ttl = self.revocation_cache_ttl
+  local error_cache_ttl = self.revocation_error_cache_ttl
   local cache_key = cookie_name .. "\0" .. key
-  if cache_ttl > 0 then
+  if cache_ttl > 0 or error_cache_ttl > 0 then
     local cached = REVOCATION_CACHE:get(cache_key)
     if cached == true or cached == false then
       return cached, nil
@@ -423,15 +425,15 @@ local function is_session_revoked(self, sid, cookie_name)
   if err then
     local ok, rerr = handle_revocation_error(self, err, "unable to check session revocation")
     if not ok then
-      if cache_ttl > 0 then
-        REVOCATION_CACHE:set(cache_key, rerr, cache_ttl)
+      if error_cache_ttl > 0 then
+        REVOCATION_CACHE:set(cache_key, rerr, error_cache_ttl)
       end
 
       return nil, rerr
     end
 
-    if cache_ttl > 0 then
-      REVOCATION_CACHE:set(cache_key, false, cache_ttl)
+    if error_cache_ttl > 0 then
+      REVOCATION_CACHE:set(cache_key, false, error_cache_ttl)
     end
 
     return false, nil
@@ -2466,7 +2468,8 @@ local session = {
 -- @field storage Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface (defaults to `nil`)
 -- @field revocation Storage used for cookie session revocation records, use `nil` or `false` to disable, `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, a custom storage module name, or a storage `table` with `set`/`get` methods (defaults to `nil`)
 -- @field revocation_fail_mode Behavior when the revocation store is unreachable, use `"open"` (treat as not revoked) or `"closed"` (reject the session) (defaults to `"open"`)
--- @field revocation_cache_ttl Worker-local revocation lookup cache TTL; `0` disables caching (defaults to `5`) (in seconds)
+-- @field revocation_cache_ttl Worker-local TTL for successful revocation lookups (`true`/`false`); `0` disables (defaults to `5`) (in seconds)
+-- @field revocation_error_cache_ttl Worker-local TTL for revocation store errors; `0` disables (defaults to `5`) (in seconds)
 -- @field dshm Configuration for dshm storage, e.g. `{ prefix = "sessions" }`
 -- @field file Configuration for file storage, e.g. `{ path = "/tmp", suffix = "session" }`
 -- @field memcached Configuration for memcached storage, e.g. `{ prefix = "sessions" }`
@@ -2603,6 +2606,9 @@ local function opt(configuration, name, default)
 
     elseif name == "revocation_cache_ttl" then
       assert(type(value) == "number" and value >= 0, "invalid revocation cache ttl")
+
+    elseif name == "revocation_error_cache_ttl" then
+      assert(type(value) == "number" and value >= 0, "invalid revocation error cache ttl")
     end
   end
 
@@ -2650,8 +2656,9 @@ function session.init(configuration)
   DEFAULT_RESPONSE_HEADERS          = opt(configuration, "response_headers")
   DEFAULT_STORAGE                   = opt(configuration, "storage")
   DEFAULT_REVOCATION                = opt(configuration, "revocation")
-  DEFAULT_REVOCATION_FAIL_MODE      = opt(configuration, "revocation_fail_mode", "open")
-  DEFAULT_REVOCATION_CACHE_TTL      = opt(configuration, "revocation_cache_ttl", 5)
+  DEFAULT_REVOCATION_FAIL_MODE         = opt(configuration, "revocation_fail_mode", "open")
+  DEFAULT_REVOCATION_CACHE_TTL         = opt(configuration, "revocation_cache_ttl", 5)
+  DEFAULT_REVOCATION_ERROR_CACHE_TTL   = opt(configuration, "revocation_error_cache_ttl", 5)
 end
 
 ---
@@ -2709,8 +2716,9 @@ function session.new(configuration)
   local response_headers          = opt(configuration, "response_headers",          DEFAULT_RESPONSE_HEADERS)
   local storage                   = opt(configuration, "storage",                   DEFAULT_STORAGE)
   local revocation                = opt(configuration, "revocation",                DEFAULT_REVOCATION)
-  local revocation_fail_mode      = opt(configuration, "revocation_fail_mode",      DEFAULT_REVOCATION_FAIL_MODE)
-  local revocation_cache_ttl      = opt(configuration, "revocation_cache_ttl",      DEFAULT_REVOCATION_CACHE_TTL)
+  local revocation_fail_mode        = opt(configuration, "revocation_fail_mode",        DEFAULT_REVOCATION_FAIL_MODE)
+  local revocation_cache_ttl        = opt(configuration, "revocation_cache_ttl",        DEFAULT_REVOCATION_CACHE_TTL)
+  local revocation_error_cache_ttl  = opt(configuration, "revocation_error_cache_ttl",  DEFAULT_REVOCATION_ERROR_CACHE_TTL)
 
   if storage then
     revocation = nil
@@ -2788,8 +2796,9 @@ function session.new(configuration)
     flags                     = flags,
     storage                   = storage,
     revocation                = revocation,
-    revocation_fail_mode      = revocation_fail_mode,
-    revocation_cache_ttl      = revocation_cache_ttl,
+    revocation_fail_mode           = revocation_fail_mode,
+    revocation_cache_ttl           = revocation_cache_ttl,
+    revocation_error_cache_ttl     = revocation_error_cache_ttl,
     ikm                       = ikm,
     ikm_fallbacks             = ikm_fallbacks,
     request_headers           = request_headers,

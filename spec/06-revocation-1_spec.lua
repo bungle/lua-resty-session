@@ -469,7 +469,7 @@ describe("session: revocation cache", function()
       storage = "cookie",
       revocation = store,
       revocation_fail_mode = "open",
-      revocation_cache_ttl = 5,
+      revocation_error_cache_ttl = 5,
     })
 
     local s, ok, err = open_session()
@@ -501,7 +501,7 @@ describe("session: revocation cache", function()
       storage = "cookie",
       revocation = store,
       revocation_fail_mode = "closed",
-      revocation_cache_ttl = 5,
+      revocation_error_cache_ttl = 5,
     })
 
     local s, ok, err = open_session()
@@ -513,6 +513,41 @@ describe("session: revocation cache", function()
     assert.is_nil(ok)
     assert.matches("unable to check session revocation", err)
     assert.equals(1, get_count)
+    s:close()
+  end)
+
+  it("retries the store after a cached closed-mode error expires", function()
+    get_count = 0
+    store = {
+      get = function()
+        get_count = get_count + 1
+        return nil, "connection refused"
+      end,
+      set = function()
+        return true
+      end,
+    }
+
+    session.init({
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = store,
+      revocation_fail_mode = "closed",
+      revocation_cache_ttl = 60,
+      revocation_error_cache_ttl = 1,
+    })
+
+    local s, ok, err = open_session()
+    assert.is_nil(ok)
+    assert.matches("unable to check session revocation", err)
+    s:close()
+
+    sleep(2)
+
+    s, ok, err = open_session()
+    assert.is_nil(ok)
+    assert.matches("unable to check session revocation", err)
+    assert.equals(2, get_count)
     s:close()
   end)
 end)
