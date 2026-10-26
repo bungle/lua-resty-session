@@ -18,6 +18,7 @@ local GET = common.GET
 local UNLINK = common.UNLINK
 local READ_METADATA = common.READ_METADATA
 
+local DEFAULT_DATABASE = 0
 
 local function exec(self, func, ...)
   local red, err = self.connector:connect()
@@ -191,7 +192,7 @@ function storage.new(configuration)
 
   local username          = configuration and configuration.username
   local password          = configuration and configuration.password
-  local database          = configuration and configuration.database
+  local database          = configuration and configuration.database or DEFAULT_DATABASE
 
   local connect_timeout   = configuration and configuration.connect_timeout
   local send_timeout      = configuration and configuration.send_timeout
