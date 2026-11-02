@@ -333,7 +333,9 @@ Here are the possible session configuration options:
 | `response_headers`          |    `nil`     | Set of headers to send to downstream, use `id`, `audience`, `subject`, `timeout`, `idling-timeout`, `rolling-timeout`, `absolute-timeout`. E.g. `{ "id", "timeout" }` will set `Session-Id` and `Session-Timeout` response headers when `set_headers` is called.                                     |
 | `storage`                   |    `nil`     | Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface. |
 | `revocation`                |    `nil`     | Storage used for cookie session revocation records. Use `nil` or `false` to disable, a storage name such as `"shm"`, `"redis"`, `"mysql"`, or `"postgres"`, a custom storage module name, or a storage `table` with `set`/`get` methods.                                                                |
-| `revocation_fail_mode`      |   `"open"`   | Behavior when the revocation store is unreachable, use `"open"` (treat as not revoked) or `"closed"` (reject the session).                                                                                                                                                                           |
+| `revocation_fail_mode`          |   `"open"`   | Behavior when the revocation store is unreachable, use `"open"` (treat as not revoked) or `"closed"` (reject the session).                                                                                                                                                                           |
+| `revocation_cache_ttl`          |     `5`      | Worker-local cache TTL for successful revocation lookups (in seconds). Set to `0` to disable. This is the maximum stale window before a worker observes a revocation written elsewhere.                                                                                             |
+| `revocation_error_cache_ttl`    |     `5`      | Worker-local cache TTL for revocation store errors (in seconds). Set to `0` to disable. `"open"` caches not-revoked; `"closed"` caches the error.                                                                                                                                                  |
 | `dshm`                      |    `nil`     | Configuration for dshm storage, e.g. `{ prefix = "sessions" }` (see below)                                                                                                                                                                                                                           |
 | `file`                      |    `nil`     | Configuration for file storage, e.g. `{ path = "/tmp", suffix = "session" }` (see below)                                                                                                                                                                                                             |
 | `memcached`                 |    `nil`     | Configuration for memcached storage, e.g. `{ prefix = "sessions" }` (see below)                                                                                                                                                                                                                      |
@@ -365,11 +367,22 @@ the same storage `set`/`get` contract used for session data. Custom storage
 module names and pre-built storage tables are also supported. Setting
 `revocation = false` or leaving it unset disables revocation.
 
-On every `session:open`, the library checks whether the session identifier is
-revoked. On `session:destroy`, the identifier is written to the selected
-storage with a TTL equal to the remaining session lifetime (rolling and
-absolute timeouts). The revocation mark is a lightweight sentinel; no session
-payload is stored.
+On every `session:open`, the library checks a worker-local LRU cache for
+the hashed session identifier. On a cache miss, it checks the configured store.
+A successful lookup (`true`/`false`) is cached for `revocation_cache_ttl`
+seconds. Store unavailability is cached for `revocation_error_cache_ttl`
+seconds: `"open"` caches not-revoked, and `"closed"` caches the error, so a
+burst of requests does not retry the store on every lookup.
+
+`session:destroy` (including a last-audience `session:logout`) runs the same
+cached lookup first. A cached `true` means the identifier is already revoked
+and no store write is made, and a cached error is returned without contacting
+the store. Otherwise the identifier is written to the selected storage with a
+TTL equal to the remaining session lifetime (rolling and absolute timeouts),
+and the local cache is updated immediately. When the write fails, the failure
+is cached for the same identifier under `revocation_error_cache_ttl`, so the
+next lookup sees it instead of the store. The revocation mark is a lightweight
+sentinel; no session payload is stored.
 
 Sessions can also be revoked by their subject (`session:set_subject`) or by an
 identity provider session id (`session:set_sid`, e.g. the OpenID Connect `sid`
@@ -378,10 +391,24 @@ claim). `session.revoke_subject(subject, ttl, configuration)` and
 session; sessions carrying the value that were created at or before the mark
 are rejected on `session:open`, later ones are not. `ttl` must cover the
 sessions' absolute timeout (`remember_absolute_timeout` when remember cookies
-are used). Marks are stored under a `subject:` or `sid:` prefix and go through
-`hash_subject` and `hash_storage_key`, enable them when the values may contain
-personal data. Both functions always return write errors; `revocation_fail_mode`
+are used). Subject marks use `subject:` plus `hash_subject(subject)`; sid marks
+use `sid:` plus the sid. Both keys go through `hash_storage_key`. Enable hashing
+when the values may contain personal data. Both functions always return write errors; `revocation_fail_mode`
 applies to `session:open` and `session:destroy` only.
+
+Subject and sid revocation lookups cache the timestamp, which is compared with
+each session's creation time. Cache entries are isolated by revocation storage
+instance. A successful revocation updates that instance's local worker cache
+immediately. Other workers or storage instances observe it when their cached lookup expires;
+set `revocation_cache_ttl = 0` to check the store on every request. Store errors
+still follow `revocation_error_cache_ttl` and `revocation_fail_mode`.
+
+These marks are shared by sessions using the same cookie name and revocation
+store namespace. Applications using multiple identity providers must qualify
+their subject and sid values with the issuer consistently when setting and
+revoking them. The sid is carried in the encrypted session payload; it is not
+added to the subject/audience indexes maintained by `store_metadata`. These
+APIs use revocation marks rather than enumerating or deleting stored sessions.
 
 ```lua
 -- On login

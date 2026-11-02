@@ -137,6 +137,7 @@ for _, st in ipairs({
 
     describe("[#" .. st .. "] session: revocation lifecycle", function()
       local cookie_name = "session_cookie"
+      local cookie_index = 0
       local test_key    = "test_key"
       local value       = "test_data"
 
@@ -176,6 +177,9 @@ for _, st in ipairs({
       local sids = { "test" }
 
       before_each(function()
+        -- Subject and sid marks share the worker cache across session instances.
+        cookie_index = cookie_index + 1
+        cookie_name = "session_cookie_" .. st .. "_" .. cookie_index
         local conf = {
           cookie_name = cookie_name,
           storage = "cookie",
@@ -236,6 +240,69 @@ for _, st in ipairs({
         assert.is_nil(err)
         s2:close()
       end)
+
+      for _, kind in ipairs({ "subject", "sid" }) do
+        it("revoke_" .. kind .. ": replaces a cached miss and preserves later sessions", function()
+          local cookies = {}
+          local s = session.new()
+          s["set_" .. kind](s, "test")
+          local old_cookie = save_session(s, cookies)
+          s:close()
+
+          local old, err = open_session(old_cookie)
+          assert.is_not_nil(old)
+          assert.is_nil(err)
+          old:close()
+
+          assert.is_true(session["revoke_" .. kind]("test", long_ttl))
+          old, err = open_session(old_cookie)
+          assert.is_nil(old)
+          assert.equals("session revoked", err)
+
+          sleep(1)
+          local fresh = session.new()
+          fresh["set_" .. kind](fresh, "test")
+          local new_cookie = save_session(fresh, {})
+          fresh:close()
+
+          fresh, err = open_session(new_cookie)
+          assert.is_not_nil(fresh)
+          assert.is_nil(err)
+          fresh:close()
+
+          old, err = open_session(old_cookie)
+          assert.is_nil(old)
+          assert.equals("session revoked", err)
+        end)
+
+        it("revoke_" .. kind .. ": caches the store timestamp instead of a session-specific result", function()
+          local s = session.new()
+          s["set_" .. kind](s, "test")
+          local old_cookie = save_session(s, {})
+          local revoked_at = time()
+          s:close()
+
+          sleep(1)
+          local fresh = session.new()
+          fresh["set_" .. kind](fresh, "test")
+          local new_cookie = save_session(fresh, {})
+          fresh:close()
+
+          local key = kind == "subject" and subject_mark_key("test") or sid_mark_key("test")
+          assert.is_not_nil(store:set(cookie_name, key, tostring(revoked_at), long_ttl, time()))
+
+          local err
+          fresh, err = open_session(new_cookie)
+          assert.is_not_nil(fresh)
+          assert.is_nil(err)
+          fresh:close()
+
+          local old
+          old, err = open_session(old_cookie)
+          assert.is_nil(old)
+          assert.equals("session revoked", err)
+        end)
+      end
 
       it("revoke_subject: re-login after a revoked open gets a fresh session", function()
         local cookies = {}
@@ -578,11 +645,12 @@ for _, st in ipairs({
         assert.equals("session revoked", err_a)
       end)
 
-      it("subject mark: revoke a remembered session", function()
+      it("subject mark: revoke a remembered session with the cache disabled", function()
         local conf = {
           cookie_name = cookie_name,
           storage = "cookie",
           revocation = st,
+          revocation_cache_ttl = 0,
           remember = true,
         }
         conf[st] = storage_configs[st]
@@ -617,6 +685,62 @@ for _, st in ipairs({
         local s3 = session.new()
         local ok3 = s3:open()
         assert.is_nil(ok3)
+      end)
+
+      it("subject mark: observes an external revocation after the cached miss expires", function()
+        local s = session.new()
+        s:set_subject("test")
+        local session_cookie = save_session(s, {})
+        s:close()
+
+        local conf = { revocation_cache_ttl = 1 }
+        local opened, err = open_session(session_cookie, conf)
+        assert.is_not_nil(opened)
+        assert.is_nil(err)
+        opened:close()
+
+        assert.is_not_nil(store:set(cookie_name, subject_mark_key("test"), tostring(time()), long_ttl, time()))
+        opened, err = open_session(session_cookie, conf)
+        assert.is_not_nil(opened)
+        assert.is_nil(err)
+        opened:close()
+
+        sleep(2)
+        opened, err = open_session(session_cookie, conf)
+        assert.is_nil(opened)
+        assert.equals("session revoked", err)
+      end)
+
+      it("subject mark: isolates caches for different revocation stores", function()
+        local conf = { revocation = st }
+        conf[st] = {
+          prefix = "other_revocations",
+          suffix = "other_revocation",
+          password = "password",
+        }
+        local other_store = assert(utils.load_storage(st, conf))
+        local other_conf = { revocation = other_store }
+
+        local s = session.new()
+        s:set_subject("test")
+        local session_cookie = save_session(s, {})
+        s:close()
+
+        local opened, err = open_session(session_cookie)
+        assert.is_not_nil(opened)
+        assert.is_nil(err)
+        opened:close()
+
+        assert.is_true(session.revoke_subject("test", long_ttl, other_conf))
+        opened, err = open_session(session_cookie)
+        assert.is_not_nil(opened)
+        assert.is_nil(err)
+        opened:close()
+
+        opened, err = open_session(session_cookie, other_conf)
+        other_store:delete(cookie_name, subject_mark_key("test"), time())
+        assert.is_nil(opened)
+        assert.equals("session revoked", err)
       end)
     end)
   end)
@@ -710,5 +834,261 @@ describe("Revocation tests 1 session: configuration", function()
 
     local s = session.new()
     assert.is_nil(s.revocation)
+  end)
+end)
+
+
+describe("session: revocation cache", function()
+  local cookie_name = "session_cookie"
+  local session_cookie
+  local cookies
+  local get_count
+  local set_count
+  local revoked
+  local store
+
+  local function open_session()
+    session.__set_ngx_var({
+      ["cookie_" .. cookie_name] = session_cookie,
+    })
+
+    local s = session.new()
+    local ok, err = s:open()
+    return s, ok, err
+  end
+
+  local function initialize(cache_ttl)
+    get_count = 0
+    set_count = 0
+    revoked = false
+    store = {
+      get = function()
+        get_count = get_count + 1
+        return revoked and "1" or nil
+      end,
+      set = function()
+        set_count = set_count + 1
+        revoked = true
+        return true
+      end,
+    }
+
+    session.init({
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = store,
+      revocation_cache_ttl = cache_ttl,
+    })
+
+    cookies = {}
+    session.__set_ngx_header(cookies)
+    local s = session.new()
+    s:set("test_key", "test_data")
+    local ok, err = s:save()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    session_cookie = extract_cookie(cookie_name, cookies["Set-Cookie"])
+    s:close()
+  end
+
+  before_each(function()
+    initialize(5)
+  end)
+
+  it("reuses a cached revocation lookup", function()
+    local s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    s:close()
+
+    s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    assert.equals(1, get_count)
+    s:close()
+  end)
+
+  it("updates the cache after revoking a session", function()
+    local s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+
+    session.__set_ngx_header(cookies)
+    ok, err = s:destroy()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    assert.equals(1, set_count)
+
+    local reopened
+    reopened, ok, err = open_session()
+    assert.is_nil(ok)
+    assert.equals("session revoked", err)
+    assert.equals(1, get_count)
+    reopened:close()
+  end)
+
+  it("queries the revocation store after the cache entry expires", function()
+    initialize(1)
+
+    local s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    s:close()
+
+    sleep(2)
+
+    s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    assert.equals(2, get_count)
+    s:close()
+  end)
+
+  it("can disable the revocation cache", function()
+    initialize(0)
+
+    local s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    s:close()
+
+    s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    assert.equals(2, get_count)
+    s:close()
+  end)
+
+  it("caches an open fail-mode result when the store is unreachable", function()
+    get_count = 0
+    store = {
+      get = function()
+        get_count = get_count + 1
+        return nil, "connection refused"
+      end,
+      set = function()
+        return true
+      end,
+    }
+
+    session.init({
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = store,
+      revocation_fail_mode = "open",
+      revocation_error_cache_ttl = 5,
+    })
+
+    local s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    s:close()
+
+    s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    assert.equals(1, get_count)
+    s:close()
+  end)
+
+  it("caches a closed fail-mode result when the store is unreachable", function()
+    get_count = 0
+    store = {
+      get = function()
+        get_count = get_count + 1
+        return nil, "connection refused"
+      end,
+      set = function()
+        return true
+      end,
+    }
+
+    session.init({
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = store,
+      revocation_fail_mode = "closed",
+      revocation_error_cache_ttl = 5,
+    })
+
+    local s, ok, err = open_session()
+    assert.is_nil(ok)
+    assert.matches("unable to check session revocation", err)
+    s:close()
+
+    s, ok, err = open_session()
+    assert.is_nil(ok)
+    assert.matches("unable to check session revocation", err)
+    assert.equals(1, get_count)
+    s:close()
+  end)
+
+  it("skips the revocation write when the lookup is already revoked", function()
+    local s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+
+    local other, ook, oerr = open_session()
+    assert.is_true(ook)
+    assert.is_nil(oerr)
+    assert.equals(1, get_count)
+
+    session.__set_ngx_header(cookies)
+    ok, err = s:destroy()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    assert.equals(1, set_count)
+
+    session.__set_ngx_header(cookies)
+    ook, oerr = other:destroy()
+    assert.is_true(ook)
+    assert.is_nil(oerr)
+    assert.equals(1, get_count)
+    assert.equals(1, set_count)
+  end)
+
+  it("caches a failed revocation write for later lookups", function()
+    get_count = 0
+    set_count = 0
+    store = {
+      get = function()
+        get_count = get_count + 1
+        return nil
+      end,
+      set = function()
+        set_count = set_count + 1
+        return nil, "connection refused"
+      end,
+    }
+
+    session.init({
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = store,
+      revocation_fail_mode = "closed",
+      revocation_error_cache_ttl = 5,
+    })
+
+    local s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+
+    session.__set_ngx_header(cookies)
+    ok, err = s:destroy()
+    assert.is_nil(ok)
+    assert.matches("unable to mark session revoked", err)
+    assert.equals(1, set_count)
+
+    ok, err = s:destroy()
+    assert.is_nil(ok)
+    assert.matches("unable to check session revocation", err)
+    assert.equals(1, set_count)
+
+    local reopened
+    reopened, ok, err = open_session()
+    assert.is_nil(ok)
+    assert.matches("unable to check session revocation", err)
+    assert.equals(1, get_count)
+    reopened:close()
   end)
 end)

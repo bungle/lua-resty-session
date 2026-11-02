@@ -11,6 +11,7 @@ local require = require
 
 
 local buffer = require "string.buffer"
+local lrucache = require "resty.lrucache"
 local utils = require "resty.session.utils"
 
 
@@ -150,6 +151,8 @@ local DEFAULT_RESPONSE_HEADERS
 local DEFAULT_STORAGE
 local DEFAULT_REVOCATION
 local DEFAULT_REVOCATION_FAIL_MODE
+local DEFAULT_REVOCATION_CACHE_TTL
+local DEFAULT_REVOCATION_ERROR_CACHE_TTL
 
 
 local DUMMY_META = {}
@@ -375,6 +378,22 @@ end
 
 
 local REVOCATION_MARK = "1"
+local REVOCATION_CACHE = assert(lrucache.new(1024))
+local REVOCATION_STORE_IDS = setmetatable({}, { __mode = "k" })
+local revocation_store_id = 0
+
+
+local function revocation_cache_key(self, cookie_name, key)
+  local store = self.revocation
+  local id = REVOCATION_STORE_IDS[store]
+  if not id then
+    revocation_store_id = revocation_store_id + 1
+    id = revocation_store_id
+    REVOCATION_STORE_IDS[store] = id
+  end
+
+  return id .. "\0" .. cookie_name .. "\0" .. key
+end
 
 
 local function handle_revocation_error(self, err, msg)
@@ -398,21 +417,49 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
     return nil, err
   end
 
+  local cache_ttl = self.revocation_cache_ttl
+  local error_cache_ttl = self.revocation_error_cache_ttl
+  local cache_key = revocation_cache_key(self, cookie_name, storage_key)
+  if cache_ttl > 0 or error_cache_ttl > 0 then
+    local cached = REVOCATION_CACHE:get(cache_key)
+    if cached == true or cached == false then
+      return cached, nil
+    end
+
+    if type(cached) == "number" then
+      return cached >= creation_time, nil
+    end
+
+    if cached then
+      return nil, cached
+    end
+  end
+
   local mark, err = revocation:get(cookie_name, storage_key, current_time)
   if err then
     local ok, rerr = handle_revocation_error(self, err, "unable to check session revocation")
     if not ok then
+      if error_cache_ttl > 0 then
+        REVOCATION_CACHE:set(cache_key, rerr, error_cache_ttl)
+      end
+
       return nil, rerr
     end
+
+    if error_cache_ttl > 0 then
+      REVOCATION_CACHE:set(cache_key, false, error_cache_ttl)
+    end
+
     return false, nil
   end
 
-  if mark == REVOCATION_MARK then
-    return true, nil
+  local revoked_at = tonumber(mark)
+  local cached = mark == REVOCATION_MARK or revoked_at or false
+  if cache_ttl > 0 then
+    REVOCATION_CACHE:set(cache_key, cached, cache_ttl)
   end
 
-  local revoked_at = tonumber(mark)
-  return revoked_at ~= nil and revoked_at >= creation_time, nil
+  return cached == true or (revoked_at ~= nil and revoked_at >= creation_time), nil
 end
 
 
@@ -464,10 +511,36 @@ local function mark_session_revoked(self, remember, meta)
   end
 
   local current_time = time()
+  local revoked, rerr = is_revoked(self, sid, cookie_name, current_time, meta.creation_time)
+  if rerr then
+    return nil, rerr
+  end
+
+  if revoked then
+    return true
+  end
+
+  local cache_key = revocation_cache_key(self, cookie_name, key)
   local ttl = get_store_ttl(self, remember, current_time, meta.creation_time, meta.rolling_offset)
   local ok, err = revocation:set(cookie_name, key, REVOCATION_MARK, ttl, current_time)
   if not ok then
+    local error_cache_ttl = self.revocation_error_cache_ttl
+    if error_cache_ttl > 0 then
+      local cached
+      if self.revocation_fail_mode == "open" then
+        cached = false
+      else
+        cached = errmsg(err, "unable to check session revocation")
+      end
+      REVOCATION_CACHE:set(cache_key, cached, error_cache_ttl)
+    end
+
     return handle_revocation_error(self, err, "unable to mark session revoked")
+  end
+
+  local cache_ttl = self.revocation_cache_ttl
+  if cache_ttl > 0 then
+    REVOCATION_CACHE:set(cache_key, true, cache_ttl)
   end
 
   return true
@@ -2519,6 +2592,8 @@ local session = {
 -- @field storage Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface (defaults to `nil`)
 -- @field revocation Storage used for cookie session revocation records, use `nil` or `false` to disable, `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, a custom storage module name, or a storage `table` with `set`/`get` methods (defaults to `nil`)
 -- @field revocation_fail_mode Behavior when the revocation store is unreachable, use `"open"` (treat as not revoked) or `"closed"` (reject the session) (defaults to `"open"`)
+-- @field revocation_cache_ttl Worker-local TTL for successful revocation lookups; `0` disables (defaults to `5`) (in seconds)
+-- @field revocation_error_cache_ttl Worker-local TTL for revocation store errors; `0` disables (defaults to `5`) (in seconds)
 -- @field dshm Configuration for dshm storage, e.g. `{ prefix = "sessions" }`
 -- @field file Configuration for file storage, e.g. `{ path = "/tmp", suffix = "session" }`
 -- @field memcached Configuration for memcached storage, e.g. `{ prefix = "sessions" }`
@@ -2652,6 +2727,12 @@ local function opt(configuration, name, default)
 
     elseif name == "revocation_fail_mode" then
       assert(value == "open" or value == "closed", "invalid revocation fail mode")
+
+    elseif name == "revocation_cache_ttl" then
+      assert(type(value) == "number" and value >= 0, "invalid revocation cache ttl")
+
+    elseif name == "revocation_error_cache_ttl" then
+      assert(type(value) == "number" and value >= 0, "invalid revocation error cache ttl")
     end
   end
 
@@ -2699,7 +2780,9 @@ function session.init(configuration)
   DEFAULT_RESPONSE_HEADERS          = opt(configuration, "response_headers")
   DEFAULT_STORAGE                   = opt(configuration, "storage")
   DEFAULT_REVOCATION                = opt(configuration, "revocation")
-  DEFAULT_REVOCATION_FAIL_MODE      = opt(configuration, "revocation_fail_mode", "open")
+  DEFAULT_REVOCATION_FAIL_MODE         = opt(configuration, "revocation_fail_mode", "open")
+  DEFAULT_REVOCATION_CACHE_TTL         = opt(configuration, "revocation_cache_ttl", 5)
+  DEFAULT_REVOCATION_ERROR_CACHE_TTL   = opt(configuration, "revocation_error_cache_ttl", 5)
 end
 
 ---
@@ -2757,7 +2840,9 @@ function session.new(configuration)
   local response_headers          = opt(configuration, "response_headers",          DEFAULT_RESPONSE_HEADERS)
   local storage                   = opt(configuration, "storage",                   DEFAULT_STORAGE)
   local revocation                = opt(configuration, "revocation",                DEFAULT_REVOCATION)
-  local revocation_fail_mode      = opt(configuration, "revocation_fail_mode",      DEFAULT_REVOCATION_FAIL_MODE)
+  local revocation_fail_mode        = opt(configuration, "revocation_fail_mode",        DEFAULT_REVOCATION_FAIL_MODE)
+  local revocation_cache_ttl        = opt(configuration, "revocation_cache_ttl",        DEFAULT_REVOCATION_CACHE_TTL)
+  local revocation_error_cache_ttl  = opt(configuration, "revocation_error_cache_ttl",  DEFAULT_REVOCATION_ERROR_CACHE_TTL)
 
   if storage then
     revocation = nil
@@ -2835,7 +2920,9 @@ function session.new(configuration)
     flags                     = flags,
     storage                   = storage,
     revocation                = revocation,
-    revocation_fail_mode      = revocation_fail_mode,
+    revocation_fail_mode           = revocation_fail_mode,
+    revocation_cache_ttl           = revocation_cache_ttl,
+    revocation_error_cache_ttl     = revocation_error_cache_ttl,
     ikm                       = ikm,
     ikm_fallbacks             = ikm_fallbacks,
     request_headers           = request_headers,
@@ -3024,6 +3111,13 @@ local function revoke(self, key, ttl)
   local ok, err = revocation:set(self.cookie_name, storage_key, tostring(current_time), ttl, current_time)
   if not ok then
     return nil, errmsg(err, "unable to revoke session key")
+  end
+
+  local cache_key = revocation_cache_key(self, self.cookie_name, storage_key)
+  REVOCATION_CACHE:delete(cache_key)
+  local cache_ttl = self.revocation_cache_ttl
+  if cache_ttl > 0 then
+    REVOCATION_CACHE:set(cache_key, current_time, min(cache_ttl, ttl))
   end
 
   return true
