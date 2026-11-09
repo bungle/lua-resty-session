@@ -378,6 +378,30 @@ local REVOCATION_MARK = "1"
 local REVOCATION_CACHE
 
 
+local function get_revocation_cache_key(cookie_name, key)
+  return cookie_name .. ":" .. key
+end
+
+
+local function revocation_cache_get(cookie_name, key)
+  local cache_key = get_revocation_cache_key(cookie_name, key)
+  local value = REVOCATION_CACHE:get(cache_key)
+  if value == true or value == false then
+    return value
+  end
+
+  if value then
+    return nil, value
+  end  
+end
+
+
+local function revocation_cache_set(cookie_name, key, value, ttl)
+  local cache_key = get_revocation_cache_key(cookie_name, key)
+  return REVOCATION_CACHE:set(cache_key, value, ttl)
+end
+
+
 local function handle_revocation_error(self, err, msg)
   if self.revocation_fail_mode == "open" then
     log(WARN, "[session] ", msg, ": ", err)
@@ -405,32 +429,31 @@ local function is_session_revoked(self, sid, cookie_name)
 
   local cache_ttl = self.revocation_cache_ttl
   local error_cache_ttl = self.revocation_error_cache_ttl
-  local cache_key = cookie_name .. "\0" .. key
   if cache_ttl > 0 or error_cache_ttl > 0 then
-    local cached = REVOCATION_CACHE:get(cache_key)
-    if cached == true or cached == false then
-      return cached, nil
+    local value, err = revocation_cache_get(cookie_name, key)
+    if err then
+      return nil, err
     end
-
-    if cached then
-      return nil, cached
+    
+    if value == true or value == false then
+      return value
     end
   end
 
   local current_time = time()
   local data, err = revocation:get(cookie_name, key, current_time)
   if err then
-    local ok, rerr = handle_revocation_error(self, err, "unable to check session revocation")
+    local ok, revocation_err = handle_revocation_error(self, err, "unable to check session revocation")
     if not ok then
       if error_cache_ttl > 0 then
-        REVOCATION_CACHE:set(cache_key, rerr, error_cache_ttl)
+        revocation_cache_set(cookie_name, key, revocation_err, error_cache_ttl)
       end
 
-      return nil, rerr
+      return nil, revocation_err
     end
 
     if error_cache_ttl > 0 then
-      REVOCATION_CACHE:set(cache_key, false, error_cache_ttl)
+      revocation_cache_set(cookie_name, key, false, error_cache_ttl)
     end
 
     return false, nil
@@ -438,7 +461,7 @@ local function is_session_revoked(self, sid, cookie_name)
 
   local revoked = data == REVOCATION_MARK
   if cache_ttl > 0 then
-    REVOCATION_CACHE:set(cache_key, revoked, cache_ttl)
+    revocation_cache_set(cookie_name, key, revoked, cache_ttl)
   end
 
   return revoked, nil
@@ -466,29 +489,29 @@ local function mark_session_revoked(self, remember, meta)
     return nil, herr
   end
 
-  local revoked, rerr = is_session_revoked(self, sid, cookie_name)
-  if rerr then
-    return nil, rerr
+  local revoked, revocation_err = is_session_revoked(self, sid, cookie_name)
+  if revocation_err then
+    return nil, revocation_err
   end
 
   if revoked then
     return true
   end
 
-  local cache_key = cookie_name .. "\0" .. key
   local current_time = time()
   local ttl = get_store_ttl(self, remember, current_time, meta.creation_time, meta.rolling_offset)
   local ok, err = revocation:set(cookie_name, key, REVOCATION_MARK, ttl, current_time)
   if not ok then
     local error_cache_ttl = self.revocation_error_cache_ttl
     if error_cache_ttl > 0 then
-      local cached
+      local value
       if self.revocation_fail_mode == "open" then
-        cached = false
+        value = false
       else
-        cached = errmsg(err, "unable to check session revocation")
+        value = errmsg(err, "unable to check session revocation")
       end
-      REVOCATION_CACHE:set(cache_key, cached, error_cache_ttl)
+      
+      revocation_cache_set(cookie_name, key, value, error_cache_ttl)
     end
 
     return handle_revocation_error(self, err, "unable to mark session revoked")
@@ -496,7 +519,7 @@ local function mark_session_revoked(self, remember, meta)
 
   local cache_ttl = self.revocation_cache_ttl
   if cache_ttl > 0 then
-    REVOCATION_CACHE:set(cache_key, true, cache_ttl)
+    revocation_cache_set(cookie_name, key, true, cache_ttl)
   end
 
   return true
