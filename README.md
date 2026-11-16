@@ -419,6 +419,23 @@ session:set_sid(id_token.sid)
 require("resty.session").revoke_sid(logout_token.sid, 86400)
 ```
 
+A cookie session that is saved gets a new session id each time (token renewal,
+rolling refresh), so revoking only the id being destroyed would leave the other
+cookies of the same login usable, including one an attacker refreshed before the
+logout. When revocation is enabled, a random lineage id is therefore generated
+the first time a session is saved and carried, encrypted, through every rotation.
+`session:destroy` revokes that lineage along with the session id, so every cookie
+that descends from the same login is rejected on `session:open`: the destroyed
+one, the ones it was rotated from, and the ones rotated from it afterwards. A
+login made after the logout starts a new lineage and is unaffected. The lineage
+mark is kept for a full rolling window from the logout, capped by the absolute
+timeout (`remember_*` equivalents for remember cookies), which is the longest
+any of those cookies could still be valid; after that they have expired
+naturally. Cookies issued before the lineage id existed have none, and are only
+revoked by their own session id. This costs one additional revocation lookup per
+cache miss, and a second mark written on destroy (`revocation_fail_mode` applies
+to it as it does to the session id mark).
+
 Use `revocation_fail_mode` to control behavior when the storage is unavailable:
 
 - `"open"` (default): log a warning and treat the session as not revoked.

@@ -904,7 +904,7 @@ describe("session: revocation cache", function()
     s, ok, err = open_session()
     assert.is_true(ok)
     assert.is_nil(err)
-    assert.equals(1, get_count)
+    assert.equals(2, get_count)
     s:close()
   end)
 
@@ -917,13 +917,13 @@ describe("session: revocation cache", function()
     ok, err = s:destroy()
     assert.is_true(ok)
     assert.is_nil(err)
-    assert.equals(1, set_count)
+    assert.equals(2, set_count)
 
     local reopened
     reopened, ok, err = open_session()
     assert.is_nil(ok)
     assert.equals("session revoked", err)
-    assert.equals(1, get_count)
+    assert.equals(2, get_count)
     reopened:close()
   end)
 
@@ -940,7 +940,7 @@ describe("session: revocation cache", function()
     s, ok, err = open_session()
     assert.is_true(ok)
     assert.is_nil(err)
-    assert.equals(2, get_count)
+    assert.equals(4, get_count)
     s:close()
   end)
 
@@ -955,7 +955,7 @@ describe("session: revocation cache", function()
     s, ok, err = open_session()
     assert.is_true(ok)
     assert.is_nil(err)
-    assert.equals(2, get_count)
+    assert.equals(4, get_count)
     s:close()
   end)
 
@@ -987,7 +987,7 @@ describe("session: revocation cache", function()
     s, ok, err = open_session()
     assert.is_true(ok)
     assert.is_nil(err)
-    assert.equals(1, get_count)
+    assert.equals(2, get_count)
     s:close()
   end)
 
@@ -1059,14 +1059,14 @@ describe("session: revocation cache", function()
     s, ok, err = open_session()
     assert.is_nil(ok)
     assert.matches("unable to check session revocation", err)
-    assert.equals(2, get_count)
+    assert.equals(3, get_count)
     s:close()
 
     -- each policy still caches its own interpretation of the error
     s, ok, err = open_session()
     assert.is_nil(ok)
     assert.matches("unable to check session revocation", err)
-    assert.equals(2, get_count)
+    assert.equals(3, get_count)
     s:close()
   end)
 
@@ -1106,7 +1106,7 @@ describe("session: revocation cache", function()
     s, ok, err = open_session()
     assert.is_true(ok)
     assert.is_nil(err)
-    assert.equals(2, get_count)
+    assert.equals(3, get_count)
     s:close()
   end)
 
@@ -1118,20 +1118,20 @@ describe("session: revocation cache", function()
     local other, ook, oerr = open_session()
     assert.is_true(ook)
     assert.is_nil(oerr)
-    assert.equals(1, get_count)
+    assert.equals(2, get_count)
 
     session.__set_ngx_header(cookies)
     ok, err = s:destroy()
     assert.is_true(ok)
     assert.is_nil(err)
-    assert.equals(1, set_count)
+    assert.equals(2, set_count)
 
     session.__set_ngx_header(cookies)
     ook, oerr = other:destroy()
     assert.is_true(ook)
     assert.is_nil(oerr)
-    assert.equals(1, get_count)
-    assert.equals(1, set_count)
+    assert.equals(2, get_count)
+    assert.equals(2, set_count)
   end)
 
   it("caches a failed revocation write for later lookups", function()
@@ -1175,7 +1175,207 @@ describe("session: revocation cache", function()
     reopened, ok, err = open_session()
     assert.is_nil(ok)
     assert.matches("unable to check session revocation", err)
-    assert.equals(1, get_count)
+    assert.equals(2, get_count)
     reopened:close()
+  end)
+end)
+
+
+describe("session: revocation lineage", function()
+  local cookie_name = "lineage_cookie"
+  local marks
+  local ttls
+  local fail_lineage_writes
+
+  local store = {
+    get = function(_, _, key)
+      return marks[key]
+    end,
+    set = function(_, _, key, value, ttl)
+      -- sid marks carry "1"; lineage marks carry the time they were written
+      if fail_lineage_writes and value ~= "1" then
+        return nil, "connection refused"
+      end
+      marks[key] = value
+      ttls[key] = ttl
+      return true
+    end,
+  }
+
+  local function initialize(fail_mode)
+    marks = {}
+    ttls = {}
+    fail_lineage_writes = false
+    session.init({
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = store,
+      revocation_fail_mode = fail_mode,
+      revocation_cache_ttl = 0,
+      revocation_error_cache_ttl = 0,
+    })
+  end
+
+  local function login()
+    local cookies = {}
+    session.__set_ngx_header(cookies)
+    local s = session.new()
+    s:set("test_key", "test_data")
+    local ok, err = s:save()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    return extract_cookie(cookie_name, cookies["Set-Cookie"])
+  end
+
+  local function open(cookie)
+    session.__set_ngx_var({
+      ["cookie_" .. cookie_name] = cookie,
+    })
+    local s = session.new()
+    local ok, err = s:open()
+    return s, ok, err
+  end
+
+  -- what a refresh does to a cookie: open it and save it under a new session id
+  local function rotate(cookie)
+    local s, ok, err = open(cookie)
+    assert.is_true(ok)
+    assert.is_nil(err)
+    local cookies = {}
+    session.__set_ngx_header(cookies)
+    ok, err = s:save()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    local rotated = extract_cookie(cookie_name, cookies["Set-Cookie"])
+    assert.not_equals(cookie, rotated)
+    return rotated
+  end
+
+  local function destroy(cookie)
+    local s, ok, err = open(cookie)
+    assert.is_true(ok)
+    assert.is_nil(err)
+    session.__set_ngx_header({})
+    return s:destroy()
+  end
+
+  it("revokes every cookie rotated from the same login, before and after the destroyed one", function()
+    initialize("closed")
+
+    local original = login()
+    local presented = rotate(original)
+    -- someone who has the original cookie refreshes it before the logout
+    local stolen_refresh = rotate(original)
+    local presented_again = rotate(presented)
+
+    for _, cookie in ipairs({ original, presented, stolen_refresh, presented_again }) do
+      local s, ok, err = open(cookie)
+      assert.is_true(ok)
+      assert.is_nil(err)
+      s:close()
+    end
+
+    local ok, err = destroy(presented)
+    assert.is_true(ok)
+    assert.is_nil(err)
+
+    for _, cookie in ipairs({ original, presented, stolen_refresh, presented_again }) do
+      local s, opened, oerr = open(cookie)
+      assert.is_nil(opened)
+      assert.equals("session revoked", oerr)
+      s:close()
+    end
+  end)
+
+  it("revokes cookies rotated from a revoked cookie after the logout", function()
+    initialize("closed")
+
+    local original = login()
+    local s, ok, err = open(original)
+    assert.is_true(ok)
+    assert.is_nil(err)
+
+    -- the attacker holds an open session while the user logs out
+    local cookies = {}
+    session.__set_ngx_header(cookies)
+    ok, err = destroy(rotate(original))
+    assert.is_true(ok)
+    assert.is_nil(err)
+
+    session.__set_ngx_header(cookies)
+    s:save()
+    local late = extract_cookie(cookie_name, cookies["Set-Cookie"])
+    local opened, oerr
+    s, opened, oerr = open(late)
+    assert.is_nil(opened)
+    assert.equals("session revoked", oerr)
+    s:close()
+  end)
+
+  it("keeps a new login after the logout usable", function()
+    initialize("closed")
+
+    local old = login()
+    local ok = destroy(old)
+    assert.is_true(ok)
+
+    local fresh = login()
+    local s, opened, err = open(fresh)
+    assert.is_true(opened)
+    assert.is_nil(err)
+    s:close()
+  end)
+
+  it("keeps the lineage mark for a full rolling window", function()
+    initialize("closed")
+
+    local ok = destroy(login())
+    assert.is_true(ok)
+
+    local lineage_ttl
+    for key, value in pairs(marks) do
+      if value ~= "1" then
+        lineage_ttl = ttls[key]
+      end
+    end
+
+    -- default rolling_timeout, shorter than what is left of the absolute timeout
+    assert.equals(3600, lineage_ttl)
+  end)
+
+  it("rejects the logout when the lineage mark cannot be written and the fail mode is closed", function()
+    initialize("closed")
+
+    local cookie = login()
+    fail_lineage_writes = true
+
+    local ok, err = destroy(cookie)
+    assert.is_nil(ok)
+    assert.matches("unable to mark session revoked", err)
+  end)
+
+  it("completes the logout when the lineage mark cannot be written and the fail mode is open", function()
+    initialize("open")
+
+    local cookie = login()
+    fail_lineage_writes = true
+
+    local ok, err = destroy(cookie)
+    assert.is_true(ok)
+    assert.is_nil(err)
+  end)
+
+  it("does not add a lineage id when revocation is disabled", function()
+    session.init({
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = false,
+    })
+
+    local cookie = login()
+    local s, ok = open(cookie)
+    assert.is_true(ok)
+    assert.is_nil(s.data[s.data_index][5])
+    s:close()
   end)
 end)
