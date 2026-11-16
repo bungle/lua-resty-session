@@ -52,6 +52,16 @@ describe("Testing utils", function()
 
       assert.same(decoded, input)
     end)
+
+    it("preserves empty arrays across decode then re-encode", function()
+      -- An empty JSON array must survive a decode + re-encode round-trip as
+      -- `[]`, not turn into `{}`. Without decode_array_with_array_mt the decoded
+      -- empty array loses its array metatable and is re-encoded as an object.
+      local decoded = utils.decode_json('{"items":[]}')
+      local reencoded = utils.encode_json(decoded)
+
+      assert.equals('{"items":[]}', reencoded)
+    end)
   end)
 
   describe("encode/decode base64url", function()
