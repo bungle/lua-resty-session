@@ -396,6 +396,29 @@ local function revocation_cache_key(self, cookie_name, key)
 end
 
 
+-- Store errors are interpreted through the fail mode (`false` when open, the
+-- error message when closed), so they live under a key per fail mode instead
+-- of the shared lookup key. Otherwise an error cached under one policy would be
+-- replayed under the other, e.g. a fail-open `false` read as "not revoked" by a
+-- fail-closed configuration. A fresh entry of either kind replaces the other.
+local function revocation_error_cache_key(cache_key, fail_mode)
+  return cache_key .. "\0error\0" .. fail_mode
+end
+
+
+local function revocation_cache_set(cache_key, value, ttl)
+  REVOCATION_CACHE:delete(revocation_error_cache_key(cache_key, "open"))
+  REVOCATION_CACHE:delete(revocation_error_cache_key(cache_key, "closed"))
+  return REVOCATION_CACHE:set(cache_key, value, ttl)
+end
+
+
+local function revocation_error_cache_set(self, cache_key, value, ttl)
+  REVOCATION_CACHE:delete(cache_key)
+  return REVOCATION_CACHE:set(revocation_error_cache_key(cache_key, self.revocation_fail_mode), value, ttl)
+end
+
+
 local function handle_revocation_error(self, err, msg)
   if self.revocation_fail_mode == "open" then
     log(WARN, "[session] ", msg, ": ", err)
@@ -430,6 +453,11 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
       return cached >= creation_time, nil
     end
 
+    cached = REVOCATION_CACHE:get(revocation_error_cache_key(cache_key, self.revocation_fail_mode))
+    if cached == false then
+      return false, nil
+    end
+
     if cached then
       return nil, cached
     end
@@ -440,14 +468,14 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
     local ok, rerr = handle_revocation_error(self, err, "unable to check session revocation")
     if not ok then
       if error_cache_ttl > 0 then
-        REVOCATION_CACHE:set(cache_key, rerr, error_cache_ttl)
+        revocation_error_cache_set(self, cache_key, rerr, error_cache_ttl)
       end
 
       return nil, rerr
     end
 
     if error_cache_ttl > 0 then
-      REVOCATION_CACHE:set(cache_key, false, error_cache_ttl)
+      revocation_error_cache_set(self, cache_key, false, error_cache_ttl)
     end
 
     return false, nil
@@ -456,7 +484,7 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
   local revoked_at = tonumber(mark)
   local cached = mark == REVOCATION_MARK or revoked_at or false
   if cache_ttl > 0 then
-    REVOCATION_CACHE:set(cache_key, cached, cache_ttl)
+    revocation_cache_set(cache_key, cached, cache_ttl)
   end
 
   return cached == true or (revoked_at ~= nil and revoked_at >= creation_time), nil
@@ -532,7 +560,7 @@ local function mark_session_revoked(self, remember, meta)
       else
         cached = errmsg(err, "unable to check session revocation")
       end
-      REVOCATION_CACHE:set(cache_key, cached, error_cache_ttl)
+      revocation_error_cache_set(self, cache_key, cached, error_cache_ttl)
     end
 
     return handle_revocation_error(self, err, "unable to mark session revoked")
@@ -540,7 +568,7 @@ local function mark_session_revoked(self, remember, meta)
 
   local cache_ttl = self.revocation_cache_ttl
   if cache_ttl > 0 then
-    REVOCATION_CACHE:set(cache_key, true, cache_ttl)
+    revocation_cache_set(cache_key, true, cache_ttl)
   end
 
   return true
@@ -3115,9 +3143,11 @@ local function revoke(self, key, ttl)
 
   local cache_key = revocation_cache_key(self, self.cookie_name, storage_key)
   REVOCATION_CACHE:delete(cache_key)
+  REVOCATION_CACHE:delete(revocation_error_cache_key(cache_key, "open"))
+  REVOCATION_CACHE:delete(revocation_error_cache_key(cache_key, "closed"))
   local cache_ttl = self.revocation_cache_ttl
   if cache_ttl > 0 then
-    REVOCATION_CACHE:set(cache_key, current_time, min(cache_ttl, ttl))
+    revocation_cache_set(cache_key, current_time, min(cache_ttl, ttl))
   end
 
   return true

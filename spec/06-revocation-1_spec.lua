@@ -1023,6 +1023,93 @@ describe("session: revocation cache", function()
     s:close()
   end)
 
+  it("does not reuse a cached open fail-mode error under a closed fail mode", function()
+    get_count = 0
+    store = {
+      get = function()
+        get_count = get_count + 1
+        return nil, "connection refused"
+      end,
+      set = function()
+        return true
+      end,
+    }
+
+    session.init({
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = store,
+      revocation_fail_mode = "open",
+      revocation_error_cache_ttl = 5,
+    })
+
+    local s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    s:close()
+
+    session.init({
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = store,
+      revocation_fail_mode = "closed",
+      revocation_error_cache_ttl = 5,
+    })
+
+    s, ok, err = open_session()
+    assert.is_nil(ok)
+    assert.matches("unable to check session revocation", err)
+    assert.equals(2, get_count)
+    s:close()
+
+    -- each policy still caches its own interpretation of the error
+    s, ok, err = open_session()
+    assert.is_nil(ok)
+    assert.matches("unable to check session revocation", err)
+    assert.equals(2, get_count)
+    s:close()
+  end)
+
+  it("does not reuse a cached closed fail-mode error under an open fail mode", function()
+    get_count = 0
+    store = {
+      get = function()
+        get_count = get_count + 1
+        return nil, "connection refused"
+      end,
+      set = function()
+        return true
+      end,
+    }
+
+    session.init({
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = store,
+      revocation_fail_mode = "closed",
+      revocation_error_cache_ttl = 5,
+    })
+
+    local s, ok, err = open_session()
+    assert.is_nil(ok)
+    assert.matches("unable to check session revocation", err)
+    s:close()
+
+    session.init({
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = store,
+      revocation_fail_mode = "open",
+      revocation_error_cache_ttl = 5,
+    })
+
+    s, ok, err = open_session()
+    assert.is_true(ok)
+    assert.is_nil(err)
+    assert.equals(2, get_count)
+    s:close()
+  end)
+
   it("skips the revocation write when the lookup is already revoked", function()
     local s, ok, err = open_session()
     assert.is_true(ok)
