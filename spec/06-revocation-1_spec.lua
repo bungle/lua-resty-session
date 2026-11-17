@@ -1376,8 +1376,9 @@ describe("session: revocation lineage", function()
       end
     end
 
-    -- default rolling_timeout, shorter than what is left of the absolute timeout
-    assert.equals(3600, lineage_ttl)
+    -- a full default rolling window plus the stale ttl, shorter than what is left
+    -- of the absolute timeout: a cookie saved right before the logout is covered
+    assert.equals(3600 + 10, lineage_ttl)
   end)
 
   it("rejects the logout when the lineage mark cannot be written and the fail mode is closed", function()

@@ -431,9 +431,11 @@ the first time a session is saved and carried, encrypted, through every rotation
 that descends from the same login is rejected on `session:open`: the destroyed
 one, the ones it was rotated from, and the ones rotated from it afterwards. A
 login made after the logout starts a new lineage and is unaffected. The lineage
-mark is kept for a full rolling window from the logout, capped by the absolute
-timeout (`remember_*` equivalents for remember cookies), which is the longest
-any of those cookies could still be valid; after that they have expired
+mark is kept for a full rolling window from the logout plus `stale_ttl`, capped
+by the absolute timeout (the longer `remember_*` windows when a remember cookie
+is used). A cookie saved right before the logout has a full rolling window of its
+own, and a request that was already running may still save one right after it,
+so the mark has to outlive both; after that all those cookies have expired
 naturally. Cookies issued before the lineage id existed have none, and are only
 revoked by their own session id. This costs one additional revocation lookup per
 cache miss, and a second mark written on destroy (`revocation_fail_mode` applies

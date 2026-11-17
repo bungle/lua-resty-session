@@ -84,17 +84,24 @@ local IDLING_OFFSET_SIZE  = 3  -- 66
 local MAC_SIZE            = 16 -- 82
 
 
--- Positions in an entry of the session payload: `session.data` holds one entry
--- per audience.
-local ENTRY_DATA     = 1 -- the values set with `session:set`
-local ENTRY_AUDIENCE = 2
-local ENTRY_SUBJECT  = 3
-local ENTRY_SID      = 4 -- identity provider session id, see `session:set_sid`
-local ENTRY_LINEAGE  = 5 -- stays the same through every rotation of the cookie
+-- `session.data` holds one entry per audience: the values, the audience, the
+-- subject and the identity provider session id, followed by the lineage id. The
+-- lineage id stays the same through every rotation of the cookie.
+local ENTRY_LINEAGE = 5
 
 -- As big as the session id: a lineage id only has to be unique, and the cookie
 -- already carries ids of this size.
-local LINEAGE_SIZE   = SID_SIZE
+local LINEAGE_SIZE  = SID_SIZE
+
+
+local function get_lineage(entry)
+  return entry[ENTRY_LINEAGE]
+end
+
+
+local function set_lineage(entry, lineage)
+  entry[ENTRY_LINEAGE] = lineage
+end
 
 local HEADER_TAG_SIZE = COOKIE_TYPE_SIZE + FLAGS_SIZE + SID_SIZE + CREATION_TIME_SIZE + ROLLING_OFFSET_SIZE + DATA_SIZE
 local HEADER_TOUCH_SIZE = HEADER_TAG_SIZE + TAG_SIZE
@@ -402,28 +409,30 @@ local revocation_store_id = 0
 local REVOCATION_CONFIG_IDS = setmetatable({}, { __mode = "k" })
 
 
-local function fingerprint(value, depth)
-  if type(value) ~= "table" or depth > 4 then
-    return tostring(value)
-  end
+-- A string that is the same for configurations with the same contents. Nested
+-- tables are walked with a stack of tables still to visit, and every value is
+-- recorded under the path that leads to it.
+local function fingerprint(config)
+  local leaves = {}
+  local visited = { [config] = true }
+  local pending = { { prefix = "", value = config } }
 
-  local keys = {}
-  for k in pairs(value) do
-    keys[#keys + 1] = tostring(k)
-  end
-  sort(keys)
+  while #pending > 0 do
+    local item = remove(pending)
+    for key, value in pairs(item.value) do
+      local path = item.prefix .. tostring(key)
+      if type(value) == "table" and not visited[value] then
+        visited[value] = true
+        pending[#pending + 1] = { prefix = path .. ".", value = value }
 
-  local parts = {}
-  for i = 1, #keys do
-    local k = keys[i]
-    local v = value[k]
-    if v == nil then
-      v = value[tonumber(k)]
+      else
+        leaves[#leaves + 1] = path .. "=" .. tostring(value)
+      end
     end
-    parts[i] = k .. "=" .. fingerprint(v, depth + 1)
   end
 
-  return "{" .. concat(parts, ",") .. "}"
+  sort(leaves)
+  return concat(leaves, ",")
 end
 
 
@@ -439,7 +448,7 @@ local function get_revocation_id(name, configuration)
 
   local id = REVOCATION_CONFIG_IDS[backend_config]
   if not id then
-    id = name .. "\0" .. fingerprint(backend_config, 0)
+    id = name .. "\0" .. fingerprint(backend_config)
     REVOCATION_CONFIG_IDS[backend_config] = id
   end
 
@@ -700,7 +709,7 @@ local function get_lineages(self)
   local lineages = {}
   local seen = {}
   for i = 1, #self.data do
-    local lineage = self.data[i][ENTRY_LINEAGE]
+    local lineage = get_lineage(self.data[i])
     if lineage and not seen[lineage] then
       seen[lineage] = true
       lineages[#lineages + 1] = lineage
@@ -711,9 +720,25 @@ local function get_lineages(self)
 end
 
 
--- Revoke every cookie of a lineage, unless that was already done. The mark has
--- to outlive the longest any of them can still be valid by itself.
-local function revoke_lineage(self, lineage, remember, meta)
+-- How long a lineage mark has to be kept: until the last cookie of the lineage
+-- can no longer be valid by itself. A cookie of the lineage may have been saved
+-- right before the logout, so that is a full rolling window from now, not what
+-- is left of the window of the cookie being destroyed; and a request that was
+-- already running may still save one right after it, hence the stale ttl on top.
+-- The absolute timeout caps it, as all the cookies of a login share it. A
+-- session with a remember cookie keeps the marks for the longer remember windows.
+local function get_lineage_ttl(self, current_time, creation_time)
+  local ttl = get_store_ttl(self, false, current_time, creation_time)
+  if self.remember or self.remember_meta then
+    ttl = max(ttl, get_store_ttl(self, true, current_time, creation_time))
+  end
+
+  return ttl + self.stale_ttl
+end
+
+
+-- Revoke every cookie of a lineage, unless that was already done.
+local function revoke_lineage(self, lineage, meta)
   local key = lineage_revocation_key(lineage)
   local current_time = time()
   local revoked, err = is_revoked(self, key, self.cookie_name, current_time, meta.creation_time)
@@ -725,7 +750,7 @@ local function revoke_lineage(self, lineage, remember, meta)
     return true
   end
 
-  local ttl = get_store_ttl(self, remember, current_time, meta.creation_time)
+  local ttl = get_lineage_ttl(self, current_time, meta.creation_time)
   local ok, werr = write_revocation_mark(self, key, ttl, "unable to mark session revoked")
   if not ok then
     if self.revocation_fail_mode ~= "open" then
@@ -754,7 +779,7 @@ local function mark_session_revoked(self, remember, meta)
   end
 
   for _, lineage in ipairs(get_lineages(self)) do
-    ok, err = revoke_lineage(self, lineage, remember, meta)
+    ok, err = revoke_lineage(self, lineage, meta)
     if not ok then
       return nil, err
     end
@@ -772,8 +797,8 @@ local function get_store_metadata(self)
   local data = self.data
   local count = #data
   if count == 1 then
-    local audience = data[1][ENTRY_AUDIENCE]
-    local subject = data[1][ENTRY_SUBJECT]
+    local audience = data[1][2]
+    local subject = data[1][3]
     if audience and subject then
       audience = encode_base64url(audience)
       subject = self.hash_subject(subject)
@@ -790,8 +815,8 @@ local function get_store_metadata(self)
   local subjects
   local index = 0
   for i = 1, count do
-    local audience = data[i][ENTRY_AUDIENCE]
-    local subject = data[i][ENTRY_SUBJECT]
+    local audience = data[i][2]
+    local subject = data[i][3]
     if audience and subject then
       audience = encode_base64url(audience)
       self.hash_subject(subject)
@@ -830,10 +855,10 @@ local function get_property(self, name)
     return self.meta.sid
 
   elseif name == "audience" then
-    return self.data[self.data_index][ENTRY_AUDIENCE]
+    return self.data[self.data_index][2]
 
   elseif name == "subject" then
-    return self.data[self.data_index][ENTRY_SUBJECT]
+    return self.data[self.data_index][3]
 
   elseif name == "timeout" then
     local timeout
@@ -1116,7 +1141,7 @@ local function open(self, remember, meta_only)
   end
 
   local data_index = self.data_index
-  local audience = self.data[data_index][ENTRY_AUDIENCE]
+  local audience = self.data[data_index][2]
   local initial_chunk, ciphertext, ciphertext_encoded, info_data do
     if storage then
       local key, err = self.hash_storage_key(sid)
@@ -1258,17 +1283,17 @@ local function open(self, remember, meta_only)
   local count = #data
   for i = 1, count do
     -- cjson decodes the JSON null of a missing subject or sid as userdata
-    if type(data[i][ENTRY_SUBJECT]) == "userdata" then
-      data[i][ENTRY_SUBJECT] = nil
+    if type(data[i][3]) == "userdata" then
+      data[i][3] = nil
     end
-    if type(data[i][ENTRY_SID]) == "userdata" then
-      data[i][ENTRY_SID] = nil
+    if type(data[i][4]) == "userdata" then
+      data[i][4] = nil
     end
-    if type(data[i][ENTRY_LINEAGE]) == "userdata" then
-      data[i][ENTRY_LINEAGE] = nil
+    if type(get_lineage(data[i])) == "userdata" then
+      set_lineage(data[i], nil)
     end
 
-    if not audience_index and data[i][ENTRY_AUDIENCE] == audience then
+    if not audience_index and data[i][2] == audience then
       audience_index = i
     end
   end
@@ -1276,7 +1301,7 @@ local function open(self, remember, meta_only)
   if self.revocation then
     for i = 1, count do
       if remember or i == audience_index then
-        local revoked, err = is_revoked_by(self, data[i][ENTRY_SUBJECT], data[i][ENTRY_SID], data[i][ENTRY_LINEAGE], current_time, creation_time)
+        local revoked, err = is_revoked_by(self, data[i][3], data[i][4], get_lineage(data[i]), current_time, creation_time)
         if err then
           return nil, err
         end
@@ -1313,7 +1338,7 @@ end
 -- it along.
 local function ensure_lineage(self)
   local entry = self.data[self.data_index]
-  if entry[ENTRY_LINEAGE] then
+  if get_lineage(entry) then
     return true
   end
 
@@ -1322,7 +1347,7 @@ local function ensure_lineage(self)
     return nil, errmsg(err, "unable to generate session lineage id")
   end
 
-  entry[ENTRY_LINEAGE] = encode_base64url(lineage)
+  set_lineage(entry, encode_base64url(lineage))
   return true
 end
 
@@ -1392,9 +1417,9 @@ local function save(self, state, remember)
     if self.enforce_same_subject then
       local count = #data
       if count > 1 then
-        local subject = data[self.data_index][ENTRY_SUBJECT]
+        local subject = data[self.data_index][3]
         for i = count, 1, -1 do
-          if data[i][ENTRY_SUBJECT] ~= subject then
+          if data[i][3] ~= subject then
             remove(data, i)
           end
         end
@@ -1960,14 +1985,14 @@ local fake_info_mt = {}
 function fake_info_mt:set(key, value)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
-  session.data[session.data_index][ENTRY_DATA]["@" .. key] = value
+  session.data[session.data_index][1]["@" .. key] = value
 end
 
 
 function fake_info_mt:get(key)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to get session info on closed session")
-  return session.data[session.data_index][ENTRY_DATA]["@" .. key]
+  return session.data[session.data_index][1]["@" .. key]
 end
 
 
@@ -2010,7 +2035,7 @@ info_mt.__index = info_mt
 function info_mt:set(key, value)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
-  local audience = session.data[session.data_index][ENTRY_AUDIENCE]
+  local audience = session.data[session.data_index][2]
   local data = self.data
   if data then
     if data[audience] then
@@ -2046,7 +2071,7 @@ function info_mt:get(key)
     return
   end
 
-  local audience = session.data[session.data_index][ENTRY_AUDIENCE]
+  local audience = session.data[session.data_index][2]
   data = self.data[audience]
   if not data then
     return
@@ -2146,7 +2171,7 @@ end
 function metatable:set_data(data)
   assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
   assert(type(data) == "table", "invalid session data")
-  self.data[self.data_index][ENTRY_DATA] = data
+  self.data[self.data_index][1] = data
 end
 
 
@@ -2164,7 +2189,7 @@ end
 -- end
 function metatable:get_data()
   assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
-  return self.data[self.data_index][ENTRY_DATA]
+  return self.data[self.data_index][1]
 end
 
 
@@ -2183,9 +2208,9 @@ end
 function metatable:set(key, value)
   assert(self.state ~= STATE_CLOSED, "unable to set session data value on closed session")
   if self.storage or byte(key, 1) ~= AT_BYTE then
-    self.data[self.data_index][ENTRY_DATA][key] = value
+    self.data[self.data_index][1][key] = value
   else
-    self.data[self.data_index][ENTRY_DATA]["$" .. key] = value
+    self.data[self.data_index][1]["$" .. key] = value
   end
 end
 
@@ -2206,9 +2231,9 @@ end
 function metatable:get(key)
   assert(self.state ~= STATE_CLOSED, "unable to get session data value on closed session")
   if self.storage or byte(key, 1) ~= AT_BYTE then
-    return self.data[self.data_index][ENTRY_DATA][key]
+    return self.data[self.data_index][1][key]
   else
-    return self.data[self.data_index][ENTRY_DATA]["$" .. key]
+    return self.data[self.data_index][1]["$" .. key]
   end
 end
 
@@ -2227,7 +2252,7 @@ function metatable:set_audience(audience)
 
   local data = self.data
   local data_index = self.data_index
-  local current_audience = data[data_index][ENTRY_AUDIENCE]
+  local current_audience = data[data_index][2]
   if audience == current_audience then
     return
   end
@@ -2240,19 +2265,19 @@ function metatable:set_audience(audience)
 
   local count = #data
   if count == 1 then
-    data[1][ENTRY_AUDIENCE] = audience
+    data[1][2] = audience
     return
   end
 
   local previous_index
   for i = 1, count do
-    if data[i][ENTRY_AUDIENCE] == audience then
+    if data[i][2] == audience then
       previous_index = i
       break
     end
   end
 
-  data[data_index][ENTRY_AUDIENCE] = audience
+  data[data_index][2] = audience
 
   if not previous_index or previous_index == data_index then
     return
@@ -2273,7 +2298,7 @@ end
 -- @treturn string audience
 function metatable:get_audience()
   assert(self.state ~= STATE_CLOSED, "unable to get audience on closed session")
-  return self.data[self.data_index][ENTRY_AUDIENCE]
+  return self.data[self.data_index][2]
 end
 
 
@@ -2288,7 +2313,7 @@ end
 -- session.set_subject("john@doe.com")
 function metatable:set_subject(subject)
   assert(self.state ~= STATE_CLOSED, "unable to set subject on closed session")
-  self.data[self.data_index][ENTRY_SUBJECT] = subject
+  self.data[self.data_index][3] = subject
 end
 
 
@@ -2305,7 +2330,7 @@ end
 -- end
 function metatable:get_subject()
   assert(self.state ~= STATE_CLOSED, "unable to get subject on closed session")
-  return self.data[self.data_index][ENTRY_SUBJECT]
+  return self.data[self.data_index][3]
 end
 
 
@@ -2324,7 +2349,7 @@ end
 function metatable:set_sid(sid)
   assert(self.state ~= STATE_CLOSED, "unable to set sid on closed session")
   assert(sid == nil or type(sid) == "string", "invalid sid")
-  self.data[self.data_index][ENTRY_SID] = sid
+  self.data[self.data_index][4] = sid
 end
 
 
@@ -2341,7 +2366,7 @@ end
 -- end
 function metatable:get_sid()
   assert(self.state ~= STATE_CLOSED, "unable to get sid on closed session")
-  return self.data[self.data_index][ENTRY_SID]
+  return self.data[self.data_index][4]
 end
 
 
@@ -2603,7 +2628,7 @@ function metatable:logout()
   local info_store = self.info
   local info_data = info_store and info_store.data
   if info_data then
-    local audience = data[data_index][ENTRY_AUDIENCE]
+    local audience = data[data_index][2]
     info_data[audience] = nil
     if table_is_empty(info_data) then
       info_store.data = false
