@@ -1287,6 +1287,43 @@ describe("session: revocation lineage", function()
     end
   end)
 
+  it("revokes the whole lineage whichever cookie of it is presented at logout", function()
+    -- a chain of rotations plus a fork made from the original cookie
+    local names = { "original", "rotated", "rotated again", "forked from original" }
+
+    for logout_index = 1, #names do
+      initialize("closed")
+
+      local original = login()
+      local rotated = rotate(original)
+      local cookies = {
+        original,
+        rotated,
+        rotate(rotated),
+        rotate(original),
+      }
+
+      local ok, err = destroy(cookies[logout_index])
+      assert.is_true(ok, "logout with the " .. names[logout_index] .. " cookie")
+      assert.is_nil(err)
+
+      for index, cookie in ipairs(cookies) do
+        local s, opened, oerr = open(cookie)
+        assert.is_nil(opened, names[index] .. " cookie after logout with the "
+                              .. names[logout_index] .. " cookie")
+        assert.equals("session revoked", oerr)
+        s:close()
+      end
+
+      -- a different login is not part of the lineage
+      local other = login()
+      local s, opened, oerr = open(other)
+      assert.is_true(opened)
+      assert.is_nil(oerr)
+      s:close()
+    end
+  end)
+
   it("revokes cookies rotated from a revoked cookie after the logout", function()
     initialize("closed")
 
