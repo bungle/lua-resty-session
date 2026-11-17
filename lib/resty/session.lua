@@ -693,6 +693,56 @@ end
 -- refreshed a cookie). The mark has to outlive the longest any such cookie can
 -- still be valid naturally, which is a full rolling window from now (a sibling
 -- may have been saved just before the logout) capped by the absolute timeout.
+
+
+-- The lineage ids of the audiences in the session, without duplicates.
+local function get_lineages(self)
+  local lineages = {}
+  local seen = {}
+  for i = 1, #self.data do
+    local lineage = self.data[i][ENTRY_LINEAGE]
+    if lineage and not seen[lineage] then
+      seen[lineage] = true
+      lineages[#lineages + 1] = lineage
+    end
+  end
+
+  return lineages
+end
+
+
+-- Revoke every cookie of a lineage, unless that was already done. The mark has
+-- to outlive the longest any of them can still be valid by itself.
+local function revoke_lineage(self, lineage, remember, meta)
+  local key = lineage_revocation_key(lineage)
+  local current_time = time()
+  local revoked, err = is_revoked(self, key, self.cookie_name, current_time, meta.creation_time)
+  if err then
+    return nil, err
+  end
+
+  if revoked then
+    return true
+  end
+
+  local ttl = get_store_ttl(self, remember, current_time, meta.creation_time)
+  local ok, werr = write_revocation_mark(self, key, ttl, "unable to mark session revoked")
+  if not ok then
+    if self.revocation_fail_mode ~= "open" then
+      return nil, werr
+    end
+
+    log(WARN, "[session] ", werr)
+  end
+
+  return true
+end
+
+
+-- Logging out revokes the session id, and the lineage of the session, i.e. every
+-- cookie that descends from the same login: the one being destroyed, the ones it
+-- was rotated from, and the ones rotated from it (e.g. by someone who stole and
+-- refreshed a cookie).
 local function mark_session_revoked(self, remember, meta)
   local ok, err = mark_sid_revoked(self, remember, meta)
   if not ok then
@@ -703,31 +753,10 @@ local function mark_session_revoked(self, remember, meta)
     return true
   end
 
-  local data = self.data
-  local ttl
-  local seen = {}
-  for i = 1, #data do
-    local lineage = data[i][ENTRY_LINEAGE]
-    if lineage and not seen[lineage] then
-      seen[lineage] = true
-      local key = lineage_revocation_key(lineage)
-      local current_time = time()
-      local revoked, rerr = is_revoked(self, key, self.cookie_name, current_time, meta.creation_time)
-      if rerr then
-        return nil, rerr
-      end
-
-      if not revoked then
-        ttl = ttl or get_store_ttl(self, remember, current_time, meta.creation_time)
-        local ok, err = write_revocation_mark(self, key, ttl, "unable to mark session revoked")
-        if not ok then
-          if self.revocation_fail_mode ~= "open" then
-            return nil, err
-          end
-
-          log(WARN, "[session] ", err)
-        end
-      end
+  for _, lineage in ipairs(get_lineages(self)) do
+    ok, err = revoke_lineage(self, lineage, remember, meta)
+    if not ok then
+      return nil, err
     end
   end
 
@@ -1279,6 +1308,25 @@ local function open(self, remember, meta_only)
 end
 
 
+-- Give the audience the session is using a lineage id if it has none yet. It is
+-- generated once, on the first save, and every later save of the session carries
+-- it along.
+local function ensure_lineage(self)
+  local entry = self.data[self.data_index]
+  if entry[ENTRY_LINEAGE] then
+    return true
+  end
+
+  local lineage, err = rand_bytes(LINEAGE_SIZE)
+  if not lineage then
+    return nil, errmsg(err, "unable to generate session lineage id")
+  end
+
+  entry[ENTRY_LINEAGE] = encode_base64url(lineage)
+  return true
+end
+
+
 local function save(self, state, remember)
   local cookie_name
   local meta
@@ -1334,13 +1382,11 @@ local function save(self, state, remember)
 
   local data, data_size, cookie_chunks do
     data = self.data
-    if self.revocation and not storage and not data[self.data_index][ENTRY_LINEAGE] then
-      local lineage, lerr = rand_bytes(LINEAGE_SIZE)
-      if not lineage then
-        return nil, errmsg(lerr, "unable to generate session lineage id")
+    if self.revocation and not storage then
+      local ok, lerr = ensure_lineage(self)
+      if not ok then
+        return nil, lerr
       end
-
-      data[self.data_index][ENTRY_LINEAGE] = encode_base64url(lineage)
     end
 
     if self.enforce_same_subject then
