@@ -1412,6 +1412,7 @@ describe("session: revocation lineage", function()
     local cookie = login()
     local s, ok = open(cookie)
     assert.is_true(ok)
+    -- the lineage id is the fifth field of the payload entry
     assert.is_nil(s.data[s.data_index][5])
     s:close()
   end)
