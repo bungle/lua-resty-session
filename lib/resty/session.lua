@@ -2839,7 +2839,7 @@ local session = {
 -- @field revocation Storage used for cookie session revocation records, use `nil` or `false` to disable, `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, a custom storage module name, or a storage `table` with `set`/`get` methods (defaults to `nil`)
 -- @field revocation_fail_mode Behavior when the revocation store is unreachable, use `"open"` (treat as not revoked) or `"closed"` (reject the session) (defaults to `"open"`)
 -- @field revocation_cache_ttl Worker-local TTL for successful revocation lookups; `0` disables (defaults to `5`) (in seconds)
--- @field revocation_error_cache_ttl Worker-local TTL for revocation store errors; `0` disables (defaults to `5`) (in seconds)
+-- @field revocation_error_cache_ttl Worker-local TTL for revocation store errors, kept per `revocation_fail_mode`; `0` disables (defaults to `5`) (in seconds)
 -- @field dshm Configuration for dshm storage, e.g. `{ prefix = "sessions" }`
 -- @field file Configuration for file storage, e.g. `{ path = "/tmp", suffix = "session" }`
 -- @field memcached Configuration for memcached storage, e.g. `{ prefix = "sessions" }`
