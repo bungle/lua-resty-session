@@ -1379,3 +1379,74 @@ describe("session: revocation lineage", function()
     s:close()
   end)
 end)
+
+
+describe("session: revocation cache with a named backend", function()
+  local cookie_name = "named_backend_cookie"
+  local gets
+
+  before_each(function()
+    gets = 0
+    -- a named backend is instantiated again by every session.new
+    package.loaded["counting-revocation"] = {
+      new = function()
+        return {
+          get = function()
+            gets = gets + 1
+          end,
+          set = function()
+            return true
+          end,
+        }
+      end,
+    }
+    session.init({ cookie_name = cookie_name, storage = "cookie" })
+  end)
+
+  local function configuration(host)
+    return {
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = "counting-revocation",
+      ["counting-revocation"] = { host = host },
+    }
+  end
+
+  local function login(host)
+    local cookies = {}
+    session.__set_ngx_header(cookies)
+    local s = session.new(configuration(host))
+    s:set("test_key", "test_data")
+    assert.is_true(s:save())
+    return extract_cookie(cookie_name, cookies["Set-Cookie"])
+  end
+
+  local function open(cookie, host)
+    session.__set_ngx_var({ ["cookie_" .. cookie_name] = cookie })
+    local s = session.new(configuration(host))
+    local ok, err = s:open()
+    s:close()
+    return ok, err
+  end
+
+  it("shares cache entries between sessions that use the same backend configuration", function()
+    local cookie = login("redis-a")
+
+    for _ = 1, 3 do
+      assert.is_true(open(cookie, "redis-a"))
+    end
+
+    -- the session id and its lineage are each looked up once
+    assert.equals(2, gets)
+  end)
+
+  it("does not share cache entries between different backend configurations", function()
+    local cookie = login("redis-a")
+
+    assert.is_true(open(cookie, "redis-a"))
+    assert.equals(2, gets)
+
+    assert.is_true(open(cookie, "redis-b"))
+    assert.equals(4, gets)
+  end)
+end)
