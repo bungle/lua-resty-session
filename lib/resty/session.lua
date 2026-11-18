@@ -1393,6 +1393,11 @@ local function open(self, remember, meta_only)
   local audience_index
   local count = #data
   for i = 1, count do
+    -- Decoding with `decode_array_with_array_mt` gives the entry a metatable that
+    -- makes cjson encode it up to its length, and clearing the nulls of a missing
+    -- subject or sid below leaves holes in it, which would cut off the lineage id.
+    setmetatable(data[i], nil)
+
     -- cjson decodes the JSON null of a missing subject or sid as userdata
     if type(entry.get_subject(data[i])) == "userdata" then
       entry.set_subject(data[i], nil)

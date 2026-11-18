@@ -11,6 +11,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
 - feat(*): `$session_revocation_cache_size` nginx variable to size the revocation cache
 
 ### Fixed
+- fix(*): the lineage id is no longer dropped when cjson is set to decode arrays with `array_mt`, as OpenResty applications such as APISIX do
 - fix(*): revocation store errors are cached per `revocation_fail_mode`, so a fail-open result is never replayed to a fail-closed configuration
 - fix(*): a revocation storage given by name is identified by its configuration table, so sessions given the same table share cache entries
 - fix(*): a revocation lookup that overlaps a revocation write no longer caches a stale result
