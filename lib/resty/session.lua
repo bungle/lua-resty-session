@@ -505,7 +505,8 @@ local REVOCATION_CACHE
 
 -- The cache is shared by every session of a worker, so its size is not a
 -- session option. It is read once per worker, on first use, from the nginx
--- variable `$session_revocation_cache_size` (e.g. `set $session_revocation_cache_size 4096;`).
+-- variable `$session_revocation_cache_size`, 1024 when it is not set. Define it
+-- where every request sees it, for example with a `map` in the http block.
 local function revocation_cache()
   if not REVOCATION_CACHE then
     local size = DEFAULT_REVOCATION_CACHE_SIZE
