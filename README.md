@@ -379,10 +379,6 @@ that, set the nginx variable `$session_revocation_cache_size` (e.g.
 `set $session_revocation_cache_size 4096;`). Each worker reads it once, on first
 use, so changing it needs a reload. Invalid values are ignored with a warning.
 
-When `revocation_fail_mode` is `"closed"` and the store is unavailable, session
-functions return an error. `session.is_revocation_error(err)` tells such an error
-from an invalid session, so a caller can answer with a retryable failure.
-
 `session:destroy` (including a last-audience `session:logout`) runs the same
 cached lookup first. A cached `true` means the identifier is already revoked
 and no store write is made, and a cached error is returned without contacting

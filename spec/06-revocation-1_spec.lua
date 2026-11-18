@@ -964,13 +964,6 @@ describe("session: revocation cache", function()
     s:close()
   end)
 
-  it("recognizes revocation store errors", function()
-    assert.is_true(session.is_revocation_error("unable to check session revocation: timeout"))
-    assert.is_true(session.is_revocation_error("unable to mark session revoked: timeout"))
-    assert.is_false(session.is_revocation_error("session revoked"))
-    assert.is_false(session.is_revocation_error(nil))
-  end)
-
   it("queries the revocation store after the cache entry expires", function()
     initialize(1)
 

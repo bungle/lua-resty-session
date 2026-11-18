@@ -397,8 +397,6 @@ end
 
 
 local REVOCATION_MARK = "1"
-local REVOCATION_CHECK_ERROR = "unable to check session revocation"
-local REVOCATION_MARK_ERROR = "unable to mark session revoked"
 local DEFAULT_REVOCATION_CACHE_SIZE = 1024
 local REVOCATION_CACHE
 
@@ -574,7 +572,7 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
   local mark, err = revocation:get(cookie_name, storage_key, current_time)
   local cacheable = writes == revocation_writes
   if err then
-    local ok, revocation_err = handle_revocation_error(self, err, REVOCATION_CHECK_ERROR)
+    local ok, revocation_err = handle_revocation_error(self, err, "unable to check session revocation")
     if not ok then
       if error_cache_ttl > 0 and cacheable then
         revocation_error_cache_set(self, cache_key, revocation_err, error_cache_ttl)
@@ -724,12 +722,12 @@ local function mark_sid_revoked(self, remember, meta)
       if self.revocation_fail_mode == "open" then
         cached = false
       else
-        cached = errmsg(err, REVOCATION_CHECK_ERROR)
+        cached = errmsg(err, "unable to check session revocation")
       end
       revocation_error_cache_set(self, cache_key, cached, error_cache_ttl)
     end
 
-    return handle_revocation_error(self, err, REVOCATION_MARK_ERROR)
+    return handle_revocation_error(self, err, "unable to mark session revoked")
   end
 
   local cached_ttl = written_cache_ttl(self.revocation_cache_ttl, ttl, started)
@@ -796,7 +794,7 @@ local function revoke_lineage(self, lineage, meta)
   end
 
   local ttl = get_lineage_ttl(self, current_time, meta.creation_time)
-  local ok, werr = write_revocation_mark(self, key, ttl, REVOCATION_MARK_ERROR)
+  local ok, werr = write_revocation_mark(self, key, ttl, "unable to mark session revoked")
   if not ok then
     if self.revocation_fail_mode ~= "open" then
       return nil, werr
@@ -3461,23 +3459,6 @@ function session.revoke_subject(subject, ttl, configuration)
 
   local self = session.new(configuration)
   return revoke(self, subject_revocation_key(self, subject), ttl)
-end
-
-
----
--- Tell whether an error comes from the revocation store being unavailable.
---
--- Session functions return such errors when `revocation_fail_mode` is
--- `"closed"` and the store cannot be read or written. Callers can use this to
--- tell a store outage, which a retry may fix, from an invalid session.
---
--- @function module.is_revocation_error
--- @tparam string err error message returned by a session function
--- @treturn boolean `true` when the error comes from the revocation store
-function session.is_revocation_error(err)
-  return type(err) == "string"
-     and (string.find(err, REVOCATION_CHECK_ERROR, 1, true) ~= nil
-       or string.find(err, REVOCATION_MARK_ERROR, 1, true) ~= nil)
 end
 
 
