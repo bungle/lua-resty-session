@@ -267,6 +267,7 @@ local DEFAULT_REQUEST_HEADERS
 local DEFAULT_RESPONSE_HEADERS
 local DEFAULT_STORAGE
 local DEFAULT_REVOCATION
+local DEFAULT_REVOCATION_ID
 local DEFAULT_REVOCATION_FAIL_MODE
 local DEFAULT_REVOCATION_CACHE_TTL
 local DEFAULT_REVOCATION_ERROR_CACHE_TTL
@@ -531,14 +532,38 @@ local REVOCATION_STORE_IDS = setmetatable({}, { __mode = "k" })
 local revocation_store_id = 0
 
 
-local function revocation_cache_key(self, cookie_name, key)
-  local store = self.revocation
-  local id = REVOCATION_STORE_IDS[store]
+local function revocation_id_of(object)
+  local id = REVOCATION_STORE_IDS[object]
   if not id then
     revocation_store_id = revocation_store_id + 1
     id = revocation_store_id
-    REVOCATION_STORE_IDS[store] = id
+    REVOCATION_STORE_IDS[object] = id
   end
+
+  return id
+end
+
+
+-- A storage given by name is created again by every session.new, so its own
+-- identity cannot tell sessions apart. Such a storage is identified by the
+-- configuration table it is created from instead: sessions given the same table
+-- share cache entries, and a different table never does.
+local function get_revocation_id(name, configuration)
+  if type(name) ~= "string" then
+    return nil
+  end
+
+  local backend_config = configuration and configuration[name]
+  if type(backend_config) ~= "table" then
+    return name
+  end
+
+  return revocation_id_of(backend_config)
+end
+
+
+local function revocation_cache_key(self, cookie_name, key)
+  local id = self.revocation_id or revocation_id_of(self.revocation)
 
   return id .. "\0" .. cookie_name .. "\0" .. key
 end
@@ -3146,6 +3171,7 @@ function session.init(configuration)
   DEFAULT_RESPONSE_HEADERS           = opt(configuration, "response_headers")
   DEFAULT_STORAGE                    = opt(configuration, "storage")
   DEFAULT_REVOCATION                 = opt(configuration, "revocation")
+  DEFAULT_REVOCATION_ID = configuration and get_revocation_id(configuration.revocation, configuration)
   DEFAULT_REVOCATION_FAIL_MODE       = opt(configuration, "revocation_fail_mode", "open")
   DEFAULT_REVOCATION_CACHE_TTL       = opt(configuration, "revocation_cache_ttl", 5)
   DEFAULT_REVOCATION_ERROR_CACHE_TTL = opt(configuration, "revocation_error_cache_ttl", 5)
@@ -3207,6 +3233,15 @@ function session.new(configuration)
   local response_headers           = opt(configuration, "response_headers",           DEFAULT_RESPONSE_HEADERS)
   local storage                    = opt(configuration, "storage",                    DEFAULT_STORAGE)
   local revocation                 = opt(configuration, "revocation",                 DEFAULT_REVOCATION)
+  local revocation_id
+  if revocation then
+    local raw = configuration and configuration.revocation
+    if raw == nil then
+      revocation_id = DEFAULT_REVOCATION_ID
+    else
+      revocation_id = get_revocation_id(raw, configuration)
+    end
+  end
   local revocation_fail_mode       = opt(configuration, "revocation_fail_mode",       DEFAULT_REVOCATION_FAIL_MODE)
   local revocation_cache_ttl       = opt(configuration, "revocation_cache_ttl",       DEFAULT_REVOCATION_CACHE_TTL)
   local revocation_error_cache_ttl = opt(configuration, "revocation_error_cache_ttl", DEFAULT_REVOCATION_ERROR_CACHE_TTL)
@@ -3287,6 +3322,7 @@ function session.new(configuration)
     flags                      = flags,
     storage                    = storage,
     revocation                 = revocation,
+    revocation_id              = revocation_id,
     revocation_fail_mode       = revocation_fail_mode,
     revocation_cache_ttl       = revocation_cache_ttl,
     revocation_error_cache_ttl = revocation_error_cache_ttl,

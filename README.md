@@ -412,10 +412,11 @@ applies to `session:open` and `session:destroy` only.
 
 Subject and sid revocation lookups cache the timestamp, which is compared with
 each session's creation time. Cache entries are isolated by revocation storage
-instance, and a storage given by name (`"redis"`) is created again by every
-`session.new`. To share cache entries between sessions, create the storage once
-and pass it as the `revocation` table. A successful revocation updates that
-instance's local worker cache immediately. Other workers or storage instances
+instance. A storage given by name (`"redis"`) is created again by every
+`session.new`, so it is identified by the configuration table it is created from:
+sessions given the same table share cache entries, and a different table never
+does. A storage given as a table is identified by that table. A successful
+revocation updates that instance's local worker cache immediately. Other workers or storage instances
 observe it when their cached lookup expires;
 set `revocation_cache_ttl = 0` to check the store on every request. Store errors
 still follow `revocation_error_cache_ttl` and `revocation_fail_mode`.
