@@ -4,9 +4,12 @@ All notable changes to `lua-resty-session` will be documented in this file.
 
 ## [Unreleased]
 ### Added
+- feat(*): `session:destroy` revokes every cookie rotated from the same login, not only the session id being destroyed
 - feat(*): `$session_revocation_cache_size` nginx variable to size the revocation cache
 
 ### Fixed
+- fix(*): revocation store errors are cached per `revocation_fail_mode`, so a fail-open result is never replayed to a fail-closed configuration
+- fix(*): a revocation storage given by name is identified by its configuration table, so sessions given the same table share cache entries
 - fix(*): a revocation lookup that overlaps a revocation write no longer caches a stale result
 - fix(*): destroying a session with a remember cookie revokes both before clearing either cookie, so a store failure in closed mode leaves the logout retryable
 - fix(*): a cached revocation mark no longer outlives the record written to the store when the write is slow
