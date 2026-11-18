@@ -84,24 +84,126 @@ local IDLING_OFFSET_SIZE  = 3  -- 66
 local MAC_SIZE            = 16 -- 82
 
 
--- `session.data` holds one entry per audience: the values, the audience, the
--- subject and the identity provider session id, followed by the lineage id. The
--- lineage id stays the same through every rotation of the cookie.
-local ENTRY_LINEAGE = 5
+-- `session.data` holds one entry per audience. Its fields are read and written
+-- through these accessors: a getter returns the field when the entry has it, and
+-- otherwise nil and an error. The lineage id is the last field, and it stays the
+-- same through every rotation of the cookie.
+local entry = {}
+
+
+function entry.get_values(item)
+  local values = item[1]
+  if values then
+    return values
+  end
+
+  return nil, "session entry has no values"
+end
+
+
+function entry.set_values(item, values)
+  item[1] = values
+end
+
+
+function entry.get_audience(item)
+  local audience = item[2]
+  if audience then
+    return audience
+  end
+
+  return nil, "session entry has no audience"
+end
+
+
+function entry.set_audience(item, audience)
+  item[2] = audience
+end
+
+
+function entry.get_subject(item)
+  local subject = item[3]
+  if subject then
+    return subject
+  end
+
+  return nil, "session entry has no subject"
+end
+
+
+function entry.set_subject(item, subject)
+  item[3] = subject
+end
+
+
+function entry.get_sid(item)
+  local sid = item[4]
+  if sid then
+    return sid
+  end
+
+  return nil, "session entry has no session id"
+end
+
+
+function entry.set_sid(item, sid)
+  item[4] = sid
+end
+
+
+function entry.get_lineage(item)
+  local lineage = item[5]
+  if lineage then
+    return lineage
+  end
+
+  return nil, "session entry has no lineage id"
+end
+
+
+function entry.set_lineage(item, lineage)
+  item[5] = lineage
+end
+
+
+-- A session kept in a storage is saved as a record: the ciphertext, followed by
+-- the info data when there is any. The accessors work like those of the entry.
+local record = {}
+
+
+function record.get_ciphertext(item)
+  local ciphertext = item[1]
+  if ciphertext then
+    return ciphertext
+  end
+
+  return nil, "session record has no ciphertext"
+end
+
+
+function record.set_ciphertext(item, ciphertext)
+  item[1] = ciphertext
+end
+
+
+function record.get_info(item)
+  local info = item[2]
+  if info then
+    return info
+  end
+
+  return nil, "session record has no info data"
+end
+
+
+function record.set_info(item, info)
+  item[2] = info
+end
+
 
 -- As big as the session id: a lineage id only has to be unique, and the cookie
 -- already carries ids of this size.
 local LINEAGE_SIZE  = SID_SIZE
-
-
-local function get_lineage(entry)
-  return entry[ENTRY_LINEAGE]
-end
-
-
-local function set_lineage(entry, lineage)
-  entry[ENTRY_LINEAGE] = lineage
-end
 
 local HEADER_TAG_SIZE = COOKIE_TYPE_SIZE + FLAGS_SIZE + SID_SIZE + CREATION_TIME_SIZE + ROLLING_OFFSET_SIZE + DATA_SIZE
 local HEADER_TOUCH_SIZE = HEADER_TAG_SIZE + TAG_SIZE
@@ -752,7 +854,7 @@ local function get_lineages(self)
   local lineages = {}
   local seen = {}
   for i = 1, #self.data do
-    local lineage = get_lineage(self.data[i])
+    local lineage = entry.get_lineage(self.data[i])
     if lineage and not seen[lineage] then
       seen[lineage] = true
       lineages[#lineages + 1] = lineage
@@ -840,8 +942,8 @@ local function get_store_metadata(self)
   local data = self.data
   local count = #data
   if count == 1 then
-    local audience = data[1][2]
-    local subject = data[1][3]
+    local audience = entry.get_audience(data[1])
+    local subject = entry.get_subject(data[1])
     if audience and subject then
       audience = encode_base64url(audience)
       subject = self.hash_subject(subject)
@@ -858,8 +960,8 @@ local function get_store_metadata(self)
   local subjects
   local index = 0
   for i = 1, count do
-    local audience = data[i][2]
-    local subject = data[i][3]
+    local audience = entry.get_audience(data[i])
+    local subject = entry.get_subject(data[i])
     if audience and subject then
       audience = encode_base64url(audience)
       self.hash_subject(subject)
@@ -898,10 +1000,10 @@ local function get_property(self, name)
     return self.meta.sid
 
   elseif name == "audience" then
-    return self.data[self.data_index][2]
+    return (entry.get_audience(self.data[self.data_index]))
 
   elseif name == "subject" then
-    return self.data[self.data_index][3]
+    return (entry.get_subject(self.data[self.data_index]))
 
   elseif name == "timeout" then
     local timeout
@@ -1184,7 +1286,7 @@ local function open(self, remember, meta_only)
   end
 
   local data_index = self.data_index
-  local audience = self.data[data_index][2]
+  local audience = entry.get_audience(self.data[data_index])
   local initial_chunk, ciphertext, ciphertext_encoded, info_data do
     if storage then
       local key, err = self.hash_storage_key(sid)
@@ -1202,9 +1304,9 @@ local function open(self, remember, meta_only)
         return nil, errmsg(err, "unable to json decode session")
       end
 
-      ciphertext = data[1]
+      ciphertext = record.get_ciphertext(data)
       ciphertext_encoded = ciphertext
-      info_data = data[2]
+      info_data = record.get_info(data)
       if info_data then
         info_data, err = decode_base64url(info_data)
         if not info_data then
@@ -1326,17 +1428,17 @@ local function open(self, remember, meta_only)
   local count = #data
   for i = 1, count do
     -- cjson decodes the JSON null of a missing subject or sid as userdata
-    if type(data[i][3]) == "userdata" then
-      data[i][3] = nil
+    if type(entry.get_subject(data[i])) == "userdata" then
+      entry.set_subject(data[i], nil)
     end
-    if type(data[i][4]) == "userdata" then
-      data[i][4] = nil
+    if type(entry.get_sid(data[i])) == "userdata" then
+      entry.set_sid(data[i], nil)
     end
-    if type(get_lineage(data[i])) == "userdata" then
-      set_lineage(data[i], nil)
+    if type(entry.get_lineage(data[i])) == "userdata" then
+      entry.set_lineage(data[i], nil)
     end
 
-    if not audience_index and data[i][2] == audience then
+    if not audience_index and entry.get_audience(data[i]) == audience then
       audience_index = i
     end
   end
@@ -1344,7 +1446,7 @@ local function open(self, remember, meta_only)
   if self.revocation then
     for i = 1, count do
       if remember or i == audience_index then
-        local revoked, err = is_revoked_by(self, data[i][3], data[i][4], get_lineage(data[i]), current_time, creation_time)
+        local revoked, err = is_revoked_by(self, entry.get_subject(data[i]), entry.get_sid(data[i]), entry.get_lineage(data[i]), current_time, creation_time)
         if err then
           return nil, err
         end
@@ -1380,8 +1482,8 @@ end
 -- generated once, on the first save, and every later save of the session carries
 -- it along.
 local function ensure_lineage(self)
-  local entry = self.data[self.data_index]
-  if get_lineage(entry) then
+  local current = self.data[self.data_index]
+  if entry.get_lineage(current) then
     return true
   end
 
@@ -1390,7 +1492,7 @@ local function ensure_lineage(self)
     return nil, errmsg(err, "unable to generate session lineage id")
   end
 
-  set_lineage(entry, encode_base64url(lineage))
+  entry.set_lineage(current, encode_base64url(lineage))
   return true
 end
 
@@ -1460,9 +1562,9 @@ local function save(self, state, remember)
     if self.enforce_same_subject then
       local count = #data
       if count > 1 then
-        local subject = data[self.data_index][3]
+        local subject = entry.get_subject(data[self.data_index])
         for i = count, 1, -1 do
-          if data[i][3] ~= subject then
+          if entry.get_subject(data[i]) ~= subject then
             remove(data, i)
           end
         end
@@ -1631,7 +1733,7 @@ local function save(self, state, remember)
       return nil, err
     end
 
-    DATA[1] = payload
+    record.set_ciphertext(DATA, payload)
 
     local info_data = self.info.data
     if info_data then
@@ -1645,10 +1747,10 @@ local function save(self, state, remember)
         return nil, errmsg(err, "unable to base64url encode session info")
       end
 
-      DATA[2] = info_data
+      record.set_info(DATA, info_data)
 
     else
-      DATA[2] = nil
+      record.set_info(DATA, nil)
     end
 
     data, err = encode_json(DATA)
@@ -1744,8 +1846,8 @@ local function save_info(self, data, remember)
     return nil, err
   end
 
-  DATA[1] = meta.ciphertext
-  DATA[2] = data
+  record.set_ciphertext(DATA, meta.ciphertext)
+  record.set_info(DATA, data)
 
   data, err = encode_json(DATA)
   if not data then
@@ -2030,14 +2132,14 @@ local fake_info_mt = {}
 function fake_info_mt:set(key, value)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
-  session.data[session.data_index][1]["@" .. key] = value
+  entry.get_values(session.data[session.data_index])["@" .. key] = value
 end
 
 
 function fake_info_mt:get(key)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to get session info on closed session")
-  return session.data[session.data_index][1]["@" .. key]
+  return entry.get_values(session.data[session.data_index])["@" .. key]
 end
 
 
@@ -2080,7 +2182,7 @@ info_mt.__index = info_mt
 function info_mt:set(key, value)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
-  local audience = session.data[session.data_index][2]
+  local audience = entry.get_audience(session.data[session.data_index])
   local data = self.data
   if data then
     if data[audience] then
@@ -2116,7 +2218,7 @@ function info_mt:get(key)
     return
   end
 
-  local audience = session.data[session.data_index][2]
+  local audience = entry.get_audience(session.data[session.data_index])
   data = self.data[audience]
   if not data then
     return
@@ -2216,7 +2318,7 @@ end
 function metatable:set_data(data)
   assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
   assert(type(data) == "table", "invalid session data")
-  self.data[self.data_index][1] = data
+  entry.set_values(self.data[self.data_index], data)
 end
 
 
@@ -2234,7 +2336,7 @@ end
 -- end
 function metatable:get_data()
   assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
-  return self.data[self.data_index][1]
+  return (entry.get_values(self.data[self.data_index]))
 end
 
 
@@ -2253,9 +2355,9 @@ end
 function metatable:set(key, value)
   assert(self.state ~= STATE_CLOSED, "unable to set session data value on closed session")
   if self.storage or byte(key, 1) ~= AT_BYTE then
-    self.data[self.data_index][1][key] = value
+    entry.get_values(self.data[self.data_index])[key] = value
   else
-    self.data[self.data_index][1]["$" .. key] = value
+    entry.get_values(self.data[self.data_index])["$" .. key] = value
   end
 end
 
@@ -2276,9 +2378,9 @@ end
 function metatable:get(key)
   assert(self.state ~= STATE_CLOSED, "unable to get session data value on closed session")
   if self.storage or byte(key, 1) ~= AT_BYTE then
-    return self.data[self.data_index][1][key]
+    return entry.get_values(self.data[self.data_index])[key]
   else
-    return self.data[self.data_index][1]["$" .. key]
+    return entry.get_values(self.data[self.data_index])["$" .. key]
   end
 end
 
@@ -2297,7 +2399,7 @@ function metatable:set_audience(audience)
 
   local data = self.data
   local data_index = self.data_index
-  local current_audience = data[data_index][2]
+  local current_audience = entry.get_audience(data[data_index])
   if audience == current_audience then
     return
   end
@@ -2310,19 +2412,19 @@ function metatable:set_audience(audience)
 
   local count = #data
   if count == 1 then
-    data[1][2] = audience
+    entry.set_audience(data[1], audience)
     return
   end
 
   local previous_index
   for i = 1, count do
-    if data[i][2] == audience then
+    if entry.get_audience(data[i]) == audience then
       previous_index = i
       break
     end
   end
 
-  data[data_index][2] = audience
+  entry.set_audience(data[data_index], audience)
 
   if not previous_index or previous_index == data_index then
     return
@@ -2343,7 +2445,7 @@ end
 -- @treturn string audience
 function metatable:get_audience()
   assert(self.state ~= STATE_CLOSED, "unable to get audience on closed session")
-  return self.data[self.data_index][2]
+  return (entry.get_audience(self.data[self.data_index]))
 end
 
 
@@ -2358,7 +2460,7 @@ end
 -- session.set_subject("john@doe.com")
 function metatable:set_subject(subject)
   assert(self.state ~= STATE_CLOSED, "unable to set subject on closed session")
-  self.data[self.data_index][3] = subject
+  entry.set_subject(self.data[self.data_index], subject)
 end
 
 
@@ -2375,7 +2477,7 @@ end
 -- end
 function metatable:get_subject()
   assert(self.state ~= STATE_CLOSED, "unable to get subject on closed session")
-  return self.data[self.data_index][3]
+  return (entry.get_subject(self.data[self.data_index]))
 end
 
 
@@ -2394,7 +2496,7 @@ end
 function metatable:set_sid(sid)
   assert(self.state ~= STATE_CLOSED, "unable to set sid on closed session")
   assert(sid == nil or type(sid) == "string", "invalid sid")
-  self.data[self.data_index][4] = sid
+  entry.set_sid(self.data[self.data_index], sid)
 end
 
 
@@ -2411,7 +2513,7 @@ end
 -- end
 function metatable:get_sid()
   assert(self.state ~= STATE_CLOSED, "unable to get sid on closed session")
-  return self.data[self.data_index][4]
+  return (entry.get_sid(self.data[self.data_index]))
 end
 
 
@@ -2673,7 +2775,7 @@ function metatable:logout()
   local info_store = self.info
   local info_data = info_store and info_store.data
   if info_data then
-    local audience = data[data_index][2]
+    local audience = entry.get_audience(data[data_index])
     info_data[audience] = nil
     if table_is_empty(info_data) then
       info_store.data = false
