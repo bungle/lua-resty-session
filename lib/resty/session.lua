@@ -397,7 +397,38 @@ end
 
 
 local REVOCATION_MARK = "1"
-local REVOCATION_CACHE = assert(require("resty.lrucache").new(1024))
+local REVOCATION_CHECK_ERROR = "unable to check session revocation"
+local REVOCATION_MARK_ERROR = "unable to mark session revoked"
+local DEFAULT_REVOCATION_CACHE_SIZE = 1024
+local REVOCATION_CACHE
+
+
+-- The cache is shared by every session of a worker, so its size is not a
+-- session option. It is read once per worker, on first use, from the nginx
+-- variable `$session_revocation_cache_size` (e.g. `set $session_revocation_cache_size 4096;`).
+local function revocation_cache()
+  if not REVOCATION_CACHE then
+    local size = DEFAULT_REVOCATION_CACHE_SIZE
+    local configured = var.session_revocation_cache_size
+    if configured then
+      size = tonumber(configured)
+      if not size or size < 1 or size % 1 ~= 0 then
+        log(WARN, "[session] ignoring invalid $session_revocation_cache_size: ", configured)
+        size = DEFAULT_REVOCATION_CACHE_SIZE
+      end
+    end
+
+    REVOCATION_CACHE = assert(require("resty.lrucache").new(size))
+  end
+
+  return REVOCATION_CACHE
+end
+
+
+-- Counts the revocation marks written by this worker. A lookup that yielded
+-- while a mark was written must not cache its result: it may have read the
+-- store before the mark existed and would hide the revocation until it expires.
+local revocation_writes = 0
 local REVOCATION_STORE_IDS = setmetatable({}, { __mode = "k" })
 local revocation_store_id = 0
 
@@ -483,15 +514,15 @@ end
 
 
 local function revocation_cache_set(cache_key, value, ttl)
-  REVOCATION_CACHE:delete(revocation_error_cache_key(cache_key, "open"))
-  REVOCATION_CACHE:delete(revocation_error_cache_key(cache_key, "closed"))
-  return REVOCATION_CACHE:set(cache_key, value, ttl)
+  revocation_cache():delete(revocation_error_cache_key(cache_key, "open"))
+  revocation_cache():delete(revocation_error_cache_key(cache_key, "closed"))
+  return revocation_cache():set(cache_key, value, ttl)
 end
 
 
 local function revocation_error_cache_set(self, cache_key, value, ttl)
-  REVOCATION_CACHE:delete(cache_key)
-  return REVOCATION_CACHE:set(revocation_error_cache_key(cache_key, self.revocation_fail_mode), value, ttl)
+  revocation_cache():delete(cache_key)
+  return revocation_cache():set(revocation_error_cache_key(cache_key, self.revocation_fail_mode), value, ttl)
 end
 
 
@@ -520,7 +551,7 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
   local error_cache_ttl = self.revocation_error_cache_ttl
   local cache_key = revocation_cache_key(self, cookie_name, storage_key)
   if cache_ttl > 0 or error_cache_ttl > 0 then
-    local cached = REVOCATION_CACHE:get(cache_key)
+    local cached = revocation_cache():get(cache_key)
     if cached == true or cached == false then
       return cached, nil
     end
@@ -529,7 +560,7 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
       return cached >= creation_time, nil
     end
 
-    cached = REVOCATION_CACHE:get(revocation_error_cache_key(cache_key, self.revocation_fail_mode))
+    cached = revocation_cache():get(revocation_error_cache_key(cache_key, self.revocation_fail_mode))
     if cached == false then
       return false, nil
     end
@@ -539,18 +570,20 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
     end
   end
 
+  local writes = revocation_writes
   local mark, err = revocation:get(cookie_name, storage_key, current_time)
+  local cacheable = writes == revocation_writes
   if err then
-    local ok, revocation_err = handle_revocation_error(self, err, "unable to check session revocation")
+    local ok, revocation_err = handle_revocation_error(self, err, REVOCATION_CHECK_ERROR)
     if not ok then
-      if error_cache_ttl > 0 then
+      if error_cache_ttl > 0 and cacheable then
         revocation_error_cache_set(self, cache_key, revocation_err, error_cache_ttl)
       end
 
       return nil, revocation_err
     end
 
-    if error_cache_ttl > 0 then
+    if error_cache_ttl > 0 and cacheable then
       revocation_error_cache_set(self, cache_key, false, error_cache_ttl)
     end
 
@@ -559,7 +592,7 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
 
   local revoked_at = tonumber(mark)
   local cached = mark == REVOCATION_MARK or revoked_at or false
-  if cache_ttl > 0 then
+  if cache_ttl > 0 and cacheable then
     revocation_cache_set(cache_key, cached, cache_ttl)
   end
 
@@ -620,15 +653,17 @@ local function write_revocation_mark(self, key, ttl, msg)
   end
 
   local current_time = time()
+  revocation_writes = revocation_writes + 1
   local ok, err = revocation:set(self.cookie_name, storage_key, tostring(current_time), ttl, current_time)
+  revocation_writes = revocation_writes + 1
   if not ok then
     return nil, errmsg(err, msg)
   end
 
   local cache_key = revocation_cache_key(self, self.cookie_name, storage_key)
-  REVOCATION_CACHE:delete(cache_key)
-  REVOCATION_CACHE:delete(revocation_error_cache_key(cache_key, "open"))
-  REVOCATION_CACHE:delete(revocation_error_cache_key(cache_key, "closed"))
+  revocation_cache():delete(cache_key)
+  revocation_cache():delete(revocation_error_cache_key(cache_key, "open"))
+  revocation_cache():delete(revocation_error_cache_key(cache_key, "closed"))
   local cache_ttl = self.revocation_cache_ttl
   if cache_ttl > 0 then
     revocation_cache_set(cache_key, current_time, min(cache_ttl, ttl))
@@ -679,12 +714,12 @@ local function mark_sid_revoked(self, remember, meta)
       if self.revocation_fail_mode == "open" then
         cached = false
       else
-        cached = errmsg(err, "unable to check session revocation")
+        cached = errmsg(err, REVOCATION_CHECK_ERROR)
       end
       revocation_error_cache_set(self, cache_key, cached, error_cache_ttl)
     end
 
-    return handle_revocation_error(self, err, "unable to mark session revoked")
+    return handle_revocation_error(self, err, REVOCATION_MARK_ERROR)
   end
 
   local cache_ttl = self.revocation_cache_ttl
@@ -751,7 +786,7 @@ local function revoke_lineage(self, lineage, meta)
   end
 
   local ttl = get_lineage_ttl(self, current_time, meta.creation_time)
-  local ok, werr = write_revocation_mark(self, key, ttl, "unable to mark session revoked")
+  local ok, werr = write_revocation_mark(self, key, ttl, REVOCATION_MARK_ERROR)
   if not ok then
     if self.revocation_fail_mode ~= "open" then
       return nil, werr
@@ -3407,6 +3442,23 @@ function session.revoke_subject(subject, ttl, configuration)
 
   local self = session.new(configuration)
   return revoke(self, subject_revocation_key(self, subject), ttl)
+end
+
+
+---
+-- Tell whether an error comes from the revocation store being unavailable.
+--
+-- Session functions return such errors when `revocation_fail_mode` is
+-- `"closed"` and the store cannot be read or written. Callers can use this to
+-- tell a store outage, which a retry may fix, from an invalid session.
+--
+-- @function module.is_revocation_error
+-- @tparam string err error message returned by a session function
+-- @treturn boolean `true` when the error comes from the revocation store
+function session.is_revocation_error(err)
+  return type(err) == "string"
+     and (string.find(err, REVOCATION_CHECK_ERROR, 1, true) ~= nil
+       or string.find(err, REVOCATION_MARK_ERROR, 1, true) ~= nil)
 end
 
 

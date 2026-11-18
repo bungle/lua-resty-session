@@ -927,6 +927,50 @@ describe("session: revocation cache", function()
     reopened:close()
   end)
 
+  it("does not cache a lookup that overlaps a revocation write", function()
+    local function login()
+      cookies = {}
+      session.__set_ngx_header(cookies)
+      local s = session.new()
+      s:set_sid("idp-sid")
+      assert.is_true(s:save())
+      session_cookie = extract_cookie(cookie_name, cookies["Set-Cookie"])
+      s:close()
+    end
+
+    login()
+
+    -- the logout lands while the lookup of the identity provider session id is
+    -- waiting for a store that has not caught up with it yet
+    local sid_key = utils.encode_base64url("sid:idp-sid")
+    local get = store.get
+    store.get = function(_, _, key)
+      local result = get()
+      if key == sid_key then
+        assert.is_true(session.revoke_sid("idp-sid", 3600))
+        result = nil
+      end
+      return result
+    end
+
+    local s, ok, err = open_session()
+    assert.is_nil(err)
+    assert.is_true(ok)
+    s:close()
+
+    s, ok, err = open_session()
+    assert.is_nil(ok)
+    assert.equals("session revoked", err)
+    s:close()
+  end)
+
+  it("recognizes revocation store errors", function()
+    assert.is_true(session.is_revocation_error("unable to check session revocation: timeout"))
+    assert.is_true(session.is_revocation_error("unable to mark session revoked: timeout"))
+    assert.is_false(session.is_revocation_error("session revoked"))
+    assert.is_false(session.is_revocation_error(nil))
+  end)
+
   it("queries the revocation store after the cache entry expires", function()
     initialize(1)
 

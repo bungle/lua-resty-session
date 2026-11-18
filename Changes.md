@@ -2,6 +2,14 @@
 
 All notable changes to `lua-resty-session` will be documented in this file.
 
+## [Unreleased]
+### Added
+- feat(*): `$session_revocation_cache_size` nginx variable to size the revocation cache
+- feat(*): `session.is_revocation_error` to recognize revocation store failures
+
+### Fixed
+- fix(*): a revocation lookup that overlaps a revocation write no longer caches a stale result
+
 ## [4.3.0] - 2026-11-09
 ### Added
 - perf(*): cache revocation lookups in a worker-local LRU (thanks @Hockenba)
