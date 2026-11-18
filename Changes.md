@@ -4,7 +4,10 @@ All notable changes to `lua-resty-session` will be documented in this file.
 
 ## [Unreleased]
 ### Added
-- feat(*): `session:destroy` revokes every cookie rotated from the same login, not only the session id being destroyed
+- feat(*): lineage revocation: a cookie session with revocation enabled gets a random lineage id (the size of a session id) the first time it is saved, kept in the encrypted payload through every rotation of the session id, and `session:destroy` revokes the lineage along with the session id, so every cookie of the same login is rejected, including ones saved before or after the logout
+  - the lineage mark is kept for a full rolling window plus `stale_ttl`, capped by the absolute timeout (the `remember_*` windows when a remember cookie is used)
+  - costs one more revocation lookup per cache miss and one more mark written on destroy; `revocation_fail_mode` applies to both
+  - cookies issued before the upgrade have no lineage id and are revoked by their own session id only; sessions without revocation enabled are unchanged
 - feat(*): `$session_revocation_cache_size` nginx variable to size the revocation cache
 
 ### Fixed
