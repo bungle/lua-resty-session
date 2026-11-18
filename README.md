@@ -1109,6 +1109,13 @@ end
 Destroy the session and clear the cookies. In error case it returns `nil`
 and an error message, otherwise `true`.
 
+With revocation enabled it also revokes the lineage of the session, so every
+cookie of the same login is rejected (see [Session Revocation Configuration](#session-revocation-configuration)).
+When a remember cookie is in use, the remember session is revoked first, and no
+cookie is cleared until every revocation mark is written. With
+`revocation_fail_mode` set to `"closed"`, a store failure therefore leaves the
+cookies in place, and `session:destroy` can be called again.
+
 ```lua
 local session, err, exists = require "resty.session".open()
 if exists then
