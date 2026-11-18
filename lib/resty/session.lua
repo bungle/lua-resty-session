@@ -641,6 +641,13 @@ local function is_revoked_by(self, subject, sid, lineage, current_time, creation
 end
 
 
+-- A cached mark must not outlive the record written to the store, which has
+-- been expiring since the write started.
+local function written_cache_ttl(cache_ttl, ttl, started)
+  return min(cache_ttl, ttl - (ngx.now() - started))
+end
+
+
 local function write_revocation_mark(self, key, ttl, msg)
   local revocation = self.revocation
   if not revocation then
@@ -653,6 +660,7 @@ local function write_revocation_mark(self, key, ttl, msg)
   end
 
   local current_time = time()
+  local started = ngx.now()
   revocation_writes = revocation_writes + 1
   local ok, err = revocation:set(self.cookie_name, storage_key, tostring(current_time), ttl, current_time)
   revocation_writes = revocation_writes + 1
@@ -665,8 +673,9 @@ local function write_revocation_mark(self, key, ttl, msg)
   revocation_cache():delete(revocation_error_cache_key(cache_key, "open"))
   revocation_cache():delete(revocation_error_cache_key(cache_key, "closed"))
   local cache_ttl = self.revocation_cache_ttl
-  if cache_ttl > 0 then
-    revocation_cache_set(cache_key, current_time, min(cache_ttl, ttl))
+  local cached_ttl = written_cache_ttl(cache_ttl, ttl, started)
+  if cached_ttl > 0 then
+    revocation_cache_set(cache_key, current_time, cached_ttl)
   end
 
   return true
@@ -706,6 +715,7 @@ local function mark_sid_revoked(self, remember, meta)
 
   local cache_key = revocation_cache_key(self, cookie_name, key)
   local ttl = get_store_ttl(self, remember, current_time, meta.creation_time, meta.rolling_offset)
+  local started = ngx.now()
   local ok, err = revocation:set(cookie_name, key, REVOCATION_MARK, ttl, current_time)
   if not ok then
     local error_cache_ttl = self.revocation_error_cache_ttl
@@ -722,9 +732,9 @@ local function mark_sid_revoked(self, remember, meta)
     return handle_revocation_error(self, err, REVOCATION_MARK_ERROR)
   end
 
-  local cache_ttl = self.revocation_cache_ttl
-  if cache_ttl > 0 then
-    revocation_cache_set(cache_key, true, cache_ttl)
+  local cached_ttl = written_cache_ttl(self.revocation_cache_ttl, ttl, started)
+  if cached_ttl > 0 then
+    revocation_cache_set(cache_key, true, cached_ttl)
   end
 
   return true
@@ -1753,7 +1763,7 @@ local function save_info(self, data, remember)
 end
 
 
-local function destroy(self, remember)
+local function destroy(self, remember, marked)
   local cookie_name
   local meta
   if remember then
@@ -1767,9 +1777,11 @@ local function destroy(self, remember)
   local cookie_name_size = #cookie_name
   local storage = self.storage
 
-  local ok, err = mark_session_revoked(self, remember, meta)
-  if not ok then
-    return nil, err
+  if not marked then
+    local ok, err = mark_session_revoked(self, remember, meta)
+    if not ok then
+      return nil, err
+    end
   end
 
   local cookie_chunks = 1
@@ -2705,20 +2717,27 @@ function metatable:destroy()
     return nil, "unable to destroy nonexistent session"
   end
 
+  -- The remember session is revoked before any cookie is cleared, so a store
+  -- failure leaves the browser with cookies that can still retry the logout.
+  local remember = get_remember(self)
+  if remember and not self.remember_meta then
+    remember = open(self, true, true)
+  end
+
+  if remember then
+    local ok, err = mark_session_revoked(self, true, self.remember_meta or {})
+    if not ok then
+      return nil, err
+    end
+  end
+
   local ok, err = destroy(self)
   if not ok then
     return nil, err
   end
 
-  if get_remember(self) then
-    if not self.remember_meta then
-      local remembered = open(self, true, true)
-      if not remembered then
-        return true
-      end
-    end
-
-    ok, err = destroy(self, true)
+  if remember then
+    ok, err = destroy(self, true, true)
     if not ok then
       return nil, err
     end
