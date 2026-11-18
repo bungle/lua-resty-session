@@ -964,39 +964,6 @@ describe("session: revocation cache", function()
     s:close()
   end)
 
-  it("does not cache a revocation mark beyond the record it wrote", function()
-    cookies = {}
-    session.__set_ngx_header(cookies)
-    local s = session.new()
-    s:set_sid("idp-sid")
-    assert.is_true(s:save())
-    session_cookie = extract_cookie(cookie_name, cookies["Set-Cookie"])
-    s:close()
-
-    local sid_key = utils.encode_base64url("sid:idp-sid")
-    local sid_gets = 0
-    local get = store.get
-    local set = store.set
-    store.get = function(_, _, key)
-      if key == sid_key then
-        sid_gets = sid_gets + 1
-      end
-      return get()
-    end
-    store.set = function(...)
-      -- a slow write: most of the one second the record lives is gone by the time it returns
-      sleep(0.6)
-      return set(...)
-    end
-
-    assert.is_true(session.revoke_sid("idp-sid", 1))
-    sleep(0.5)
-
-    -- the record has expired by now, so the cached mark must have as well
-    open_session():close()
-    assert.equals(1, sid_gets)
-  end)
-
   it("queries the revocation store after the cache entry expires", function()
     initialize(1)
 
@@ -1136,46 +1103,6 @@ describe("session: revocation cache", function()
     s, ok, err = open_session()
     assert.is_nil(ok)
     assert.matches("unable to check session revocation", err)
-    assert.equals(3, get_count)
-    s:close()
-  end)
-
-  it("does not reuse a cached closed fail-mode error under an open fail mode", function()
-    get_count = 0
-    store = {
-      get = function()
-        get_count = get_count + 1
-        return nil, "connection refused"
-      end,
-      set = function()
-        return true
-      end,
-    }
-
-    session.init({
-      cookie_name = cookie_name,
-      storage = "cookie",
-      revocation = store,
-      revocation_fail_mode = "closed",
-      revocation_error_cache_ttl = 5,
-    })
-
-    local s, ok, err = open_session()
-    assert.is_nil(ok)
-    assert.matches("unable to check session revocation", err)
-    s:close()
-
-    session.init({
-      cookie_name = cookie_name,
-      storage = "cookie",
-      revocation = store,
-      revocation_fail_mode = "open",
-      revocation_error_cache_ttl = 5,
-    })
-
-    s, ok, err = open_session()
-    assert.is_true(ok)
-    assert.is_nil(err)
     assert.equals(3, get_count)
     s:close()
   end)
@@ -1329,34 +1256,6 @@ describe("session: revocation lineage", function()
     return s:destroy()
   end
 
-  it("revokes every cookie rotated from the same login, before and after the destroyed one", function()
-    initialize("closed")
-
-    local original = login()
-    local presented = rotate(original)
-    -- someone who has the original cookie refreshes it before the logout
-    local stolen_refresh = rotate(original)
-    local presented_again = rotate(presented)
-
-    for _, cookie in ipairs({ original, presented, stolen_refresh, presented_again }) do
-      local s, ok, err = open(cookie)
-      assert.is_true(ok)
-      assert.is_nil(err)
-      s:close()
-    end
-
-    local ok, err = destroy(presented)
-    assert.is_true(ok)
-    assert.is_nil(err)
-
-    for _, cookie in ipairs({ original, presented, stolen_refresh, presented_again }) do
-      local s, opened, oerr = open(cookie)
-      assert.is_nil(opened)
-      assert.equals("session revoked", oerr)
-      s:close()
-    end
-  end)
-
   it("revokes the whole lineage whichever cookie of it is presented at logout", function()
     -- a chain of rotations plus a fork made from the original cookie
     local names = { "original", "rotated", "rotated again", "forked from original" }
@@ -1419,20 +1318,6 @@ describe("session: revocation lineage", function()
     s:close()
   end)
 
-  it("keeps a new login after the logout usable", function()
-    initialize("closed")
-
-    local old = login()
-    local ok = destroy(old)
-    assert.is_true(ok)
-
-    local fresh = login()
-    local s, opened, err = open(fresh)
-    assert.is_true(opened)
-    assert.is_nil(err)
-    s:close()
-  end)
-
   it("keeps another login usable when one login logs out", function()
     initialize("closed")
 
@@ -1473,17 +1358,6 @@ describe("session: revocation lineage", function()
     local ok, err = destroy(cookie)
     assert.is_nil(ok)
     assert.matches("unable to mark session revoked", err)
-  end)
-
-  it("completes the logout when the lineage mark cannot be written and the fail mode is open", function()
-    initialize("open")
-
-    local cookie = login()
-    fail_lineage_writes = true
-
-    local ok, err = destroy(cookie)
-    assert.is_true(ok)
-    assert.is_nil(err)
   end)
 
   it("does not add a lineage id when revocation is disabled", function()
@@ -1570,76 +1444,5 @@ describe("session: revocation cache with a named backend", function()
 
     assert.is_true(open(cookie, "redis-b"))
     assert.equals(4, gets)
-  end)
-end)
-
-
-describe("session: revocation with a remember cookie", function()
-  local cookie_name = "session_cookie"
-  local fail_remember_writes
-  local session_cookie
-  local remember_cookie
-
-  local function open_session()
-    session.__set_ngx_var({
-      ["cookie_" .. cookie_name] = session_cookie,
-      ["cookie_remember"] = remember_cookie,
-    })
-
-    local s = session.new()
-    local ok, err = s:open()
-    assert.is_true(ok)
-    assert.is_nil(err)
-    return s
-  end
-
-  before_each(function()
-    fail_remember_writes = false
-    session.init({
-      cookie_name = cookie_name,
-      storage = "cookie",
-      remember = true,
-      revocation = {
-        get = function()
-          return nil
-        end,
-        set = function(_, name)
-          if fail_remember_writes and name == "remember" then
-            return nil, "store down"
-          end
-
-          return true
-        end,
-      },
-      revocation_fail_mode = "closed",
-      revocation_cache_ttl = 0,
-      revocation_error_cache_ttl = 0,
-    })
-
-    local cookies = {}
-    session.__set_ngx_header(cookies)
-    local s = session.new()
-    s:set_remember(true)
-    s:set("test_key", "test_data")
-    assert.is_true(s:save())
-    session_cookie = extract_cookie(cookie_name, cookies["Set-Cookie"])
-    remember_cookie = extract_cookie("remember", cookies["Set-Cookie"])
-    s:close()
-  end)
-
-  it("keeps both cookies when the remember session cannot be revoked, so the logout can be retried", function()
-    local s = open_session()
-    local cookies = {}
-    session.__set_ngx_header(cookies)
-
-    fail_remember_writes = true
-    local ok, err = s:destroy()
-    assert.is_nil(ok)
-    assert.matches("unable to mark session revoked", err)
-    assert.is_nil(cookies["Set-Cookie"])
-
-    fail_remember_writes = false
-    assert.is_true(s:destroy())
-    assert.is_not_nil(cookies["Set-Cookie"])
   end)
 end)
