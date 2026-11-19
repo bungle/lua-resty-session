@@ -565,9 +565,9 @@ end
 
 
 -- A storage given by name is created again by every session.new, so its own
--- identity cannot tell sessions apart. Such a storage is identified by the
--- configuration table it is created from instead: sessions given the same table
--- share cache entries, and a different table never does.
+-- identity cannot tell sessions apart. It is identified by its name and the
+-- simple settings of its configuration instead: equal settings share cache
+-- entries, different settings never do.
 local function get_revocation_id(name, configuration)
   if type(name) ~= "string" then
     return nil
@@ -578,7 +578,21 @@ local function get_revocation_id(name, configuration)
     return name
   end
 
-  return revocation_id_of(backend_config)
+  local keys = {}
+  for key, value in pairs(backend_config) do
+    local t = type(value)
+    if type(key) == "string" and (t == "string" or t == "number" or t == "boolean") then
+      keys[#keys + 1] = key
+    end
+  end
+
+  table.sort(keys)
+  for i = 1, #keys do
+    keys[i] = keys[i] .. "=" .. tostring(backend_config[keys[i]])
+  end
+
+  -- hashed, so that credentials are not kept in the cache keys
+  return name .. "\0" .. encode_base64url(assert(sha256(table.concat(keys, "\0"))))
 end
 
 
@@ -3250,12 +3264,7 @@ function session.new(configuration)
   local revocation_id
   if revocation then
     local raw = configuration and configuration.revocation
-    local cache_id = configuration and configuration.revocation_cache_id
-    if cache_id ~= nil then
-      assert(type(cache_id) == "string" and cache_id ~= "", "invalid revocation cache id")
-      revocation_id = cache_id
-
-    elseif raw == nil then
+    if raw == nil then
       revocation_id = DEFAULT_REVOCATION_ID
 
     else

@@ -334,7 +334,6 @@ Here are the possible session configuration options:
 | `storage`                   |    `nil`     | Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface. |
 | `revocation`                |    `nil`     | Storage used for cookie session revocation records. Use `nil` or `false` to disable, a storage name such as `"shm"`, `"redis"`, `"mysql"`, or `"postgres"`, a custom storage module name, or a storage `table` with `set`/`get` methods.                                                                |
 | `revocation_fail_mode`          |   `"open"`   | Behavior when the revocation store is unreachable, use `"open"` (treat as not revoked) or `"closed"` (reject the session).                                                                                                                                                                           |
-| `revocation_cache_id`           |    `nil`     | Names the cache entries of the revocation storage: sessions given the same id share them. Use it when the same storage is configured through a different table on every call. |
 | `revocation_cache_ttl`          |     `5`      | Worker-local cache TTL for successful revocation lookups (in seconds). Set to `0` to disable. This is the maximum stale window before a worker observes a revocation written elsewhere.                                                                                             |
 | `revocation_error_cache_ttl`    |     `5`      | Worker-local cache TTL for revocation store errors (in seconds). Set to `0` to disable. Errors are cached per `revocation_fail_mode`: `"open"` caches not-revoked and `"closed"` caches the error, and one is never replayed under the other.                                                                                                                                                  |
 | `dshm`                      |    `nil`     | Configuration for dshm storage, e.g. `{ prefix = "sessions" }` (see below)                                                                                                                                                                                                                           |
@@ -414,10 +413,10 @@ Subject and sid revocation lookups cache the timestamp, which is compared with
 each session's creation time. Cache entries are isolated by revocation storage.
 A storage set in `session.init`, or passed as a table, is one storage for all
 its sessions. A storage given by name (`"redis"`) in a call's configuration is
-created again by every `session.new`, so it is identified by the configuration
-table it is created from. Tables with equal contents are not recognized as the
-same, so pass the same table, or name the entries with `revocation_cache_id`. A revocation updates
-the local worker cache at once. Other workers see it when their cached lookup
+created again by every `session.new`, so it is identified by its name and the
+simple settings (strings, numbers and booleans) of its configuration: equal
+settings share cache entries, even from different tables, and different settings
+never do. A revocation updates the local worker cache at once. Other workers see it when their cached lookup
 expires; set `revocation_cache_ttl = 0` to check the store on every request.
 
 These marks are shared by sessions using the same cookie name and revocation

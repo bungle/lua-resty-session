@@ -1379,12 +1379,10 @@ end)
 
 describe("session: revocation cache with a named backend", function()
   local cookie_name = "named_backend_cookie"
-  local configurations
   local gets
 
   before_each(function()
     gets = 0
-    configurations = {}
     -- a named backend is instantiated again by every session.new
     package.loaded["counting-revocation"] = {
       new = function()
@@ -1401,18 +1399,14 @@ describe("session: revocation cache with a named backend", function()
     session.init({ cookie_name = cookie_name, storage = "cookie" })
   end)
 
-  -- the same table for the same host, like a plugin that keeps its configuration
+  -- a new table on every call, like a caller that builds its configuration per request
   local function configuration(host)
-    if not configurations[host] then
-      configurations[host] = {
-        cookie_name = cookie_name,
-        storage = "cookie",
-        revocation = "counting-revocation",
-        ["counting-revocation"] = { host = host },
-      }
-    end
-
-    return configurations[host]
+    return {
+      cookie_name = cookie_name,
+      storage = "cookie",
+      revocation = "counting-revocation",
+      ["counting-revocation"] = { host = host },
+    }
   end
 
   local function login(host)
@@ -1432,7 +1426,7 @@ describe("session: revocation cache with a named backend", function()
     return ok, err
   end
 
-  it("shares cache entries between sessions given the same backend configuration", function()
+  it("shares cache entries between sessions given equal backend settings", function()
     local cookie = login("redis-a")
 
     for _ = 1, 3 do
@@ -1443,7 +1437,7 @@ describe("session: revocation cache with a named backend", function()
     assert.equals(2, gets)
   end)
 
-  it("does not share cache entries between different backend configurations", function()
+  it("does not share cache entries between different backend settings", function()
     local cookie = login("redis-a")
 
     assert.is_true(open(cookie, "redis-a"))
