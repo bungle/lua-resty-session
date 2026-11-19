@@ -1070,7 +1070,7 @@ describe("session: revocation cache", function()
     s:close()
   end)
 
-  it("skips the revocation write when the lookup is already revoked", function()
+  it("skips the session id write when it is already revoked", function()
     local s, ok, err = open_session()
     assert.is_true(ok)
     assert.is_nil(err)
@@ -1091,7 +1091,8 @@ describe("session: revocation cache", function()
     assert.is_true(ook)
     assert.is_nil(oerr)
     assert.equals(2, get_count)
-    assert.equals(2, set_count)
+    -- the lineage mark is written again, without a lookup first
+    assert.equals(3, set_count)
   end)
 
   it("caches a failed revocation write for later lookups", function()
