@@ -3250,8 +3250,14 @@ function session.new(configuration)
   local revocation_id
   if revocation then
     local raw = configuration and configuration.revocation
-    if raw == nil then
+    local cache_id = configuration and configuration.revocation_cache_id
+    if cache_id ~= nil then
+      assert(type(cache_id) == "string" and cache_id ~= "", "invalid revocation cache id")
+      revocation_id = cache_id
+
+    elseif raw == nil then
       revocation_id = DEFAULT_REVOCATION_ID
+
     else
       revocation_id = get_revocation_id(raw, configuration)
     end
