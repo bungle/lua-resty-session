@@ -388,14 +388,15 @@ map $host $session_revocation_cache_size {
 ```
 
 `session:destroy` (including a last-audience `session:logout`) runs the same
-cached lookup first. A cached `true` means the identifier is already revoked
-and no store write is made, and a cached error is returned without contacting
-the store. Otherwise the identifier is written to the selected storage with a
+cached lookup first for the session id. A cached `true` means it is already
+revoked and no store write is made, and a cached error is returned without
+contacting the store. Otherwise the identifier is written to the selected storage with a
 TTL equal to the remaining session lifetime (rolling and absolute timeouts),
 and the local cache is updated immediately. When the write fails, the failure
 is cached for the same identifier under `revocation_error_cache_ttl`, so the
 next lookup sees it instead of the store. The revocation mark is a lightweight
-sentinel; no session payload is stored.
+sentinel; no session payload is stored. The lineage mark is written without a
+lookup, so a remember-cookie logout may write it twice.
 
 Sessions can also be revoked by their subject (`session:set_subject`) or by an
 identity provider session id (`session:set_sid`, e.g. the OpenID Connect `sid`
