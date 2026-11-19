@@ -388,8 +388,9 @@ local REVOCATION_ERROR_CACHE
 -- it, for example with a `map` in the http block.
 local function revocation_cache_size(name)
   local size = DEFAULT_REVOCATION_CACHE_SIZE
-  local configured = var[name]
-  if configured then
+  -- nginx variables are not available in every context, for example in timers
+  local ok, configured = pcall(function() return var[name] end)
+  if ok and configured then
     size = tonumber(configured)
     if not size or size < 1 or size % 1 ~= 0 then
       log(WARN, "[session] ignoring invalid $", name, ": ", configured)
