@@ -412,12 +412,12 @@ applies to `session:open` and `session:destroy` only.
 
 Subject and sid revocation lookups cache the timestamp, which is compared with
 each session's creation time. Cache entries are isolated by revocation storage.
-A storage set in `session.init`, or passed as a table, is one storage for all
-its sessions. A storage given by name (`"redis"`) in a call's configuration is
-created again by every `session.new`, so it is identified by its name and the
-configuration: equal settings share cache entries, even from different tables,
-and different settings never do. The configuration of a named storage has to be plain data
-that JSON can encode. A revocation updates the local worker cache at once. Other workers see it when their cached lookup
+A storage is identified by its settings, whether it is given by name
+(`"redis"`) or as a table: equal settings share cache entries, even from
+different tables, and different settings never do. Functions and other values
+that JSON cannot encode are left out of the settings, so a custom storage table
+needs a plain field, such as a name, that tells it apart from other custom
+storages. A revocation updates the local worker cache at once. Other workers see it when their cached lookup
 expires; set `revocation_cache_ttl = 0` to check the store on every request.
 
 These marks are shared by sessions using the same cookie name and revocation

@@ -299,6 +299,7 @@ function storage.new(configuration)
   return setmetatable({
     prefix = prefix,
     suffix = suffix,
+    zone = zone,
     dict = dict,
   }, metatable)
 end

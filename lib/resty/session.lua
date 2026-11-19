@@ -430,37 +430,29 @@ local function revocation_error_cache()
 end
 
 
-local REVOCATION_STORE_IDS = setmetatable({}, { __mode = "k" })
-local revocation_store_id = 0
-
-
-local function get_object_revocation_id(object)
-  local id = REVOCATION_STORE_IDS[object]
-  if not id then
-    revocation_store_id = revocation_store_id + 1
-    id = revocation_store_id
-    REVOCATION_STORE_IDS[object] = id
-  end
-
-  return id
-end
-
-
--- A storage given by name is created again by every session.new, so its own
--- identity cannot tell sessions apart. It is identified by its name and a
--- fingerprint of its configuration instead: equal settings share cache entries,
+-- A storage is identified by its settings, not by the table that holds them: a
+-- storage given by name is created again by every session.new, and the same
+-- settings can come from different tables. Equal settings share cache entries,
 -- different settings never do.
-local function get_revocation_id(name, configuration)
-  if type(name) ~= "string" then
+local function get_revocation_id(revocation, configuration)
+  local name, settings
+  if type(revocation) == "string" then
+    name = revocation
+    settings = configuration and configuration[revocation]
+
+  elseif type(revocation) == "table" then
+    name = "table"
+    settings = revocation
+
+  else
     return nil
   end
 
-  local backend_config = configuration and configuration[name]
-  if type(backend_config) ~= "table" then
+  if type(settings) ~= "table" then
     return name
   end
 
-  local fingerprint, err = utils.config_fingerprint(backend_config)
+  local fingerprint, err = utils.config_fingerprint(settings)
   assert(fingerprint, "invalid session revocation configuration: " .. tostring(err))
 
   return name .. "\0" .. fingerprint
@@ -468,9 +460,7 @@ end
 
 
 local function revocation_cache_key(self, cookie_name, key)
-  local id = self.revocation_id or get_object_revocation_id(self.revocation)
-
-  return id .. "\0" .. cookie_name .. "\0" .. key
+  return self.revocation_id .. "\0" .. cookie_name .. "\0" .. key
 end
 
 
