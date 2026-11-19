@@ -9,9 +9,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
 
 ### Fixed
 - fix(*): revocation store errors are cached per `revocation_fail_mode`, so a fail-open result is never replayed to a fail-closed configuration
-- fix(*): a revocation lookup that overlaps a revocation write no longer caches a stale result
 - fix(*): destroying a session with a remember cookie revokes both before clearing either cookie, so a store failure in closed mode leaves the logout retryable
-- fix(*): a cached revocation mark no longer outlives the record written to the store when the write is slow
 
 ## [4.3.0] - 2026-11-09
 ### Added

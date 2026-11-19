@@ -544,10 +544,6 @@ local function revocation_error_cache()
 end
 
 
--- Counts the revocation marks written by this worker. A lookup that yielded
--- while a mark was written must not cache its result: it may have read the
--- store before the mark existed and would hide the revocation until it expires.
-local revocation_writes = 0
 local REVOCATION_STORE_IDS = setmetatable({}, { __mode = "k" })
 local revocation_store_id = 0
 
@@ -662,20 +658,18 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
     end
   end
 
-  local writes = revocation_writes
   local mark, err = revocation:get(cookie_name, storage_key, current_time)
-  local cacheable = writes == revocation_writes
   if err then
     local ok, revocation_err = fail_unless_open(self, errmsg(err, "unable to check session revocation"))
     if not ok then
-      if error_cache_ttl > 0 and cacheable then
+      if error_cache_ttl > 0 then
         revocation_error_cache_set(self, cache_key, revocation_err, error_cache_ttl)
       end
 
       return nil, revocation_err
     end
 
-    if error_cache_ttl > 0 and cacheable then
+    if error_cache_ttl > 0 then
       revocation_error_cache_set(self, cache_key, false, error_cache_ttl)
     end
 
@@ -684,7 +678,7 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
 
   local revoked_at = tonumber(mark)
   local cached = mark == REVOCATION_MARK or revoked_at or false
-  if cache_ttl > 0 and cacheable then
+  if cache_ttl > 0 then
     revocation_cache_set(cache_key, cached, cache_ttl)
   end
 
@@ -733,13 +727,6 @@ local function is_revoked_by(self, subject, sid, lineage, current_time, creation
 end
 
 
--- A cached mark must not outlive the record written to the store, which has
--- been expiring since the write started.
-local function written_cache_ttl(cache_ttl, ttl, started)
-  return min(cache_ttl, ttl - (ngx.now() - started))
-end
-
-
 -- Writes a revocation mark. Without `mark` the mark is the current time, so
 -- only sessions created at or before it are revoked.
 local function write_revocation_mark(self, cookie_name, key, ttl, msg, mark)
@@ -754,11 +741,8 @@ local function write_revocation_mark(self, cookie_name, key, ttl, msg, mark)
   end
 
   local current_time = time()
-  local started = ngx.now()
   local cache_key = revocation_cache_key(self, cookie_name, storage_key)
-  revocation_writes = revocation_writes + 1
   local ok, err = revocation:set(cookie_name, storage_key, mark or tostring(current_time), ttl, current_time)
-  revocation_writes = revocation_writes + 1
   if not ok then
     -- The store is failing, so lookups of this key would fail as well.
     local error_cache_ttl = self.revocation_error_cache_ttl
@@ -776,9 +760,9 @@ local function write_revocation_mark(self, cookie_name, key, ttl, msg, mark)
 
   revocation_cache():delete(cache_key)
   forget_revocation_errors(cache_key)
-  local cached_ttl = written_cache_ttl(self.revocation_cache_ttl, ttl, started)
-  if cached_ttl > 0 then
-    revocation_cache_set(cache_key, mark and true or current_time, cached_ttl)
+  local cache_ttl = self.revocation_cache_ttl
+  if cache_ttl > 0 then
+    revocation_cache_set(cache_key, mark and true or current_time, cache_ttl)
   end
 
   return true
