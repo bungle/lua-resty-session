@@ -450,7 +450,7 @@ local function revocation_cache_get(self, cookie_name, key)
   value = REVOCATION_ERROR_CACHE:get(cache_key .. ":" .. self.revocation_fail_mode)
   if value then
     return nil, value
-  end
+  end  
 
   return value
 end
@@ -499,9 +499,9 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
     if err then
       return nil, err
     end
-
+    
     if value == true or value == false then
-      return value, nil
+      return value
     end
 
     if type(value) == "number" then
@@ -509,15 +509,15 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
     end
   end
 
-  local mark, err = revocation:get(cookie_name, storage_key, current_time)
+  local data, err = revocation:get(cookie_name, storage_key, current_time)
   if err then
-    local ok, rerr = handle_revocation_error(self, err, "unable to check session revocation")
+    local ok, revocation_err = handle_revocation_error(self, err, "unable to check session revocation")
     if not ok then
       if error_cache_ttl > 0 then
-        revocation_error_cache_set(self, cookie_name, storage_key, rerr, error_cache_ttl)
+        revocation_error_cache_set(self, cookie_name, storage_key, revocation_err, error_cache_ttl)
       end
 
-      return nil, rerr
+      return nil, revocation_err
     end
 
     if error_cache_ttl > 0 then
@@ -527,8 +527,8 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
     return false, nil
   end
 
-  local revoked_at = tonumber(mark)
-  local cached = mark == REVOCATION_MARK or revoked_at or false
+  local revoked_at = tonumber(data)
+  local cached = data == REVOCATION_MARK or revoked_at or false
   if cache_ttl > 0 then
     revocation_cache_set(self, cookie_name, storage_key, cached, cache_ttl)
   end
@@ -600,9 +600,9 @@ local function mark_session_revoked(self, remember, meta)
   end
 
   local current_time = time()
-  local revoked, rerr = is_revoked(self, sid, cookie_name, current_time, meta.creation_time)
-  if rerr then
-    return nil, rerr
+  local revoked, revocation_err = is_revoked(self, sid, cookie_name, current_time, meta.creation_time)
+  if revocation_err then
+    return nil, revocation_err
   end
 
   if revoked then
@@ -614,13 +614,14 @@ local function mark_session_revoked(self, remember, meta)
   if not ok then
     local error_cache_ttl = self.revocation_error_cache_ttl
     if error_cache_ttl > 0 then
-      local cached
+      local value
       if self.revocation_fail_mode == "open" then
-        cached = false
+        value = false
       else
-        cached = errmsg(err, "unable to check session revocation")
+        value = errmsg(err, "unable to check session revocation")
       end
-      revocation_error_cache_set(self, cookie_name, key, cached, error_cache_ttl)
+      
+      revocation_error_cache_set(self, cookie_name, key, value, error_cache_ttl)
     end
 
     return handle_revocation_error(self, err, "unable to mark session revoked")
@@ -1633,7 +1634,7 @@ local function save_info(self, data, remember)
 end
 
 
-local function destroy(self, remember, marked)
+local function destroy(self, remember, already_revoked)
   local cookie_name
   local meta
   if remember then
@@ -1647,7 +1648,7 @@ local function destroy(self, remember, marked)
   local cookie_name_size = #cookie_name
   local storage = self.storage
 
-  if not marked then
+  if not already_revoked then
     local ok, err = mark_session_revoked(self, remember, meta)
     if not ok then
       return nil, err
@@ -2594,12 +2595,12 @@ function metatable:destroy()
 
   -- The remember session is revoked before any cookie is cleared, so a store
   -- failure leaves the browser with cookies that can still retry the logout.
-  local remember = get_remember(self)
-  if remember and not self.remember_meta then
-    remember = open(self, true, true)
+  local remembered
+  if get_remember(self) then
+    remembered = self.remember_meta or open(self, true, true)
   end
 
-  if remember then
+  if remembered then
     local ok, err = mark_session_revoked(self, true, self.remember_meta or {})
     if not ok then
       return nil, err
@@ -2611,7 +2612,7 @@ function metatable:destroy()
     return nil, err
   end
 
-  if remember then
+  if remembered then
     ok, err = destroy(self, true, true)
     if not ok then
       return nil, err
@@ -2980,11 +2981,12 @@ function session.init(configuration)
   DEFAULT_RESPONSE_HEADERS           = opt(configuration, "response_headers")
   DEFAULT_STORAGE                    = opt(configuration, "storage")
   DEFAULT_REVOCATION                 = opt(configuration, "revocation")
-  DEFAULT_REVOCATION_ID             = configuration and get_revocation_id(configuration.revocation, configuration)
+  DEFAULT_REVOCATION_ID              = configuration and get_revocation_id(configuration.revocation, configuration)
   DEFAULT_REVOCATION_FAIL_MODE       = opt(configuration, "revocation_fail_mode", "open")
   DEFAULT_REVOCATION_CACHE_TTL       = opt(configuration, "revocation_cache_ttl", 5)
   DEFAULT_REVOCATION_ERROR_CACHE_TTL = opt(configuration, "revocation_error_cache_ttl", 5)
 end
+
 
 ---
 -- Constructors
@@ -3136,7 +3138,7 @@ function session.new(configuration)
     flags                      = flags,
     storage                    = storage,
     revocation                 = revocation,
-    revocation_id             = revocation_id,
+    revocation_id              = revocation_id,
     revocation_fail_mode       = revocation_fail_mode,
     revocation_cache_ttl       = revocation_cache_ttl,
     revocation_error_cache_ttl = revocation_error_cache_ttl,
