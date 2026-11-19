@@ -857,11 +857,15 @@ describe("session: revocation cache", function()
     return s, ok, err
   end
 
+  local fake_stores = 0
+
   local function initialize(cache_ttl)
     get_count = 0
     set_count = 0
     revoked = false
+    fake_stores = fake_stores + 1
     store = {
+      name = "fake-store-" .. fake_stores,
       get = function()
         get_count = get_count + 1
         return revoked and "1" or nil
