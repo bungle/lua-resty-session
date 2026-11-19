@@ -447,7 +447,7 @@ local function get_revocation_id(revocation, configuration)
 
   if type(settings) ~= "table" then
     return name
-  end
+  end  
 
   local fingerprint, err = utils.config_fingerprint(settings)
   assert(fingerprint, "invalid session revocation configuration: " .. tostring(err))
@@ -515,7 +515,7 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
     if cached == true or cached == false then
       return cached, nil
     end
-
+    
     if type(cached) == "number" then
       return cached >= creation_time, nil
     end
@@ -523,7 +523,7 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
     cached = revocation_error_cache():get(revocation_error_cache_key(cache_key, self.revocation_fail_mode))
     if cached == false then
       return false, nil
-    end
+  end
 
     if cached then
       return nil, cached
@@ -1671,10 +1671,10 @@ local function destroy(self, remember, marked)
   local storage = self.storage
 
   if not marked then
-    local ok, err = mark_session_revoked(self, remember, meta)
-    if not ok then
-      return nil, err
-    end
+  local ok, err = mark_session_revoked(self, remember, meta)
+  if not ok then
+    return nil, err
+  end
 
     ok, err = revoke_lineages(self, meta)
     if not ok then
@@ -2624,15 +2624,15 @@ function metatable:destroy()
 
   if remember then
     local ok, err = mark_session_revoked(self, true, self.remember_meta or {})
-    if not ok then
-      return nil, err
-    end
+  if not ok then
+    return nil, err
   end
+      end
 
   local ok, err = destroy(self)
   if not ok then
     return nil, err
-  end
+    end
 
   if remember then
     ok, err = destroy(self, true, true)
@@ -2968,45 +2968,45 @@ end
 
 
 function session.init(configuration)
-  DEFAULT_IKM                       = opt(configuration, "ikm", DEFAULT_IKM)
-                                   or assert(sha256(assert(rand_bytes(KEY_SIZE))))
-  DEFAULT_IKM_FALLBACKS             = opt(configuration, "ikm_fallbacks")
-  DEFAULT_COOKIE_PREFIX             = opt(configuration, "cookie_prefix")
-  DEFAULT_COOKIE_NAME               = opt(configuration, "cookie_name", "session")
-  DEFAULT_COOKIE_PATH               = opt(configuration, "cookie_path", "/")
-  DEFAULT_COOKIE_DOMAIN             = opt(configuration, "cookie_domain")
-  DEFAULT_COOKIE_HTTP_ONLY          = opt(configuration, "cookie_http_only", true)
-  DEFAULT_COOKIE_SECURE             = opt(configuration, "cookie_secure")
-  DEFAULT_COOKIE_PRIORITY           = opt(configuration, "cookie_priority")
-  DEFAULT_COOKIE_SAME_SITE          = opt(configuration, "cookie_same_site", "Lax")
-  DEFAULT_COOKIE_SAME_PARTY         = opt(configuration, "cookie_same_party")
-  DEFAULT_COOKIE_PARTITIONED        = opt(configuration, "cookie_partitioned")
-  DEFAULT_REMEMBER                  = opt(configuration, "remember", false)
-  DEFAULT_REMEMBER_SAFETY           = opt(configuration, "remember_safety", "Medium")
-  DEFAULT_REMEMBER_COOKIE_NAME      = opt(configuration, "remember_cookie_name", "remember")
-  DEFAULT_AUDIENCE                  = opt(configuration, "audience", "default")
-  DEFAULT_SUBJECT                   = opt(configuration, "subject")
-  DEFAULT_ENFORCE_SAME_SUBJECT      = opt(configuration, "enforce_same_subject", false)
-  DEFAULT_STALE_TTL                 = opt(configuration, "stale_ttl", 10)                      -- 10 seconds
-  DEFAULT_IDLING_TIMEOUT            = opt(configuration, "idling_timeout", 900)                -- 15 minutes
-  DEFAULT_ROLLING_TIMEOUT           = opt(configuration, "rolling_timeout", 3600)              --  1 hour
-  DEFAULT_ABSOLUTE_TIMEOUT          = opt(configuration, "absolute_timeout", 86400)            --  1 day
-  DEFAULT_REMEMBER_ROLLING_TIMEOUT  = opt(configuration, "remember_rolling_timeout", 604800)   --  1 week
-  DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT = opt(configuration, "remember_absolute_timeout", 2592000) -- 30 days
-  DEFAULT_HASH_STORAGE_KEY          = opt(configuration, "hash_storage_key", encode_base64url)
-  DEFAULT_HASH_SUBJECT              = opt(configuration, "hash_subject", encode_base64url)
-  DEFAULT_STORE_METADATA            = opt(configuration, "store_metadata", false)
-  DEFAULT_TOUCH_THRESHOLD           = opt(configuration, "touch_threshold", 60)                --  1 minute
-  DEFAULT_COMPRESSION_THRESHOLD     = opt(configuration, "compression_threshold", 1024)        --  1 kB
-  DEFAULT_FLAGS                     = opt(configuration, "bind", FLAGS_NONE)
-  DEFAULT_REQUEST_HEADERS           = opt(configuration, "request_headers")
-  DEFAULT_RESPONSE_HEADERS          = opt(configuration, "response_headers")
-  DEFAULT_STORAGE                   = opt(configuration, "storage")
-  DEFAULT_REVOCATION                = opt(configuration, "revocation")
+  DEFAULT_IKM                        = opt(configuration, "ikm", DEFAULT_IKM)
+                                    or assert(sha256(assert(rand_bytes(KEY_SIZE))))
+  DEFAULT_IKM_FALLBACKS              = opt(configuration, "ikm_fallbacks")
+  DEFAULT_COOKIE_PREFIX              = opt(configuration, "cookie_prefix")
+  DEFAULT_COOKIE_NAME                = opt(configuration, "cookie_name", "session")
+  DEFAULT_COOKIE_PATH                = opt(configuration, "cookie_path", "/")
+  DEFAULT_COOKIE_DOMAIN              = opt(configuration, "cookie_domain")
+  DEFAULT_COOKIE_HTTP_ONLY           = opt(configuration, "cookie_http_only", true)
+  DEFAULT_COOKIE_SECURE              = opt(configuration, "cookie_secure")
+  DEFAULT_COOKIE_PRIORITY            = opt(configuration, "cookie_priority")
+  DEFAULT_COOKIE_SAME_SITE           = opt(configuration, "cookie_same_site", "Lax")
+  DEFAULT_COOKIE_SAME_PARTY          = opt(configuration, "cookie_same_party")
+  DEFAULT_COOKIE_PARTITIONED         = opt(configuration, "cookie_partitioned")
+  DEFAULT_REMEMBER                   = opt(configuration, "remember", false)
+  DEFAULT_REMEMBER_SAFETY            = opt(configuration, "remember_safety", "Medium")
+  DEFAULT_REMEMBER_COOKIE_NAME       = opt(configuration, "remember_cookie_name", "remember")
+  DEFAULT_AUDIENCE                   = opt(configuration, "audience", "default")
+  DEFAULT_SUBJECT                    = opt(configuration, "subject")
+  DEFAULT_ENFORCE_SAME_SUBJECT       = opt(configuration, "enforce_same_subject", false)
+  DEFAULT_STALE_TTL                  = opt(configuration, "stale_ttl", 10)                      -- 10 seconds
+  DEFAULT_IDLING_TIMEOUT             = opt(configuration, "idling_timeout", 900)                -- 15 minutes
+  DEFAULT_ROLLING_TIMEOUT            = opt(configuration, "rolling_timeout", 3600)              --  1 hour
+  DEFAULT_ABSOLUTE_TIMEOUT           = opt(configuration, "absolute_timeout", 86400)            --  1 day
+  DEFAULT_REMEMBER_ROLLING_TIMEOUT   = opt(configuration, "remember_rolling_timeout", 604800)   --  1 week
+  DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT  = opt(configuration, "remember_absolute_timeout", 2592000) -- 30 days
+  DEFAULT_HASH_STORAGE_KEY           = opt(configuration, "hash_storage_key", encode_base64url)
+  DEFAULT_HASH_SUBJECT               = opt(configuration, "hash_subject", encode_base64url)
+  DEFAULT_STORE_METADATA             = opt(configuration, "store_metadata", false)
+  DEFAULT_TOUCH_THRESHOLD            = opt(configuration, "touch_threshold", 60)                --  1 minute
+  DEFAULT_COMPRESSION_THRESHOLD      = opt(configuration, "compression_threshold", 1024)        --  1 kB
+  DEFAULT_FLAGS                      = opt(configuration, "bind", FLAGS_NONE)
+  DEFAULT_REQUEST_HEADERS            = opt(configuration, "request_headers")
+  DEFAULT_RESPONSE_HEADERS           = opt(configuration, "response_headers")
+  DEFAULT_STORAGE                    = opt(configuration, "storage")
+  DEFAULT_REVOCATION                 = opt(configuration, "revocation")
   DEFAULT_REVOCATION_ID             = configuration and get_revocation_id(configuration.revocation, configuration)
-  DEFAULT_REVOCATION_FAIL_MODE         = opt(configuration, "revocation_fail_mode", "open")
-  DEFAULT_REVOCATION_CACHE_TTL         = opt(configuration, "revocation_cache_ttl", 5)
-  DEFAULT_REVOCATION_ERROR_CACHE_TTL   = opt(configuration, "revocation_error_cache_ttl", 5)
+  DEFAULT_REVOCATION_FAIL_MODE       = opt(configuration, "revocation_fail_mode", "open")
+  DEFAULT_REVOCATION_CACHE_TTL       = opt(configuration, "revocation_cache_ttl", 5)
+  DEFAULT_REVOCATION_ERROR_CACHE_TTL = opt(configuration, "revocation_error_cache_ttl", 5)
 end
 
 ---
@@ -3030,40 +3030,40 @@ end
 --   audience = "my-application",
 -- })
 function session.new(configuration)
-  local ikm                       = opt(configuration, "ikm",                       DEFAULT_IKM)
-  local ikm_fallbacks             = opt(configuration, "ikm_fallbacks",             DEFAULT_IKM_FALLBACKS)
-  local cookie_prefix             = opt(configuration, "cookie_prefix",             DEFAULT_COOKIE_PREFIX)
-  local cookie_name               = opt(configuration, "cookie_name",               DEFAULT_COOKIE_NAME)
-  local cookie_path               = opt(configuration, "cookie_path",               DEFAULT_COOKIE_PATH)
-  local cookie_domain             = opt(configuration, "cookie_domain",             DEFAULT_COOKIE_DOMAIN)
-  local cookie_http_only          = opt(configuration, "cookie_http_only",          DEFAULT_COOKIE_HTTP_ONLY)
-  local cookie_secure             = opt(configuration, "cookie_secure",             DEFAULT_COOKIE_SECURE)
-  local cookie_priority           = opt(configuration, "cookie_priority",           DEFAULT_COOKIE_PRIORITY)
-  local cookie_same_site          = opt(configuration, "cookie_same_site",          DEFAULT_COOKIE_SAME_SITE)
-  local cookie_same_party         = opt(configuration, "cookie_same_party",         DEFAULT_COOKIE_SAME_PARTY)
-  local cookie_partitioned        = opt(configuration, "cookie_partitioned",        DEFAULT_COOKIE_PARTITIONED)
-  local remember                  = opt(configuration, "remember",                  DEFAULT_REMEMBER)
-  local remember_safety           = opt(configuration, "remember_safety",           DEFAULT_REMEMBER_SAFETY)
-  local remember_cookie_name      = opt(configuration, "remember_cookie_name",      DEFAULT_REMEMBER_COOKIE_NAME)
-  local audience                  = opt(configuration, "audience",                  DEFAULT_AUDIENCE)
-  local subject                   = opt(configuration, "subject",                   DEFAULT_SUBJECT)
-  local enforce_same_subject      = opt(configuration, "enforce_same_subject",      DEFAULT_ENFORCE_SAME_SUBJECT)
-  local stale_ttl                 = opt(configuration, "stale_ttl",                 DEFAULT_STALE_TTL)
-  local idling_timeout            = opt(configuration, "idling_timeout",            DEFAULT_IDLING_TIMEOUT)
-  local rolling_timeout           = opt(configuration, "rolling_timeout",           DEFAULT_ROLLING_TIMEOUT)
-  local absolute_timeout          = opt(configuration, "absolute_timeout",          DEFAULT_ABSOLUTE_TIMEOUT)
-  local remember_rolling_timeout  = opt(configuration, "remember_rolling_timeout",  DEFAULT_REMEMBER_ROLLING_TIMEOUT)
-  local remember_absolute_timeout = opt(configuration, "remember_absolute_timeout", DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT)
-  local hash_storage_key          = opt(configuration, "hash_storage_key",          DEFAULT_HASH_STORAGE_KEY)
-  local hash_subject              = opt(configuration, "hash_subject",              DEFAULT_HASH_SUBJECT)
-  local store_metadata            = opt(configuration, "store_metadata",            DEFAULT_STORE_METADATA)
-  local touch_threshold           = opt(configuration, "touch_threshold",           DEFAULT_TOUCH_THRESHOLD)
-  local compression_threshold     = opt(configuration, "compression_threshold",     DEFAULT_COMPRESSION_THRESHOLD)
-  local flags                     = opt(configuration, "bind",                      DEFAULT_FLAGS)
-  local request_headers           = opt(configuration, "request_headers",           DEFAULT_REQUEST_HEADERS)
-  local response_headers          = opt(configuration, "response_headers",          DEFAULT_RESPONSE_HEADERS)
-  local storage                   = opt(configuration, "storage",                   DEFAULT_STORAGE)
-  local revocation                = opt(configuration, "revocation",                DEFAULT_REVOCATION)
+  local ikm                        = opt(configuration, "ikm",                        DEFAULT_IKM)
+  local ikm_fallbacks              = opt(configuration, "ikm_fallbacks",              DEFAULT_IKM_FALLBACKS)
+  local cookie_prefix              = opt(configuration, "cookie_prefix",              DEFAULT_COOKIE_PREFIX)
+  local cookie_name                = opt(configuration, "cookie_name",                DEFAULT_COOKIE_NAME)
+  local cookie_path                = opt(configuration, "cookie_path",                DEFAULT_COOKIE_PATH)
+  local cookie_domain              = opt(configuration, "cookie_domain",              DEFAULT_COOKIE_DOMAIN)
+  local cookie_http_only           = opt(configuration, "cookie_http_only",           DEFAULT_COOKIE_HTTP_ONLY)
+  local cookie_secure              = opt(configuration, "cookie_secure",              DEFAULT_COOKIE_SECURE)
+  local cookie_priority            = opt(configuration, "cookie_priority",            DEFAULT_COOKIE_PRIORITY)
+  local cookie_same_site           = opt(configuration, "cookie_same_site",           DEFAULT_COOKIE_SAME_SITE)
+  local cookie_same_party          = opt(configuration, "cookie_same_party",          DEFAULT_COOKIE_SAME_PARTY)
+  local cookie_partitioned         = opt(configuration, "cookie_partitioned",         DEFAULT_COOKIE_PARTITIONED)
+  local remember                   = opt(configuration, "remember",                   DEFAULT_REMEMBER)
+  local remember_safety            = opt(configuration, "remember_safety",            DEFAULT_REMEMBER_SAFETY)
+  local remember_cookie_name       = opt(configuration, "remember_cookie_name",       DEFAULT_REMEMBER_COOKIE_NAME)
+  local audience                   = opt(configuration, "audience",                   DEFAULT_AUDIENCE)
+  local subject                    = opt(configuration, "subject",                    DEFAULT_SUBJECT)
+  local enforce_same_subject       = opt(configuration, "enforce_same_subject",       DEFAULT_ENFORCE_SAME_SUBJECT)
+  local stale_ttl                  = opt(configuration, "stale_ttl",                  DEFAULT_STALE_TTL)
+  local idling_timeout             = opt(configuration, "idling_timeout",             DEFAULT_IDLING_TIMEOUT)
+  local rolling_timeout            = opt(configuration, "rolling_timeout",            DEFAULT_ROLLING_TIMEOUT)
+  local absolute_timeout           = opt(configuration, "absolute_timeout",           DEFAULT_ABSOLUTE_TIMEOUT)
+  local remember_rolling_timeout   = opt(configuration, "remember_rolling_timeout",   DEFAULT_REMEMBER_ROLLING_TIMEOUT)
+  local remember_absolute_timeout  = opt(configuration, "remember_absolute_timeout",  DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT)
+  local hash_storage_key           = opt(configuration, "hash_storage_key",           DEFAULT_HASH_STORAGE_KEY)
+  local hash_subject               = opt(configuration, "hash_subject",               DEFAULT_HASH_SUBJECT)
+  local store_metadata             = opt(configuration, "store_metadata",             DEFAULT_STORE_METADATA)
+  local touch_threshold            = opt(configuration, "touch_threshold",            DEFAULT_TOUCH_THRESHOLD)
+  local compression_threshold      = opt(configuration, "compression_threshold",      DEFAULT_COMPRESSION_THRESHOLD)
+  local flags                      = opt(configuration, "bind",                       DEFAULT_FLAGS)
+  local request_headers            = opt(configuration, "request_headers",            DEFAULT_REQUEST_HEADERS)
+  local response_headers           = opt(configuration, "response_headers",           DEFAULT_RESPONSE_HEADERS)
+  local storage                    = opt(configuration, "storage",                    DEFAULT_STORAGE)
+  local revocation                 = opt(configuration, "revocation",                 DEFAULT_REVOCATION)
   local revocation_id
   if revocation then
     local raw = configuration and configuration.revocation
@@ -3074,9 +3074,9 @@ function session.new(configuration)
       revocation_id = get_revocation_id(raw, configuration)
     end
   end
-  local revocation_fail_mode        = opt(configuration, "revocation_fail_mode",        DEFAULT_REVOCATION_FAIL_MODE)
-  local revocation_cache_ttl        = opt(configuration, "revocation_cache_ttl",        DEFAULT_REVOCATION_CACHE_TTL)
-  local revocation_error_cache_ttl  = opt(configuration, "revocation_error_cache_ttl",  DEFAULT_REVOCATION_ERROR_CACHE_TTL)
+  local revocation_fail_mode       = opt(configuration, "revocation_fail_mode",       DEFAULT_REVOCATION_FAIL_MODE)
+  local revocation_cache_ttl       = opt(configuration, "revocation_cache_ttl",       DEFAULT_REVOCATION_CACHE_TTL)
+  local revocation_error_cache_ttl = opt(configuration, "revocation_error_cache_ttl", DEFAULT_REVOCATION_ERROR_CACHE_TTL)
 
   if storage then
     revocation = nil
@@ -3134,40 +3134,40 @@ function session.new(configuration)
   local cookie_flags = FLAGS_BUFFER:get()
 
   local self = setmetatable({
-    stale_ttl                 = stale_ttl,
-    idling_timeout            = idling_timeout,
-    rolling_timeout           = rolling_timeout,
-    absolute_timeout          = absolute_timeout,
-    remember_rolling_timeout  = remember_rolling_timeout,
-    remember_absolute_timeout = remember_absolute_timeout,
-    touch_threshold           = touch_threshold,
-    compression_threshold     = compression_threshold,
-    hash_storage_key          = hash_storage_key,
-    hash_subject              = hash_subject,
-    store_metadata            = store_metadata,
-    enforce_same_subject      = enforce_same_subject,
-    cookie_name               = cookie_name,
-    cookie_flags              = cookie_flags,
-    remember_cookie_name      = remember_cookie_name,
-    remember_safety           = remember_safety,
-    remember                  = remember,
-    flags                     = flags,
-    storage                   = storage,
-    revocation                = revocation,
+    stale_ttl                  = stale_ttl,
+    idling_timeout             = idling_timeout,
+    rolling_timeout            = rolling_timeout,
+    absolute_timeout           = absolute_timeout,
+    remember_rolling_timeout   = remember_rolling_timeout,
+    remember_absolute_timeout  = remember_absolute_timeout,
+    touch_threshold            = touch_threshold,
+    compression_threshold      = compression_threshold,
+    hash_storage_key           = hash_storage_key,
+    hash_subject               = hash_subject,
+    store_metadata             = store_metadata,
+    enforce_same_subject       = enforce_same_subject,
+    cookie_name                = cookie_name,
+    cookie_flags               = cookie_flags,
+    remember_cookie_name       = remember_cookie_name,
+    remember_safety            = remember_safety,
+    remember                   = remember,
+    flags                      = flags,
+    storage                    = storage,
+    revocation                 = revocation,
     revocation_id             = revocation_id,
-    revocation_fail_mode           = revocation_fail_mode,
-    revocation_cache_ttl           = revocation_cache_ttl,
-    revocation_error_cache_ttl     = revocation_error_cache_ttl,
-    ikm                       = ikm,
-    ikm_fallbacks             = ikm_fallbacks,
-    request_headers           = request_headers,
-    response_headers          = response_headers,
-    state                     = STATE_NEW,
-    meta                      = DUMMY_META,
-    remember_meta             = DUMMY_REMEMBER_META,
-    info                      = info,
-    data_index                = 1,
-    data                      = {
+    revocation_fail_mode       = revocation_fail_mode,
+    revocation_cache_ttl       = revocation_cache_ttl,
+    revocation_error_cache_ttl = revocation_error_cache_ttl,
+    ikm                        = ikm,
+    ikm_fallbacks              = ikm_fallbacks,
+    request_headers            = request_headers,
+    response_headers           = response_headers,
+    state                      = STATE_NEW,
+    meta                       = DUMMY_META,
+    remember_meta              = DUMMY_REMEMBER_META,
+    info                       = info,
+    data_index                 = 1,
+    data                       = {
       {
         {},
         audience,
