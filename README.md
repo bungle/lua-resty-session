@@ -415,8 +415,8 @@ A storage set in `session.init`, or passed as a table, is one storage for all
 its sessions. A storage given by name (`"redis"`) in a call's configuration is
 created again by every `session.new`, so it is identified by its name and the
 configuration: equal settings share cache entries, even from different tables,
-and different settings never do. A configuration that cannot be encoded, such as
-one holding a function, is identified by its table. A revocation updates the local worker cache at once. Other workers see it when their cached lookup
+and different settings never do. The configuration of a named storage has to be plain data
+that JSON can encode. A revocation updates the local worker cache at once. Other workers see it when their cached lookup
 expires; set `revocation_cache_ttl = 0` to check the store on every request.
 
 These marks are shared by sessions using the same cookie name and revocation

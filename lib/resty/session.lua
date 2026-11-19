@@ -578,10 +578,8 @@ local function get_revocation_id(name, configuration)
     return name
   end
 
-  local fingerprint = utils.config_fingerprint(backend_config)
-  if not fingerprint then
-    return revocation_id_of(backend_config)
-  end
+  local fingerprint, err = utils.config_fingerprint(backend_config)
+  assert(fingerprint, "invalid session revocation configuration: " .. tostring(err))
 
   return name .. "\0" .. fingerprint
 end
