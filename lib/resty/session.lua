@@ -10,6 +10,11 @@
 local require = require
 
 
+local buffer = require "string.buffer"
+local lrucache = require "resty.lrucache"
+local utils = require "resty.session.utils"
+
+
 local clear_request_header = ngx.req.clear_header
 local set_request_header = ngx.req.set_header
 local setmetatable = setmetatable
@@ -32,7 +37,6 @@ local max = math.max
 local min = math.min
 
 
-local utils = require("resty.session.utils")
 local derive_aes_gcm_256_key_and_iv = utils.derive_aes_gcm_256_key_and_iv
 local derive_hmac_sha256_key = utils.derive_hmac_sha256_key
 local encrypt_aes_256_gcm = utils.encrypt_aes_256_gcm
@@ -80,123 +84,6 @@ local DATA_SIZE           = 3  -- 47
 local TAG_SIZE            = 16 -- 63
 local IDLING_OFFSET_SIZE  = 3  -- 66
 local MAC_SIZE            = 16 -- 82
-
-
--- `session.data` holds one entry per audience. Its fields are read and written
--- through these accessors: a getter returns the field when the entry has it, and
--- otherwise nil and an error. The lineage id is the last field, and it stays the
--- same through every rotation of the cookie.
-local entry = {}
-
-
-function entry.get_values(item)
-  local values = item[1]
-  if values then
-    return values
-  end
-
-  return nil, "session entry has no values"
-end
-
-
-function entry.set_values(item, values)
-  item[1] = values
-end
-
-
-function entry.get_audience(item)
-  local audience = item[2]
-  if audience then
-    return audience
-  end
-
-  return nil, "session entry has no audience"
-end
-
-
-function entry.set_audience(item, audience)
-  item[2] = audience
-end
-
-
-function entry.get_subject(item)
-  local subject = item[3]
-  if subject then
-    return subject
-  end
-
-  return nil, "session entry has no subject"
-end
-
-
-function entry.set_subject(item, subject)
-  item[3] = subject
-end
-
-
-function entry.get_sid(item)
-  local sid = item[4]
-  if sid then
-    return sid
-  end
-
-  return nil, "session entry has no session id"
-end
-
-
-function entry.set_sid(item, sid)
-  item[4] = sid
-end
-
-
-function entry.get_lineage(item)
-  local lineage = item[5]
-  if lineage then
-    return lineage
-  end
-
-  return nil, "session entry has no lineage id"
-end
-
-
-function entry.set_lineage(item, lineage)
-  item[5] = lineage
-end
-
-
--- A session kept in a storage is saved as a record: the ciphertext, followed by
--- the info data when there is any. The accessors work like those of the entry.
-local record = {}
-
-
-function record.get_ciphertext(item)
-  local ciphertext = item[1]
-  if ciphertext then
-    return ciphertext
-  end
-
-  return nil, "session record has no ciphertext"
-end
-
-
-function record.set_ciphertext(item, ciphertext)
-  item[1] = ciphertext
-end
-
-
-function record.get_info(item)
-  local info = item[2]
-  if info then
-    return info
-  end
-
-  return nil, "session record has no info data"
-end
-
-
-function record.set_info(item, info)
-  item[2] = info
-end
 
 
 -- As big as the session id: a lineage id only has to be unique, and the cookie
@@ -290,12 +177,11 @@ local SEMICOLON_BYTE = byte(";")
 local COOKIE_EXPIRE_FLAGS = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
 
 
-local buffer_new    = require("string.buffer").new
-local HEADER_BUFFER = buffer_new(HEADER_SIZE)
-local FLAGS_BUFFER  = buffer_new(128)
-local DATA_BUFFER   = buffer_new(MAX_COOKIES_SIZE)
-local HIDE_BUFFER   = buffer_new(256)
-local BIND_BUFFER   = buffer_new(HEADER_SIZE + 256)
+local HEADER_BUFFER = buffer.new(HEADER_SIZE)
+local FLAGS_BUFFER  = buffer.new(128)
+local DATA_BUFFER   = buffer.new(MAX_COOKIES_SIZE)
+local HIDE_BUFFER   = buffer.new(256)
+local BIND_BUFFER   = buffer.new(HEADER_SIZE + 256)
 
 
 local DATA = table_new(2, 0)
@@ -524,7 +410,7 @@ end
 -- Successful lookups, sized by `$session_revocation_cache_size`.
 local function revocation_cache()
   if not REVOCATION_CACHE then
-    REVOCATION_CACHE = assert(require("resty.lrucache").new(
+    REVOCATION_CACHE = assert(lrucache.new(
       revocation_cache_size("session_revocation_cache_size")))
   end
 
@@ -536,7 +422,7 @@ end
 -- out. Sized by `$session_revocation_error_cache_size`.
 local function revocation_error_cache()
   if not REVOCATION_ERROR_CACHE then
-    REVOCATION_ERROR_CACHE = assert(require("resty.lrucache").new(
+    REVOCATION_ERROR_CACHE = assert(lrucache.new(
       revocation_cache_size("session_revocation_error_cache_size")))
   end
 
@@ -806,7 +692,7 @@ local function get_lineages(self)
   local lineages = {}
   local seen = {}
   for i = 1, #self.data do
-    local lineage = entry.get_lineage(self.data[i])
+    local lineage = self.data[i][5]
     if lineage and not seen[lineage] then
       seen[lineage] = true
       lineages[#lineages + 1] = lineage
@@ -877,8 +763,8 @@ local function get_store_metadata(self)
   local data = self.data
   local count = #data
   if count == 1 then
-    local audience = entry.get_audience(data[1])
-    local subject = entry.get_subject(data[1])
+    local audience = data[1][2]
+    local subject = data[1][3]
     if audience and subject then
       audience = encode_base64url(audience)
       subject = self.hash_subject(subject)
@@ -895,8 +781,8 @@ local function get_store_metadata(self)
   local subjects
   local index = 0
   for i = 1, count do
-    local audience = entry.get_audience(data[i])
-    local subject = entry.get_subject(data[i])
+    local audience = data[i][2]
+    local subject = data[i][3]
     if audience and subject then
       audience = encode_base64url(audience)
       self.hash_subject(subject)
@@ -935,10 +821,10 @@ local function get_property(self, name)
     return self.meta.sid
 
   elseif name == "audience" then
-    return (entry.get_audience(self.data[self.data_index]))
+    return self.data[self.data_index][2]
 
   elseif name == "subject" then
-    return (entry.get_subject(self.data[self.data_index]))
+    return self.data[self.data_index][3]
 
   elseif name == "timeout" then
     local timeout
@@ -1221,7 +1107,7 @@ local function open(self, remember, meta_only)
   end
 
   local data_index = self.data_index
-  local audience = entry.get_audience(self.data[data_index])
+  local audience = self.data[data_index][2]
   local initial_chunk, ciphertext, ciphertext_encoded, info_data do
     if storage then
       local key, err = self.hash_storage_key(sid)
@@ -1239,9 +1125,9 @@ local function open(self, remember, meta_only)
         return nil, errmsg(err, "unable to json decode session")
       end
 
-      ciphertext = record.get_ciphertext(data)
+      ciphertext = data[1]
       ciphertext_encoded = ciphertext
-      info_data = record.get_info(data)
+      info_data = data[2]
       if info_data then
         info_data, err = decode_base64url(info_data)
         if not info_data then
@@ -1367,17 +1253,17 @@ local function open(self, remember, meta_only)
     setmetatable(data[i], nil)
 
     -- cjson decodes the JSON null of a missing subject or sid as userdata
-    if type(entry.get_subject(data[i])) == "userdata" then
-      entry.set_subject(data[i], nil)
+    if type(data[i][3]) == "userdata" then
+      data[i][3] = nil
     end
-    if type(entry.get_sid(data[i])) == "userdata" then
-      entry.set_sid(data[i], nil)
+    if type(data[i][4]) == "userdata" then
+      data[i][4] = nil
     end
-    if type(entry.get_lineage(data[i])) == "userdata" then
-      entry.set_lineage(data[i], nil)
+    if type(data[i][5]) == "userdata" then
+      data[i][5] = nil
     end
 
-    if not audience_index and entry.get_audience(data[i]) == audience then
+    if not audience_index and data[i][2] == audience then
       audience_index = i
     end
   end
@@ -1385,7 +1271,7 @@ local function open(self, remember, meta_only)
   if self.revocation then
     for i = 1, count do
       if remember or i == audience_index then
-        local revoked, err = is_revoked_by(self, entry.get_subject(data[i]), entry.get_sid(data[i]), entry.get_lineage(data[i]), current_time, creation_time)
+        local revoked, err = is_revoked_by(self, data[i][3], data[i][4], data[i][5], current_time, creation_time)
         if err then
           return nil, err
         end
@@ -1420,9 +1306,10 @@ end
 -- Give the audience the session is using a lineage id if it has none yet. It is
 -- generated once, on the first save, and every later save of the session carries
 -- it along.
+-- The lineage id is the fifth field of the entry of an audience.
 local function assign_lineage(self)
   local current = self.data[self.data_index]
-  if entry.get_lineage(current) then
+  if current[5] then
     return true
   end
 
@@ -1431,7 +1318,7 @@ local function assign_lineage(self)
     return nil, errmsg(err, "unable to generate session lineage id")
   end
 
-  entry.set_lineage(current, encode_base64url(lineage))
+  current[5] = encode_base64url(lineage)
   return true
 end
 
@@ -1501,9 +1388,9 @@ local function save(self, state, remember)
     if self.enforce_same_subject then
       local count = #data
       if count > 1 then
-        local subject = entry.get_subject(data[self.data_index])
+        local subject = data[self.data_index][3]
         for i = count, 1, -1 do
-          if entry.get_subject(data[i]) ~= subject then
+          if data[i][3] ~= subject then
             remove(data, i)
           end
         end
@@ -1672,7 +1559,7 @@ local function save(self, state, remember)
       return nil, err
     end
 
-    record.set_ciphertext(DATA, payload)
+    DATA[1] = payload
 
     local info_data = self.info.data
     if info_data then
@@ -1686,10 +1573,10 @@ local function save(self, state, remember)
         return nil, errmsg(err, "unable to base64url encode session info")
       end
 
-      record.set_info(DATA, info_data)
+      DATA[2] = info_data
 
     else
-      record.set_info(DATA, nil)
+      DATA[2] = nil
     end
 
     data, err = encode_json(DATA)
@@ -1785,8 +1672,8 @@ local function save_info(self, data, remember)
     return nil, err
   end
 
-  record.set_ciphertext(DATA, meta.ciphertext)
-  record.set_info(DATA, data)
+  DATA[1] = meta.ciphertext
+  DATA[2] = data
 
   data, err = encode_json(DATA)
   if not data then
@@ -2071,14 +1958,14 @@ local fake_info_mt = {}
 function fake_info_mt:set(key, value)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
-  entry.get_values(session.data[session.data_index])["@" .. key] = value
+  session.data[session.data_index][1]["@" .. key] = value
 end
 
 
 function fake_info_mt:get(key)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to get session info on closed session")
-  return entry.get_values(session.data[session.data_index])["@" .. key]
+  return session.data[session.data_index][1]["@" .. key]
 end
 
 
@@ -2121,7 +2008,7 @@ info_mt.__index = info_mt
 function info_mt:set(key, value)
   local session = self.session
   assert(session.state ~= STATE_CLOSED, "unable to set session info on closed session")
-  local audience = entry.get_audience(session.data[session.data_index])
+  local audience = session.data[session.data_index][2]
   local data = self.data
   if data then
     if data[audience] then
@@ -2157,7 +2044,7 @@ function info_mt:get(key)
     return
   end
 
-  local audience = entry.get_audience(session.data[session.data_index])
+  local audience = session.data[session.data_index][2]
   data = self.data[audience]
   if not data then
     return
@@ -2257,7 +2144,7 @@ end
 function metatable:set_data(data)
   assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
   assert(type(data) == "table", "invalid session data")
-  entry.set_values(self.data[self.data_index], data)
+  self.data[self.data_index][1] = data
 end
 
 
@@ -2275,7 +2162,7 @@ end
 -- end
 function metatable:get_data()
   assert(self.state ~= STATE_CLOSED, "unable to set session data on closed session")
-  return (entry.get_values(self.data[self.data_index]))
+  return self.data[self.data_index][1]
 end
 
 
@@ -2294,9 +2181,9 @@ end
 function metatable:set(key, value)
   assert(self.state ~= STATE_CLOSED, "unable to set session data value on closed session")
   if self.storage or byte(key, 1) ~= AT_BYTE then
-    entry.get_values(self.data[self.data_index])[key] = value
+    self.data[self.data_index][1][key] = value
   else
-    entry.get_values(self.data[self.data_index])["$" .. key] = value
+    self.data[self.data_index][1]["$" .. key] = value
   end
 end
 
@@ -2317,9 +2204,9 @@ end
 function metatable:get(key)
   assert(self.state ~= STATE_CLOSED, "unable to get session data value on closed session")
   if self.storage or byte(key, 1) ~= AT_BYTE then
-    return entry.get_values(self.data[self.data_index])[key]
+    return self.data[self.data_index][1][key]
   else
-    return entry.get_values(self.data[self.data_index])["$" .. key]
+    return self.data[self.data_index][1]["$" .. key]
   end
 end
 
@@ -2338,7 +2225,7 @@ function metatable:set_audience(audience)
 
   local data = self.data
   local data_index = self.data_index
-  local current_audience = entry.get_audience(data[data_index])
+  local current_audience = data[data_index][2]
   if audience == current_audience then
     return
   end
@@ -2351,19 +2238,19 @@ function metatable:set_audience(audience)
 
   local count = #data
   if count == 1 then
-    entry.set_audience(data[1], audience)
+    data[1][2] = audience
     return
   end
 
   local previous_index
   for i = 1, count do
-    if entry.get_audience(data[i]) == audience then
+    if data[i][2] == audience then
       previous_index = i
       break
     end
   end
 
-  entry.set_audience(data[data_index], audience)
+  data[data_index][2] = audience
 
   if not previous_index or previous_index == data_index then
     return
@@ -2384,7 +2271,7 @@ end
 -- @treturn string audience
 function metatable:get_audience()
   assert(self.state ~= STATE_CLOSED, "unable to get audience on closed session")
-  return (entry.get_audience(self.data[self.data_index]))
+  return self.data[self.data_index][2]
 end
 
 
@@ -2399,7 +2286,7 @@ end
 -- session.set_subject("john@doe.com")
 function metatable:set_subject(subject)
   assert(self.state ~= STATE_CLOSED, "unable to set subject on closed session")
-  entry.set_subject(self.data[self.data_index], subject)
+  self.data[self.data_index][3] = subject
 end
 
 
@@ -2416,7 +2303,7 @@ end
 -- end
 function metatable:get_subject()
   assert(self.state ~= STATE_CLOSED, "unable to get subject on closed session")
-  return (entry.get_subject(self.data[self.data_index]))
+  return self.data[self.data_index][3]
 end
 
 
@@ -2435,7 +2322,7 @@ end
 function metatable:set_sid(sid)
   assert(self.state ~= STATE_CLOSED, "unable to set sid on closed session")
   assert(sid == nil or type(sid) == "string", "invalid sid")
-  entry.set_sid(self.data[self.data_index], sid)
+  self.data[self.data_index][4] = sid
 end
 
 
@@ -2452,7 +2339,7 @@ end
 -- end
 function metatable:get_sid()
   assert(self.state ~= STATE_CLOSED, "unable to get sid on closed session")
-  return (entry.get_sid(self.data[self.data_index]))
+  return self.data[self.data_index][4]
 end
 
 
@@ -2714,7 +2601,7 @@ function metatable:logout()
   local info_store = self.info
   local info_data = info_store and info_store.data
   if info_data then
-    local audience = entry.get_audience(data[data_index])
+    local audience = data[data_index][2]
     info_data[audience] = nil
     if table_is_empty(info_data) then
       info_store.data = false
@@ -3109,45 +2996,45 @@ end
 
 
 function session.init(configuration)
-  DEFAULT_IKM                        = opt(configuration, "ikm", DEFAULT_IKM)
-                                    or assert(sha256(assert(rand_bytes(KEY_SIZE))))
-  DEFAULT_IKM_FALLBACKS              = opt(configuration, "ikm_fallbacks")
-  DEFAULT_COOKIE_PREFIX              = opt(configuration, "cookie_prefix")
-  DEFAULT_COOKIE_NAME                = opt(configuration, "cookie_name", "session")
-  DEFAULT_COOKIE_PATH                = opt(configuration, "cookie_path", "/")
-  DEFAULT_COOKIE_DOMAIN              = opt(configuration, "cookie_domain")
-  DEFAULT_COOKIE_HTTP_ONLY           = opt(configuration, "cookie_http_only", true)
-  DEFAULT_COOKIE_SECURE              = opt(configuration, "cookie_secure")
-  DEFAULT_COOKIE_PRIORITY            = opt(configuration, "cookie_priority")
-  DEFAULT_COOKIE_SAME_SITE           = opt(configuration, "cookie_same_site", "Lax")
-  DEFAULT_COOKIE_SAME_PARTY          = opt(configuration, "cookie_same_party")
-  DEFAULT_COOKIE_PARTITIONED         = opt(configuration, "cookie_partitioned")
-  DEFAULT_REMEMBER                   = opt(configuration, "remember", false)
-  DEFAULT_REMEMBER_SAFETY            = opt(configuration, "remember_safety", "Medium")
-  DEFAULT_REMEMBER_COOKIE_NAME       = opt(configuration, "remember_cookie_name", "remember")
-  DEFAULT_AUDIENCE                   = opt(configuration, "audience", "default")
-  DEFAULT_SUBJECT                    = opt(configuration, "subject")
-  DEFAULT_ENFORCE_SAME_SUBJECT       = opt(configuration, "enforce_same_subject", false)
-  DEFAULT_STALE_TTL                  = opt(configuration, "stale_ttl", 10)                      -- 10 seconds
-  DEFAULT_IDLING_TIMEOUT             = opt(configuration, "idling_timeout", 900)                -- 15 minutes
-  DEFAULT_ROLLING_TIMEOUT            = opt(configuration, "rolling_timeout", 3600)              --  1 hour
-  DEFAULT_ABSOLUTE_TIMEOUT           = opt(configuration, "absolute_timeout", 86400)            --  1 day
-  DEFAULT_REMEMBER_ROLLING_TIMEOUT   = opt(configuration, "remember_rolling_timeout", 604800)   --  1 week
-  DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT  = opt(configuration, "remember_absolute_timeout", 2592000) -- 30 days
-  DEFAULT_HASH_STORAGE_KEY           = opt(configuration, "hash_storage_key", encode_base64url)
-  DEFAULT_HASH_SUBJECT               = opt(configuration, "hash_subject", encode_base64url)
-  DEFAULT_STORE_METADATA             = opt(configuration, "store_metadata", false)
-  DEFAULT_TOUCH_THRESHOLD            = opt(configuration, "touch_threshold", 60)                --  1 minute
-  DEFAULT_COMPRESSION_THRESHOLD      = opt(configuration, "compression_threshold", 1024)        --  1 kB
-  DEFAULT_FLAGS                      = opt(configuration, "bind", FLAGS_NONE)
-  DEFAULT_REQUEST_HEADERS            = opt(configuration, "request_headers")
-  DEFAULT_RESPONSE_HEADERS           = opt(configuration, "response_headers")
-  DEFAULT_STORAGE                    = opt(configuration, "storage")
-  DEFAULT_REVOCATION                 = opt(configuration, "revocation")
+  DEFAULT_IKM                       = opt(configuration, "ikm", DEFAULT_IKM)
+                                   or assert(sha256(assert(rand_bytes(KEY_SIZE))))
+  DEFAULT_IKM_FALLBACKS             = opt(configuration, "ikm_fallbacks")
+  DEFAULT_COOKIE_PREFIX             = opt(configuration, "cookie_prefix")
+  DEFAULT_COOKIE_NAME               = opt(configuration, "cookie_name", "session")
+  DEFAULT_COOKIE_PATH               = opt(configuration, "cookie_path", "/")
+  DEFAULT_COOKIE_DOMAIN             = opt(configuration, "cookie_domain")
+  DEFAULT_COOKIE_HTTP_ONLY          = opt(configuration, "cookie_http_only", true)
+  DEFAULT_COOKIE_SECURE             = opt(configuration, "cookie_secure")
+  DEFAULT_COOKIE_PRIORITY           = opt(configuration, "cookie_priority")
+  DEFAULT_COOKIE_SAME_SITE          = opt(configuration, "cookie_same_site", "Lax")
+  DEFAULT_COOKIE_SAME_PARTY         = opt(configuration, "cookie_same_party")
+  DEFAULT_COOKIE_PARTITIONED        = opt(configuration, "cookie_partitioned")
+  DEFAULT_REMEMBER                  = opt(configuration, "remember", false)
+  DEFAULT_REMEMBER_SAFETY           = opt(configuration, "remember_safety", "Medium")
+  DEFAULT_REMEMBER_COOKIE_NAME      = opt(configuration, "remember_cookie_name", "remember")
+  DEFAULT_AUDIENCE                  = opt(configuration, "audience", "default")
+  DEFAULT_SUBJECT                   = opt(configuration, "subject")
+  DEFAULT_ENFORCE_SAME_SUBJECT      = opt(configuration, "enforce_same_subject", false)
+  DEFAULT_STALE_TTL                 = opt(configuration, "stale_ttl", 10)                      -- 10 seconds
+  DEFAULT_IDLING_TIMEOUT            = opt(configuration, "idling_timeout", 900)                -- 15 minutes
+  DEFAULT_ROLLING_TIMEOUT           = opt(configuration, "rolling_timeout", 3600)              --  1 hour
+  DEFAULT_ABSOLUTE_TIMEOUT          = opt(configuration, "absolute_timeout", 86400)            --  1 day
+  DEFAULT_REMEMBER_ROLLING_TIMEOUT  = opt(configuration, "remember_rolling_timeout", 604800)   --  1 week
+  DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT = opt(configuration, "remember_absolute_timeout", 2592000) -- 30 days
+  DEFAULT_HASH_STORAGE_KEY          = opt(configuration, "hash_storage_key", encode_base64url)
+  DEFAULT_HASH_SUBJECT              = opt(configuration, "hash_subject", encode_base64url)
+  DEFAULT_STORE_METADATA            = opt(configuration, "store_metadata", false)
+  DEFAULT_TOUCH_THRESHOLD           = opt(configuration, "touch_threshold", 60)                --  1 minute
+  DEFAULT_COMPRESSION_THRESHOLD     = opt(configuration, "compression_threshold", 1024)        --  1 kB
+  DEFAULT_FLAGS                     = opt(configuration, "bind", FLAGS_NONE)
+  DEFAULT_REQUEST_HEADERS           = opt(configuration, "request_headers")
+  DEFAULT_RESPONSE_HEADERS          = opt(configuration, "response_headers")
+  DEFAULT_STORAGE                   = opt(configuration, "storage")
+  DEFAULT_REVOCATION                = opt(configuration, "revocation")
   DEFAULT_REVOCATION_ID = configuration and get_revocation_id(configuration.revocation, configuration)
-  DEFAULT_REVOCATION_FAIL_MODE       = opt(configuration, "revocation_fail_mode", "open")
-  DEFAULT_REVOCATION_CACHE_TTL       = opt(configuration, "revocation_cache_ttl", 5)
-  DEFAULT_REVOCATION_ERROR_CACHE_TTL = opt(configuration, "revocation_error_cache_ttl", 5)
+  DEFAULT_REVOCATION_FAIL_MODE         = opt(configuration, "revocation_fail_mode", "open")
+  DEFAULT_REVOCATION_CACHE_TTL         = opt(configuration, "revocation_cache_ttl", 5)
+  DEFAULT_REVOCATION_ERROR_CACHE_TTL   = opt(configuration, "revocation_error_cache_ttl", 5)
 end
 
 
@@ -3172,40 +3059,40 @@ end
 --   audience = "my-application",
 -- })
 function session.new(configuration)
-  local ikm                        = opt(configuration, "ikm",                        DEFAULT_IKM)
-  local ikm_fallbacks              = opt(configuration, "ikm_fallbacks",              DEFAULT_IKM_FALLBACKS)
-  local cookie_prefix              = opt(configuration, "cookie_prefix",              DEFAULT_COOKIE_PREFIX)
-  local cookie_name                = opt(configuration, "cookie_name",                DEFAULT_COOKIE_NAME)
-  local cookie_path                = opt(configuration, "cookie_path",                DEFAULT_COOKIE_PATH)
-  local cookie_domain              = opt(configuration, "cookie_domain",              DEFAULT_COOKIE_DOMAIN)
-  local cookie_http_only           = opt(configuration, "cookie_http_only",           DEFAULT_COOKIE_HTTP_ONLY)
-  local cookie_secure              = opt(configuration, "cookie_secure",              DEFAULT_COOKIE_SECURE)
-  local cookie_priority            = opt(configuration, "cookie_priority",            DEFAULT_COOKIE_PRIORITY)
-  local cookie_same_site           = opt(configuration, "cookie_same_site",           DEFAULT_COOKIE_SAME_SITE)
-  local cookie_same_party          = opt(configuration, "cookie_same_party",          DEFAULT_COOKIE_SAME_PARTY)
-  local cookie_partitioned         = opt(configuration, "cookie_partitioned",         DEFAULT_COOKIE_PARTITIONED)
-  local remember                   = opt(configuration, "remember",                   DEFAULT_REMEMBER)
-  local remember_safety            = opt(configuration, "remember_safety",            DEFAULT_REMEMBER_SAFETY)
-  local remember_cookie_name       = opt(configuration, "remember_cookie_name",       DEFAULT_REMEMBER_COOKIE_NAME)
-  local audience                   = opt(configuration, "audience",                   DEFAULT_AUDIENCE)
-  local subject                    = opt(configuration, "subject",                    DEFAULT_SUBJECT)
-  local enforce_same_subject       = opt(configuration, "enforce_same_subject",       DEFAULT_ENFORCE_SAME_SUBJECT)
-  local stale_ttl                  = opt(configuration, "stale_ttl",                  DEFAULT_STALE_TTL)
-  local idling_timeout             = opt(configuration, "idling_timeout",             DEFAULT_IDLING_TIMEOUT)
-  local rolling_timeout            = opt(configuration, "rolling_timeout",            DEFAULT_ROLLING_TIMEOUT)
-  local absolute_timeout           = opt(configuration, "absolute_timeout",           DEFAULT_ABSOLUTE_TIMEOUT)
-  local remember_rolling_timeout   = opt(configuration, "remember_rolling_timeout",   DEFAULT_REMEMBER_ROLLING_TIMEOUT)
-  local remember_absolute_timeout  = opt(configuration, "remember_absolute_timeout",  DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT)
-  local hash_storage_key           = opt(configuration, "hash_storage_key",           DEFAULT_HASH_STORAGE_KEY)
-  local hash_subject               = opt(configuration, "hash_subject",               DEFAULT_HASH_SUBJECT)
-  local store_metadata             = opt(configuration, "store_metadata",             DEFAULT_STORE_METADATA)
-  local touch_threshold            = opt(configuration, "touch_threshold",            DEFAULT_TOUCH_THRESHOLD)
-  local compression_threshold      = opt(configuration, "compression_threshold",      DEFAULT_COMPRESSION_THRESHOLD)
-  local flags                      = opt(configuration, "bind",                       DEFAULT_FLAGS)
-  local request_headers            = opt(configuration, "request_headers",            DEFAULT_REQUEST_HEADERS)
-  local response_headers           = opt(configuration, "response_headers",           DEFAULT_RESPONSE_HEADERS)
-  local storage                    = opt(configuration, "storage",                    DEFAULT_STORAGE)
-  local revocation                 = opt(configuration, "revocation",                 DEFAULT_REVOCATION)
+  local ikm                       = opt(configuration, "ikm",                       DEFAULT_IKM)
+  local ikm_fallbacks             = opt(configuration, "ikm_fallbacks",             DEFAULT_IKM_FALLBACKS)
+  local cookie_prefix             = opt(configuration, "cookie_prefix",             DEFAULT_COOKIE_PREFIX)
+  local cookie_name               = opt(configuration, "cookie_name",               DEFAULT_COOKIE_NAME)
+  local cookie_path               = opt(configuration, "cookie_path",               DEFAULT_COOKIE_PATH)
+  local cookie_domain             = opt(configuration, "cookie_domain",             DEFAULT_COOKIE_DOMAIN)
+  local cookie_http_only          = opt(configuration, "cookie_http_only",          DEFAULT_COOKIE_HTTP_ONLY)
+  local cookie_secure             = opt(configuration, "cookie_secure",             DEFAULT_COOKIE_SECURE)
+  local cookie_priority           = opt(configuration, "cookie_priority",           DEFAULT_COOKIE_PRIORITY)
+  local cookie_same_site          = opt(configuration, "cookie_same_site",          DEFAULT_COOKIE_SAME_SITE)
+  local cookie_same_party         = opt(configuration, "cookie_same_party",         DEFAULT_COOKIE_SAME_PARTY)
+  local cookie_partitioned        = opt(configuration, "cookie_partitioned",        DEFAULT_COOKIE_PARTITIONED)
+  local remember                  = opt(configuration, "remember",                  DEFAULT_REMEMBER)
+  local remember_safety           = opt(configuration, "remember_safety",           DEFAULT_REMEMBER_SAFETY)
+  local remember_cookie_name      = opt(configuration, "remember_cookie_name",      DEFAULT_REMEMBER_COOKIE_NAME)
+  local audience                  = opt(configuration, "audience",                  DEFAULT_AUDIENCE)
+  local subject                   = opt(configuration, "subject",                   DEFAULT_SUBJECT)
+  local enforce_same_subject      = opt(configuration, "enforce_same_subject",      DEFAULT_ENFORCE_SAME_SUBJECT)
+  local stale_ttl                 = opt(configuration, "stale_ttl",                 DEFAULT_STALE_TTL)
+  local idling_timeout            = opt(configuration, "idling_timeout",            DEFAULT_IDLING_TIMEOUT)
+  local rolling_timeout           = opt(configuration, "rolling_timeout",           DEFAULT_ROLLING_TIMEOUT)
+  local absolute_timeout          = opt(configuration, "absolute_timeout",          DEFAULT_ABSOLUTE_TIMEOUT)
+  local remember_rolling_timeout  = opt(configuration, "remember_rolling_timeout",  DEFAULT_REMEMBER_ROLLING_TIMEOUT)
+  local remember_absolute_timeout = opt(configuration, "remember_absolute_timeout", DEFAULT_REMEMBER_ABSOLUTE_TIMEOUT)
+  local hash_storage_key          = opt(configuration, "hash_storage_key",          DEFAULT_HASH_STORAGE_KEY)
+  local hash_subject              = opt(configuration, "hash_subject",              DEFAULT_HASH_SUBJECT)
+  local store_metadata            = opt(configuration, "store_metadata",            DEFAULT_STORE_METADATA)
+  local touch_threshold           = opt(configuration, "touch_threshold",           DEFAULT_TOUCH_THRESHOLD)
+  local compression_threshold     = opt(configuration, "compression_threshold",     DEFAULT_COMPRESSION_THRESHOLD)
+  local flags                     = opt(configuration, "bind",                      DEFAULT_FLAGS)
+  local request_headers           = opt(configuration, "request_headers",           DEFAULT_REQUEST_HEADERS)
+  local response_headers          = opt(configuration, "response_headers",          DEFAULT_RESPONSE_HEADERS)
+  local storage                   = opt(configuration, "storage",                   DEFAULT_STORAGE)
+  local revocation                = opt(configuration, "revocation",                DEFAULT_REVOCATION)
   local revocation_id
   if revocation then
     local raw = configuration and configuration.revocation
@@ -3216,9 +3103,9 @@ function session.new(configuration)
       revocation_id = get_revocation_id(raw, configuration)
     end
   end
-  local revocation_fail_mode       = opt(configuration, "revocation_fail_mode",       DEFAULT_REVOCATION_FAIL_MODE)
-  local revocation_cache_ttl       = opt(configuration, "revocation_cache_ttl",       DEFAULT_REVOCATION_CACHE_TTL)
-  local revocation_error_cache_ttl = opt(configuration, "revocation_error_cache_ttl", DEFAULT_REVOCATION_ERROR_CACHE_TTL)
+  local revocation_fail_mode        = opt(configuration, "revocation_fail_mode",        DEFAULT_REVOCATION_FAIL_MODE)
+  local revocation_cache_ttl        = opt(configuration, "revocation_cache_ttl",        DEFAULT_REVOCATION_CACHE_TTL)
+  local revocation_error_cache_ttl  = opt(configuration, "revocation_error_cache_ttl",  DEFAULT_REVOCATION_ERROR_CACHE_TTL)
 
   if storage then
     revocation = nil
@@ -3276,40 +3163,40 @@ function session.new(configuration)
   local cookie_flags = FLAGS_BUFFER:get()
 
   local self = setmetatable({
-    stale_ttl                  = stale_ttl,
-    idling_timeout             = idling_timeout,
-    rolling_timeout            = rolling_timeout,
-    absolute_timeout           = absolute_timeout,
-    remember_rolling_timeout   = remember_rolling_timeout,
-    remember_absolute_timeout  = remember_absolute_timeout,
-    touch_threshold            = touch_threshold,
-    compression_threshold      = compression_threshold,
-    hash_storage_key           = hash_storage_key,
-    hash_subject               = hash_subject,
-    store_metadata             = store_metadata,
-    enforce_same_subject       = enforce_same_subject,
-    cookie_name                = cookie_name,
-    cookie_flags               = cookie_flags,
-    remember_cookie_name       = remember_cookie_name,
-    remember_safety            = remember_safety,
-    remember                   = remember,
-    flags                      = flags,
-    storage                    = storage,
-    revocation                 = revocation,
+    stale_ttl                 = stale_ttl,
+    idling_timeout            = idling_timeout,
+    rolling_timeout           = rolling_timeout,
+    absolute_timeout          = absolute_timeout,
+    remember_rolling_timeout  = remember_rolling_timeout,
+    remember_absolute_timeout = remember_absolute_timeout,
+    touch_threshold           = touch_threshold,
+    compression_threshold     = compression_threshold,
+    hash_storage_key          = hash_storage_key,
+    hash_subject              = hash_subject,
+    store_metadata            = store_metadata,
+    enforce_same_subject      = enforce_same_subject,
+    cookie_name               = cookie_name,
+    cookie_flags              = cookie_flags,
+    remember_cookie_name      = remember_cookie_name,
+    remember_safety           = remember_safety,
+    remember                  = remember,
+    flags                     = flags,
+    storage                   = storage,
+    revocation                = revocation,
     revocation_id              = revocation_id,
-    revocation_fail_mode       = revocation_fail_mode,
-    revocation_cache_ttl       = revocation_cache_ttl,
-    revocation_error_cache_ttl = revocation_error_cache_ttl,
-    ikm                        = ikm,
-    ikm_fallbacks              = ikm_fallbacks,
-    request_headers            = request_headers,
-    response_headers           = response_headers,
-    state                      = STATE_NEW,
-    meta                       = DUMMY_META,
-    remember_meta              = DUMMY_REMEMBER_META,
-    info                       = info,
-    data_index                 = 1,
-    data                       = {
+    revocation_fail_mode           = revocation_fail_mode,
+    revocation_cache_ttl           = revocation_cache_ttl,
+    revocation_error_cache_ttl     = revocation_error_cache_ttl,
+    ikm                       = ikm,
+    ikm_fallbacks             = ikm_fallbacks,
+    request_headers           = request_headers,
+    response_headers          = response_headers,
+    state                     = STATE_NEW,
+    meta                      = DUMMY_META,
+    remember_meta             = DUMMY_REMEMBER_META,
+    info                      = info,
+    data_index                = 1,
+    data                      = {
       {
         {},
         audience,
