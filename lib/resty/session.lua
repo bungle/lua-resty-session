@@ -10,11 +10,6 @@
 local require = require
 
 
-local buffer = require "string.buffer"
-local lrucache = require "resty.lrucache"
-local utils = require "resty.session.utils"
-
-
 local clear_request_header = ngx.req.clear_header
 local set_request_header = ngx.req.set_header
 local setmetatable = setmetatable
@@ -37,6 +32,7 @@ local max = math.max
 local min = math.min
 
 
+local utils = require("resty.session.utils")
 local derive_aes_gcm_256_key_and_iv = utils.derive_aes_gcm_256_key_and_iv
 local derive_hmac_sha256_key = utils.derive_hmac_sha256_key
 local encrypt_aes_256_gcm = utils.encrypt_aes_256_gcm
@@ -174,11 +170,12 @@ local SEMICOLON_BYTE = byte(";")
 local COOKIE_EXPIRE_FLAGS = "; Expires=Thu, 01 Jan 1970 00:00:01 GMT; Max-Age=0"
 
 
-local HEADER_BUFFER = buffer.new(HEADER_SIZE)
-local FLAGS_BUFFER  = buffer.new(128)
-local DATA_BUFFER   = buffer.new(MAX_COOKIES_SIZE)
-local HIDE_BUFFER   = buffer.new(256)
-local BIND_BUFFER   = buffer.new(HEADER_SIZE + 256)
+local buffer_new    = require("string.buffer").new
+local HEADER_BUFFER = buffer_new(HEADER_SIZE)
+local FLAGS_BUFFER  = buffer_new(128)
+local DATA_BUFFER   = buffer_new(MAX_COOKIES_SIZE)
+local HIDE_BUFFER   = buffer_new(256)
+local BIND_BUFFER   = buffer_new(HEADER_SIZE + 256)
 
 
 local DATA = table_new(2, 0)
@@ -386,9 +383,9 @@ local REVOCATION_ERROR_CACHE
 
 
 -- The caches are shared by every session of a worker, so their sizes are not
--- session options. Each is read once per worker, on first use, from an nginx
--- variable, 1024 when it is not set. Define it where every request sees it, for
--- example with a `map` in the http block.
+-- session options. Each is read once per worker, when it is created, from an
+-- nginx variable, 1024 when it is not set. Define it where every request sees
+-- it, for example with a `map` in the http block.
 local function revocation_cache_size(name)
   local size = DEFAULT_REVOCATION_CACHE_SIZE
   local configured = var[name]
@@ -401,29 +398,6 @@ local function revocation_cache_size(name)
   end
 
   return size
-end
-
-
--- Successful lookups, sized by `$session_revocation_cache_size`.
-local function revocation_cache()
-  if not REVOCATION_CACHE then
-    REVOCATION_CACHE = assert(lrucache.new(
-      revocation_cache_size("session_revocation_cache_size")))
-  end
-
-  return REVOCATION_CACHE
-end
-
-
--- Store errors, kept apart so that an outage cannot push the successful lookups
--- out. Sized by `$session_revocation_error_cache_size`.
-local function revocation_error_cache()
-  if not REVOCATION_ERROR_CACHE then
-    REVOCATION_ERROR_CACHE = assert(lrucache.new(
-      revocation_cache_size("session_revocation_error_cache_size")))
-  end
-
-  return REVOCATION_ERROR_CACHE
 end
 
 
@@ -447,7 +421,7 @@ local function get_revocation_id(revocation, configuration)
 
   if type(settings) ~= "table" then
     return name
-  end  
+  end
 
   local fingerprint, err = utils.config_fingerprint(settings)
   assert(fingerprint, "invalid session revocation configuration: " .. tostring(err))
@@ -456,33 +430,43 @@ local function get_revocation_id(revocation, configuration)
 end
 
 
-local function revocation_cache_key(self, cookie_name, key)
-  return self.revocation_id .. "\0" .. cookie_name .. "\0" .. key
+local function get_revocation_cache_key(self, cookie_name, key)
+  return self.revocation_id .. "\0" .. cookie_name .. ":" .. key
 end
 
 
--- An error is cached as `false` when the fail mode is open and as the message
--- when closed, so it is kept per fail mode: one policy never sees the other's.
-local function revocation_error_cache_key(cache_key, fail_mode)
-  return cache_key .. "\0error\0" .. fail_mode
+-- Store errors are kept apart from the lookups, so that an outage cannot push
+-- the lookups out. An error is cached as `false` when the fail mode is open and
+-- as the message when closed, so it is kept per fail mode: one policy never
+-- sees the other's.
+local function revocation_cache_get(self, cookie_name, key)
+  local cache_key = get_revocation_cache_key(self, cookie_name, key)
+  local value = REVOCATION_CACHE:get(cache_key)
+  if value == true or value == false or type(value) == "number" then
+    return value
+  end
+
+  value = REVOCATION_ERROR_CACHE:get(cache_key .. ":" .. self.revocation_fail_mode)
+  if value then
+    return nil, value
+  end
+
+  return value
 end
 
 
-local function forget_revocation_errors(cache_key)
-  revocation_error_cache():delete(revocation_error_cache_key(cache_key, "open"))
-  revocation_error_cache():delete(revocation_error_cache_key(cache_key, "closed"))
+local function revocation_cache_set(self, cookie_name, key, value, ttl)
+  local cache_key = get_revocation_cache_key(self, cookie_name, key)
+  REVOCATION_ERROR_CACHE:delete(cache_key .. ":open")
+  REVOCATION_ERROR_CACHE:delete(cache_key .. ":closed")
+  return REVOCATION_CACHE:set(cache_key, value, ttl)
 end
 
 
-local function revocation_cache_set(cache_key, value, ttl)
-  forget_revocation_errors(cache_key)
-  return revocation_cache():set(cache_key, value, ttl)
-end
-
-
-local function revocation_error_cache_set(self, cache_key, value, ttl)
-  revocation_cache():delete(cache_key)
-  return revocation_error_cache():set(revocation_error_cache_key(cache_key, self.revocation_fail_mode), value, ttl)
+local function revocation_error_cache_set(self, cookie_name, key, value, ttl)
+  local cache_key = get_revocation_cache_key(self, cookie_name, key)
+  REVOCATION_CACHE:delete(cache_key)
+  return REVOCATION_ERROR_CACHE:set(cache_key .. ":" .. self.revocation_fail_mode, value, ttl)
 end
 
 
@@ -509,24 +493,18 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
 
   local cache_ttl = self.revocation_cache_ttl
   local error_cache_ttl = self.revocation_error_cache_ttl
-  local cache_key = revocation_cache_key(self, cookie_name, storage_key)
   if cache_ttl > 0 or error_cache_ttl > 0 then
-    local cached = revocation_cache():get(cache_key)
-    if cached == true or cached == false then
-      return cached, nil
-    end
-    
-    if type(cached) == "number" then
-      return cached >= creation_time, nil
+    local value, err = revocation_cache_get(self, cookie_name, storage_key)
+    if err then
+      return nil, err
     end
 
-    cached = revocation_error_cache():get(revocation_error_cache_key(cache_key, self.revocation_fail_mode))
-    if cached == false then
-      return false, nil
-  end
+    if value == true or value == false then
+      return value, nil
+    end
 
-    if cached then
-      return nil, cached
+    if type(value) == "number" then
+      return value >= creation_time, nil
     end
   end
 
@@ -535,14 +513,14 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
     local ok, rerr = handle_revocation_error(self, err, "unable to check session revocation")
     if not ok then
       if error_cache_ttl > 0 then
-        revocation_error_cache_set(self, cache_key, rerr, error_cache_ttl)
+        revocation_error_cache_set(self, cookie_name, storage_key, rerr, error_cache_ttl)
       end
 
       return nil, rerr
     end
 
     if error_cache_ttl > 0 then
-      revocation_error_cache_set(self, cache_key, false, error_cache_ttl)
+      revocation_error_cache_set(self, cookie_name, storage_key, false, error_cache_ttl)
     end
 
     return false, nil
@@ -551,7 +529,7 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
   local revoked_at = tonumber(mark)
   local cached = mark == REVOCATION_MARK or revoked_at or false
   if cache_ttl > 0 then
-    revocation_cache_set(cache_key, cached, cache_ttl)
+    revocation_cache_set(self, cookie_name, storage_key, cached, cache_ttl)
   end
 
   return cached == true or (revoked_at ~= nil and revoked_at >= creation_time), nil
@@ -630,7 +608,6 @@ local function mark_session_revoked(self, remember, meta)
     return true
   end
 
-  local cache_key = revocation_cache_key(self, cookie_name, key)
   local ttl = get_store_ttl(self, remember, current_time, meta.creation_time, meta.rolling_offset)
   local ok, err = revocation:set(cookie_name, key, REVOCATION_MARK, ttl, current_time)
   if not ok then
@@ -642,7 +619,7 @@ local function mark_session_revoked(self, remember, meta)
       else
         cached = errmsg(err, "unable to check session revocation")
       end
-      revocation_error_cache_set(self, cache_key, cached, error_cache_ttl)
+      revocation_error_cache_set(self, cookie_name, key, cached, error_cache_ttl)
     end
 
     return handle_revocation_error(self, err, "unable to mark session revoked")
@@ -650,7 +627,7 @@ local function mark_session_revoked(self, remember, meta)
 
   local cache_ttl = self.revocation_cache_ttl
   if cache_ttl > 0 then
-    revocation_cache_set(cache_key, true, cache_ttl)
+    revocation_cache_set(self, cookie_name, key, true, cache_ttl)
   end
 
   return true
@@ -711,10 +688,9 @@ local function revoke_lineages(self, meta)
       end
 
     else
-      local cache_key = revocation_cache_key(self, self.cookie_name, key)
       local cache_ttl = self.revocation_cache_ttl
       if cache_ttl > 0 then
-        revocation_cache_set(cache_key, current_time, min(cache_ttl, ttl))
+        revocation_cache_set(self, self.cookie_name, key, current_time, min(cache_ttl, ttl))
       end
     end
   end
@@ -1671,10 +1647,10 @@ local function destroy(self, remember, marked)
   local storage = self.storage
 
   if not marked then
-  local ok, err = mark_session_revoked(self, remember, meta)
-  if not ok then
-    return nil, err
-  end
+    local ok, err = mark_session_revoked(self, remember, meta)
+    if not ok then
+      return nil, err
+    end
 
     ok, err = revoke_lineages(self, meta)
     if not ok then
@@ -2624,15 +2600,15 @@ function metatable:destroy()
 
   if remember then
     local ok, err = mark_session_revoked(self, true, self.remember_meta or {})
-  if not ok then
-    return nil, err
+    if not ok then
+      return nil, err
+    end
   end
-      end
 
   local ok, err = destroy(self)
   if not ok then
     return nil, err
-    end
+  end
 
   if remember then
     ok, err = destroy(self, true, true)
@@ -3133,6 +3109,11 @@ function session.new(configuration)
 
   local cookie_flags = FLAGS_BUFFER:get()
 
+  if REVOCATION_CACHE == nil and revocation and (revocation_cache_ttl > 0 or revocation_error_cache_ttl > 0) then
+    REVOCATION_CACHE = assert(require("resty.lrucache").new(revocation_cache_size("session_revocation_cache_size")))
+    REVOCATION_ERROR_CACHE = assert(require("resty.lrucache").new(revocation_cache_size("session_revocation_error_cache_size")))
+  end
+
   local self = setmetatable({
     stale_ttl                  = stale_ttl,
     idling_timeout             = idling_timeout,
@@ -3348,11 +3329,9 @@ local function revoke(self, key, ttl)
     return nil, errmsg(err, "unable to revoke session key")
   end
 
-  local cache_key = revocation_cache_key(self, self.cookie_name, storage_key)
-  revocation_cache():delete(cache_key)
   local cache_ttl = self.revocation_cache_ttl
   if cache_ttl > 0 then
-    revocation_cache_set(cache_key, current_time, min(cache_ttl, ttl))
+    revocation_cache_set(self, self.cookie_name, storage_key, current_time, min(cache_ttl, ttl))
   end
 
   return true
