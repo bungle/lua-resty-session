@@ -945,12 +945,12 @@ describe("session: revocation cache", function()
     local sid_key = utils.encode_base64url("sid:idp-sid")
     local get = store.get
     store.get = function(_, _, key)
-      local result = get()
+      local stored_mark = get()
       if key == sid_key then
         assert.is_true(session.revoke_sid("idp-sid", 3600))
-        result = nil
+        stored_mark = nil
       end
-      return result
+      return stored_mark
     end
 
     local s, ok, err = open_session()
