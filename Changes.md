@@ -4,12 +4,12 @@ All notable changes to `lua-resty-session` will be documented in this file.
 
 ## [Unreleased]
 ### Added
-- feat(*): lineage revocation: `session:destroy` also revokes every other cookie of the same login, using a lineage id kept in the encrypted payload through every rotation; costs one more lookup per cache miss and one more mark on destroy, and cookies issued before the upgrade are revoked by their own session id only
-- feat(*): `$session_revocation_cache_size` and `$session_revocation_error_cache_size` nginx variables to size the revocation caches, which keep successful lookups and store errors apart
+- feat(*): lineage revocation: `session:destroy` also revokes every other cookie of the same login, using a lineage id kept in the encrypted payload through every rotation; costs one more lookup per cache miss and one more mark on destroy, and cookies issued before the upgrade are revoked by their own session id only (thanks @Hockenba)
+- feat(*): `$session_revocation_cache_size` and `$session_revocation_error_cache_size` nginx variables to size the revocation caches, which keep successful lookups and store errors apart (thanks @Hockenba)
 
 ### Fixed
-- fix(*): revocation store errors are cached per `revocation_fail_mode`, so a fail-open result is never replayed to a fail-closed configuration
-- fix(*): destroying a session with a remember cookie revokes both before clearing either cookie, so a store failure in closed mode leaves the logout retryable
+- fix(*): revocation store errors are cached per `revocation_fail_mode`, so a fail-open result is never replayed to a fail-closed configuration (thanks @Hockenba)
+- fix(*): destroying a session with a remember cookie revokes both before clearing either cookie, so a store failure in closed mode leaves the logout retryable (thanks @Hockenba)
 
 ## [4.3.0] - 2026-11-09
 ### Added
