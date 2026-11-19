@@ -754,14 +754,25 @@ local function write_revocation_mark(self, cookie_name, key, ttl, msg, mark)
 
   local current_time = time()
   local started = ngx.now()
+  local cache_key = revocation_cache_key(self, cookie_name, storage_key)
   revocation_writes = revocation_writes + 1
   local ok, err = revocation:set(cookie_name, storage_key, mark or tostring(current_time), ttl, current_time)
   revocation_writes = revocation_writes + 1
   if not ok then
+    -- The store is failing, so lookups of this key would fail as well.
+    local error_cache_ttl = self.revocation_error_cache_ttl
+    if error_cache_ttl > 0 then
+      local cached = false
+      if self.revocation_fail_mode ~= "open" then
+        cached = errmsg(err, "unable to check session revocation")
+      end
+
+      revocation_error_cache_set(self, cache_key, cached, error_cache_ttl)
+    end
+
     return nil, errmsg(err, msg)
   end
 
-  local cache_key = revocation_cache_key(self, cookie_name, storage_key)
   revocation_cache():delete(cache_key)
   forget_revocation_errors(cache_key)
   local cached_ttl = written_cache_ttl(self.revocation_cache_ttl, ttl, started)
