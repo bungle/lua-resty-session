@@ -506,6 +506,21 @@ for _, st in ipairs({
         s3:close()
       end)
 
+      it("sid: round-trip through the cookie without a subject", function()
+        local cookies = {}
+        local s = session.new()
+        s:set_sid("test")
+        local session_cookie = save_session(s, cookies)
+        s:close()
+
+        local s2, err = open_session(session_cookie)
+        assert.is_not_nil(s2)
+        assert.is_nil(err)
+        assert.equals("test", s2:get_sid())
+        assert.is_nil(s2:get_subject())
+        s2:close()
+      end)
+
       it("revoke_sid: session carrying a revoked sid cannot be reopened", function()
         local cookies = {}
         local s = session.new()

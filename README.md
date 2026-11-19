@@ -219,6 +219,7 @@ http {
         * [session:set_subject](#sessionset_subject)
         * [session:get_subject](#sessionget_subject)
         * [session:set_sid](#sessionset_sid)
+        * [session:get_sid](#sessionget_sid)
         * [session:get_property](#sessionget_property)
         * [session:set_remember](#sessionset_remember)
         * [session:get_remember](#sessionget_remember)
@@ -1248,6 +1249,20 @@ that `session.revoke_sid` can revoke the session by it.
 ```lua
 local session = require "resty.session".new()
 session:set_sid(id_token.sid)
+```
+
+
+### session:get_sid
+
+**syntax:** *sid = session:get_sid()*
+
+Get the identity provider session id.
+
+```lua
+local session, err, exists = require "resty.session".open()
+if exists then
+  local sid = session:get_sid()
+end
 ```
 
 

@@ -1462,8 +1462,9 @@ end
 
 
 -- Give the audience the session is using a lineage id if it has none yet. It is
--- generated once, on the first save, and every later save carries it along.
-local function assign_lineage(self)
+-- generated once, on the first save, and every later save of the session carries
+-- it along.
+local function ensure_lineage(self)
   local current = self.data[self.data_index]
   if entry.get_lineage(current) then
     return true
@@ -1535,7 +1536,7 @@ local function save(self, state, remember)
   local data, data_size, cookie_chunks do
     data = self.data
     if self.revocation and not storage then
-      local ok, lerr = assign_lineage(self)
+      local ok, lerr = ensure_lineage(self)
       if not ok then
         return nil, lerr
       end
@@ -2479,6 +2480,23 @@ function metatable:set_sid(sid)
   assert(self.state ~= STATE_CLOSED, "unable to set sid on closed session")
   assert(sid == nil or type(sid) == "string", "invalid sid")
   entry.set_sid(self.data[self.data_index], sid)
+end
+
+
+---
+-- Get session sid.
+--
+-- @function instance:get_sid
+-- @treturn string|nil identity provider session id
+--
+-- @usage
+-- local session, err, exists = require("resty.session").open()
+-- if exists then
+--   local sid = session:get_sid()
+-- end
+function metatable:get_sid()
+  assert(self.state ~= STATE_CLOSED, "unable to get sid on closed session")
+  return (entry.get_sid(self.data[self.data_index]))
 end
 
 
