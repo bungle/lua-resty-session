@@ -8,7 +8,7 @@ All notable changes to `lua-resty-session` will be documented in this file.
   - the lineage mark is kept for a full rolling window plus `stale_ttl`, capped by the absolute timeout (the `remember_*` windows when a remember cookie is used)
   - costs one more revocation lookup per cache miss and one more mark written on destroy; `revocation_fail_mode` applies to both
   - cookies issued before the upgrade have no lineage id and are revoked by their own session id only; sessions without revocation enabled are unchanged
-- feat(*): `$session_revocation_cache_size` nginx variable to size the revocation cache
+- feat(*): `$session_revocation_cache_size` and `$session_revocation_error_cache_size` nginx variables to size the revocation caches, which keep successful lookups and store errors apart
 
 ### Fixed
 - fix(*): the lineage id is no longer dropped when cjson is set to decode arrays with `array_mt`, as OpenResty applications such as APISIX do

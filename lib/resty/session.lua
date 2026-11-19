@@ -499,28 +499,48 @@ end
 local REVOCATION_MARK = "1"
 local DEFAULT_REVOCATION_CACHE_SIZE = 1024
 local REVOCATION_CACHE
+local REVOCATION_ERROR_CACHE
 
 
--- The cache is shared by every session of a worker, so its size is not a
--- session option. It is read once per worker, on first use, from the nginx
--- variable `$session_revocation_cache_size`, 1024 when it is not set. Define it
--- where every request sees it, for example with a `map` in the http block.
+-- The caches are shared by every session of a worker, so their sizes are not
+-- session options. Each is read once per worker, on first use, from an nginx
+-- variable, 1024 when it is not set. Define it where every request sees it, for
+-- example with a `map` in the http block.
+local function revocation_cache_size(name)
+  local size = DEFAULT_REVOCATION_CACHE_SIZE
+  local configured = var[name]
+  if configured then
+    size = tonumber(configured)
+    if not size or size < 1 or size % 1 ~= 0 then
+      log(WARN, "[session] ignoring invalid $", name, ": ", configured)
+      size = DEFAULT_REVOCATION_CACHE_SIZE
+    end
+  end
+
+  return size
+end
+
+
+-- Successful lookups, sized by `$session_revocation_cache_size`.
 local function revocation_cache()
   if not REVOCATION_CACHE then
-    local size = DEFAULT_REVOCATION_CACHE_SIZE
-    local configured = var.session_revocation_cache_size
-    if configured then
-      size = tonumber(configured)
-      if not size or size < 1 or size % 1 ~= 0 then
-        log(WARN, "[session] ignoring invalid $session_revocation_cache_size: ", configured)
-        size = DEFAULT_REVOCATION_CACHE_SIZE
-      end
-    end
-
-    REVOCATION_CACHE = assert(require("resty.lrucache").new(size))
+    REVOCATION_CACHE = assert(require("resty.lrucache").new(
+      revocation_cache_size("session_revocation_cache_size")))
   end
 
   return REVOCATION_CACHE
+end
+
+
+-- Store errors, kept apart so that an outage cannot push the successful lookups
+-- out. Sized by `$session_revocation_error_cache_size`.
+local function revocation_error_cache()
+  if not REVOCATION_ERROR_CACHE then
+    REVOCATION_ERROR_CACHE = assert(require("resty.lrucache").new(
+      revocation_cache_size("session_revocation_error_cache_size")))
+  end
+
+  return REVOCATION_ERROR_CACHE
 end
 
 
@@ -580,15 +600,15 @@ end
 
 
 local function revocation_cache_set(cache_key, value, ttl)
-  revocation_cache():delete(revocation_error_cache_key(cache_key, "open"))
-  revocation_cache():delete(revocation_error_cache_key(cache_key, "closed"))
+  revocation_error_cache():delete(revocation_error_cache_key(cache_key, "open"))
+  revocation_error_cache():delete(revocation_error_cache_key(cache_key, "closed"))
   return revocation_cache():set(cache_key, value, ttl)
 end
 
 
 local function revocation_error_cache_set(self, cache_key, value, ttl)
   revocation_cache():delete(cache_key)
-  return revocation_cache():set(revocation_error_cache_key(cache_key, self.revocation_fail_mode), value, ttl)
+  return revocation_error_cache():set(revocation_error_cache_key(cache_key, self.revocation_fail_mode), value, ttl)
 end
 
 
@@ -626,7 +646,7 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
       return cached >= creation_time, nil
     end
 
-    cached = revocation_cache():get(revocation_error_cache_key(cache_key, self.revocation_fail_mode))
+    cached = revocation_error_cache():get(revocation_error_cache_key(cache_key, self.revocation_fail_mode))
     if cached == false then
       return false, nil
     end
@@ -736,8 +756,8 @@ local function write_revocation_mark(self, key, ttl, msg)
 
   local cache_key = revocation_cache_key(self, self.cookie_name, storage_key)
   revocation_cache():delete(cache_key)
-  revocation_cache():delete(revocation_error_cache_key(cache_key, "open"))
-  revocation_cache():delete(revocation_error_cache_key(cache_key, "closed"))
+  revocation_error_cache():delete(revocation_error_cache_key(cache_key, "open"))
+  revocation_error_cache():delete(revocation_error_cache_key(cache_key, "closed"))
   local cache_ttl = self.revocation_cache_ttl
   local cached_ttl = written_cache_ttl(cache_ttl, ttl, started)
   if cached_ttl > 0 then
