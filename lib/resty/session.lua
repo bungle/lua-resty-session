@@ -831,19 +831,11 @@ local function get_lineage_ttl(self, current_time, creation_time)
 end
 
 
--- Revoke every cookie of a lineage, unless that was already done.
+-- Revoke every cookie of a lineage. Writing the mark again is harmless, so a
+-- lineage that was already revoked is not looked up first.
 local function revoke_lineage(self, lineage, meta)
   local key = lineage_revocation_key(lineage)
   local current_time = time()
-  local revoked, err = is_revoked(self, key, self.cookie_name, current_time, meta.creation_time)
-  if err then
-    return nil, err
-  end
-
-  if revoked then
-    return true
-  end
-
   local ttl = get_lineage_ttl(self, current_time, meta.creation_time)
   local ok, werr = write_revocation_mark(self, self.cookie_name, key, ttl, "unable to mark session revoked")
   if not ok then
