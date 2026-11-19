@@ -578,7 +578,12 @@ local function get_revocation_id(name, configuration)
     return name
   end
 
-  return name .. "\0" .. utils.config_fingerprint(backend_config)
+  local fingerprint = utils.config_fingerprint(backend_config)
+  if not fingerprint then
+    return revocation_id_of(backend_config)
+  end
+
+  return name .. "\0" .. fingerprint
 end
 
 

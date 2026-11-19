@@ -860,16 +860,20 @@ end
 
 
 local config_fingerprint do
+  local cjson
+
   ---
-  -- Fingerprint of the simple settings of a configuration table.
+  -- Fingerprint of a configuration table.
   --
-  -- Settings that are strings, numbers or booleans are used, sorted by name, so
-  -- equal settings give the same fingerprint whichever table they come from.
-  -- The result is hashed, so credentials are not kept in it.
+  -- The table is encoded as JSON with sorted keys and hashed, so equal settings
+  -- give the same fingerprint whichever table they come from, and credentials
+  -- are not kept in it. Returns `nil` and an error when the table has values
+  -- that cannot be encoded, such as functions.
   --
   -- @function utils.config_fingerprint
   -- @tparam table configuration configuration table
-  -- @treturn string fingerprint
+  -- @treturn string|nil fingerprint
+  -- @treturn string error message
   --
   -- @usage
   -- local fingerprint = require("resty.session.utils").config_fingerprint({
@@ -877,20 +881,17 @@ local config_fingerprint do
   --   port = 6379,
   -- })
   config_fingerprint = function(configuration)
-    local names = {}
-    for name, value in pairs(configuration) do
-      local t = type(value)
-      if type(name) == "string" and (t == "string" or t == "number" or t == "boolean") then
-        names[#names + 1] = name
-      end
+    if not cjson then
+      cjson = require("cjson.safe").new()
+      cjson.encode_sort_keys(true)
     end
 
-    table.sort(names)
-    for i = 1, #names do
-      names[i] = names[i] .. "=" .. tostring(configuration[names[i]])
+    local encoded, err = cjson.encode(configuration)
+    if not encoded then
+      return nil, err
     end
 
-    return encode_base64url(assert(sha256(table.concat(names, "\0"))))
+    return encode_base64url(assert(sha256(encoded)))
   end
 end
 
