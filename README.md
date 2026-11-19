@@ -374,26 +374,18 @@ seconds. Store unavailability is cached for `revocation_error_cache_ttl`
 seconds: `"open"` caches not-revoked, and `"closed"` caches the error, so a
 burst of requests does not retry the store on every lookup.
 
-Successful lookups and store errors are kept in separate worker-local caches, so
-an outage cannot push the successful lookups out. Each holds up to 1024 entries,
-shared by all sessions. To change that, set the nginx variables
-`$session_revocation_cache_size` and `$session_revocation_error_cache_size`.
-Define them where every request sees them, for example with a `map` in the
-`http` block, because each worker reads them once, on the first revocation
-lookup it serves:
+Successful lookups and store errors are cached separately in each worker, up to
+1024 entries each. Size them with the nginx variables
+`$session_revocation_cache_size` and `$session_revocation_error_cache_size`,
+defined where every request sees them, for example with a `map` in the `http`
+block. Each worker reads them once, on its first revocation lookup, so changing
+them needs a reload. Invalid values are ignored with a warning.
 
 ```nginx
 map $host $session_revocation_cache_size {
   default 4096;
 }
-
-map $host $session_revocation_error_cache_size {
-  default 256;
-}
 ```
-
-A variable set only in some locations gives the size of whichever request comes
-first. Changing them needs a reload. Invalid values are ignored with a warning.
 
 `session:destroy` (including a last-audience `session:logout`) runs the same
 cached lookup first. A cached `true` means the identifier is already revoked
@@ -418,18 +410,14 @@ when the values may contain personal data. Both functions always return write er
 applies to `session:open` and `session:destroy` only.
 
 Subject and sid revocation lookups cache the timestamp, which is compared with
-each session's creation time. Cache entries are isolated by revocation storage
-instance. A revocation storage reaches a session in one of three ways. Set in
-`session.init`, it is created once and shared by every session. Given as a table
-object, the table identifies it. Given by name (`"redis"`) in the configuration
-of a call, it is created again by every `session.new`, so it is identified by
-the configuration table it is created from: sessions given the same table share
-cache entries, and a different table never does. Tables with equal contents are
-not recognized as the same, so pass the same table to share entries. A successful
-revocation updates that instance's local worker cache immediately. Other workers or storage instances
-observe it when their cached lookup expires;
-set `revocation_cache_ttl = 0` to check the store on every request. Store errors
-still follow `revocation_error_cache_ttl` and `revocation_fail_mode`.
+each session's creation time. Cache entries are isolated by revocation storage.
+A storage set in `session.init`, or passed as a table, is one storage for all
+its sessions. A storage given by name (`"redis"`) in a call's configuration is
+created again by every `session.new`, so it is identified by the configuration
+table it is created from: pass the same table to share cache entries, because
+tables with equal contents are not recognized as the same. A revocation updates
+the local worker cache at once. Other workers see it when their cached lookup
+expires; set `revocation_cache_ttl = 0` to check the store on every request.
 
 These marks are shared by sessions using the same cookie name and revocation
 store namespace. Applications using multiple identity providers must qualify
@@ -447,24 +435,18 @@ session:set_sid(id_token.sid)
 require("resty.session").revoke_sid(logout_token.sid, 86400)
 ```
 
-A cookie session that is saved gets a new session id each time (token renewal,
-rolling refresh), so revoking only the id being destroyed would leave the other
-cookies of the same login usable, including one an attacker refreshed before the
-logout. When revocation is enabled, a random lineage id is therefore generated
-the first time a session is saved and carried, encrypted, through every rotation.
-`session:destroy` revokes that lineage along with the session id, so every cookie
-that descends from the same login is rejected on `session:open`: the destroyed
-one, the ones it was rotated from, and the ones rotated from it afterwards. A
-login made after the logout starts a new lineage and is unaffected. The lineage
-mark is kept for a full rolling window from the logout plus `stale_ttl`, capped
-by the absolute timeout (the longer `remember_*` windows when a remember cookie
-is used). A cookie saved right before the logout has a full rolling window of its
-own, and a request that was already running may still save one right after it,
-so the mark has to outlive both; after that all those cookies have expired
-naturally. Cookies issued before the lineage id existed have none, and are only
-revoked by their own session id. This costs one additional revocation lookup per
-cache miss, and a second mark written on destroy (`revocation_fail_mode` applies
-to it as it does to the session id mark).
+Every save of a cookie session gives it a new session id, so revoking only the id
+being destroyed would leave other cookies of the same login usable, such as one
+an attacker refreshed before the logout. With revocation enabled, a random
+lineage id is generated on the first save and carried, encrypted, through every
+rotation. `session:destroy` revokes the lineage along with the session id, so
+every cookie of that login is rejected, whether it was issued before or after
+the logout. A new login starts a new lineage. The mark is kept for a full
+rolling window plus `stale_ttl`, capped by the absolute timeout (the `remember_*`
+windows when a remember cookie is used). Cookies issued before the lineage id
+existed are revoked by their own session id only. Each cache miss costs one more
+lookup, and each destroy writes one more mark; `revocation_fail_mode` applies to
+both.
 
 Use `revocation_fail_mode` to control behavior when the storage is unavailable:
 

@@ -589,11 +589,8 @@ local function revocation_cache_key(self, cookie_name, key)
 end
 
 
--- Store errors are interpreted through the fail mode (`false` when open, the
--- error message when closed), so they live under a key per fail mode instead
--- of the shared lookup key. Otherwise an error cached under one policy would be
--- replayed under the other, e.g. a fail-open `false` read as "not revoked" by a
--- fail-closed configuration. A fresh entry of either kind replaces the other.
+-- An error is cached as `false` when the fail mode is open and as the message
+-- when closed, so it is kept per fail mode: one policy never sees the other's.
 local function revocation_error_cache_key(cache_key, fail_mode)
   return cache_key .. "\0error\0" .. fail_mode
 end
@@ -827,12 +824,10 @@ local function mark_sid_revoked(self, remember, meta)
 end
 
 
--- Logging out also revokes the lineage of the session, i.e. every cookie that
--- descends from the same login: the cookie being destroyed, the ones it was
--- rotated from, and the ones rotated from it (e.g. by someone who stole and
--- refreshed a cookie). The mark has to outlive the longest any such cookie can
--- still be valid naturally, which is a full rolling window from now (a sibling
--- may have been saved just before the logout) capped by the absolute timeout.
+-- Logging out also revokes the lineage of the session: every cookie of the same
+-- login, whichever was rotated from which. The mark outlives the longest such a
+-- cookie can still be valid: a full rolling window from now, capped by the
+-- absolute timeout.
 
 
 -- The lineage ids of the audiences in the session, without duplicates.
@@ -851,13 +846,10 @@ local function get_lineages(self)
 end
 
 
--- How long a lineage mark has to be kept: until the last cookie of the lineage
--- can no longer be valid by itself. A cookie of the lineage may have been saved
--- right before the logout, so that is a full rolling window from now, not what
--- is left of the window of the cookie being destroyed; and a request that was
--- already running may still save one right after it, hence the stale ttl on top.
--- The absolute timeout caps it, as all the cookies of a login share it. A
--- session with a remember cookie keeps the marks for the longer remember windows.
+-- How long a lineage mark is kept: a full rolling window from now, since a
+-- sibling cookie may have been saved just before the logout, plus the stale ttl
+-- for a request still running. The absolute timeout caps it, and a remember
+-- cookie uses the longer remember windows.
 local function get_lineage_ttl(self, current_time, creation_time)
   local ttl = get_store_ttl(self, false, current_time, creation_time)
   if self.remember or self.remember_meta then
@@ -895,10 +887,8 @@ local function revoke_lineage(self, lineage, meta)
 end
 
 
--- Logging out revokes the session id, and the lineage of the session, i.e. every
--- cookie that descends from the same login: the one being destroyed, the ones it
--- was rotated from, and the ones rotated from it (e.g. by someone who stole and
--- refreshed a cookie).
+-- Logging out revokes the session id and the lineage of the session, so every
+-- cookie of the same login is rejected.
 local function mark_session_revoked(self, remember, meta)
   local ok, err = mark_sid_revoked(self, remember, meta)
   if not ok then
@@ -1413,9 +1403,8 @@ local function open(self, remember, meta_only)
   local audience_index
   local count = #data
   for i = 1, count do
-    -- Decoding with `decode_array_with_array_mt` gives the entry a metatable that
-    -- makes cjson encode it up to its length, and clearing the nulls of a missing
-    -- subject or sid below leaves holes in it, which would cut off the lineage id.
+    -- With `decode_array_with_array_mt`, cjson encodes the entry up to its length,
+    -- and the holes cleared below would cut off the lineage id.
     setmetatable(data[i], nil)
 
     -- cjson decodes the JSON null of a missing subject or sid as userdata
