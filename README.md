@@ -420,6 +420,10 @@ needs a plain field, such as a name, that tells it apart from other custom
 storages. A revocation updates the local worker cache at once. Other workers see it when their cached lookup
 expires; set `revocation_cache_ttl = 0` to check the store on every request.
 
+The marks live only in the revocation storage. If it loses its data, for example
+Redis restarted without persistence, revoked cookies are accepted again until
+they expire.
+
 These marks are shared by sessions using the same cookie name and revocation
 store namespace. Applications using multiple identity providers must qualify
 their subject and sid values with the issuer consistently when setting and
