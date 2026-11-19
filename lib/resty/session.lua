@@ -617,13 +617,14 @@ local function revocation_error_cache_set(self, cache_key, value, ttl)
 end
 
 
-local function handle_revocation_error(self, err, msg)
-  if self.revocation_fail_mode == "open" then
-    log(WARN, "[session] ", msg, ": ", err)
-    return true
+-- A store failure is an error, unless the fail mode is open.
+local function fail_unless_open(self, err)
+  if self.revocation_fail_mode ~= "open" then
+    return nil, err
   end
 
-  return nil, errmsg(err, msg)
+  log(WARN, "[session] ", err)
+  return true
 end
 
 
@@ -665,7 +666,7 @@ local function is_revoked(self, key, cookie_name, current_time, creation_time)
   local mark, err = revocation:get(cookie_name, storage_key, current_time)
   local cacheable = writes == revocation_writes
   if err then
-    local ok, revocation_err = handle_revocation_error(self, err, "unable to check session revocation")
+    local ok, revocation_err = fail_unless_open(self, errmsg(err, "unable to check session revocation"))
     if not ok then
       if error_cache_ttl > 0 and cacheable then
         revocation_error_cache_set(self, cache_key, revocation_err, error_cache_ttl)
@@ -782,18 +783,6 @@ local function write_revocation_mark(self, cookie_name, key, ttl, msg, mark)
 
   return true
 end
-
-
--- A failed write is an error, unless the fail mode is open.
-local function fail_unless_open(self, err)
-  if self.revocation_fail_mode ~= "open" then
-    return nil, err
-  end
-
-  log(WARN, "[session] ", err)
-  return true
-end
-
 
 -- Revokes the session id itself (not the identity provider sid), so the cookie
 -- the client holds cannot be used again.
