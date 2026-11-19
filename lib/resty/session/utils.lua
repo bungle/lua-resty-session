@@ -859,6 +859,42 @@ end
 
 
 
+local config_fingerprint do
+  ---
+  -- Fingerprint of the simple settings of a configuration table.
+  --
+  -- Settings that are strings, numbers or booleans are used, sorted by name, so
+  -- equal settings give the same fingerprint whichever table they come from.
+  -- The result is hashed, so credentials are not kept in it.
+  --
+  -- @function utils.config_fingerprint
+  -- @tparam table configuration configuration table
+  -- @treturn string fingerprint
+  --
+  -- @usage
+  -- local fingerprint = require("resty.session.utils").config_fingerprint({
+  --   host = "127.0.0.1",
+  --   port = 6379,
+  -- })
+  config_fingerprint = function(configuration)
+    local names = {}
+    for name, value in pairs(configuration) do
+      local t = type(value)
+      if type(name) == "string" and (t == "string" or t == "number" or t == "boolean") then
+        names[#names + 1] = name
+      end
+    end
+
+    table.sort(names)
+    for i = 1, #names do
+      names[i] = names[i] .. "=" .. tostring(configuration[names[i]])
+    end
+
+    return encode_base64url(assert(sha256(table.concat(names, "\0"))))
+  end
+end
+
+
 local load_storage do
   local DSHM
   local FILE
@@ -1194,6 +1230,7 @@ return {
   encrypt_aes_256_gcm = encrypt_aes_256_gcm,
   decrypt_aes_256_gcm = decrypt_aes_256_gcm,
   hmac_sha256 = hmac_sha256,
+  config_fingerprint = config_fingerprint,
   load_storage = load_storage,
   errmsg = errmsg,
   get_name = get_name,
