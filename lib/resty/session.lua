@@ -552,7 +552,7 @@ local REVOCATION_STORE_IDS = setmetatable({}, { __mode = "k" })
 local revocation_store_id = 0
 
 
-local function revocation_id_of(object)
+local function get_object_revocation_id(object)
   local id = REVOCATION_STORE_IDS[object]
   if not id then
     revocation_store_id = revocation_store_id + 1
@@ -586,7 +586,7 @@ end
 
 
 local function revocation_cache_key(self, cookie_name, key)
-  local id = self.revocation_id or revocation_id_of(self.revocation)
+  local id = self.revocation_id or get_object_revocation_id(self.revocation)
 
   return id .. "\0" .. cookie_name .. "\0" .. key
 end
@@ -785,7 +785,7 @@ end
 
 
 -- A failed write is an error, unless the fail mode is open.
-local function handle_revocation_write_error(self, err)
+local function fail_unless_open(self, err)
   if self.revocation_fail_mode ~= "open" then
     return nil, err
   end
@@ -821,7 +821,7 @@ local function mark_session_id_revoked(self, remember, meta)
   local ttl = get_store_ttl(self, remember, current_time, meta.creation_time, meta.rolling_offset)
   local ok, werr = write_revocation_mark(self, cookie_name, sid, ttl, "unable to mark session revoked", REVOCATION_MARK)
   if not ok then
-    return handle_revocation_write_error(self, werr)
+    return fail_unless_open(self, werr)
   end
 
   return true
@@ -874,7 +874,7 @@ local function revoke_lineage(self, lineage, meta)
   local ttl = get_lineage_ttl(self, current_time, meta.creation_time)
   local ok, werr = write_revocation_mark(self, self.cookie_name, key, ttl, "unable to mark session revoked")
   if not ok then
-    return handle_revocation_write_error(self, werr)
+    return fail_unless_open(self, werr)
   end
 
   return true
