@@ -599,9 +599,14 @@ local function revocation_error_cache_key(cache_key, fail_mode)
 end
 
 
-local function revocation_cache_set(cache_key, value, ttl)
+local function forget_revocation_errors(cache_key)
   revocation_error_cache():delete(revocation_error_cache_key(cache_key, "open"))
   revocation_error_cache():delete(revocation_error_cache_key(cache_key, "closed"))
+end
+
+
+local function revocation_cache_set(cache_key, value, ttl)
+  forget_revocation_errors(cache_key)
   return revocation_cache():set(cache_key, value, ttl)
 end
 
@@ -734,7 +739,9 @@ local function written_cache_ttl(cache_ttl, ttl, started)
 end
 
 
-local function write_revocation_mark(self, key, ttl, msg)
+-- Writes a revocation mark. Without `mark` the mark is the current time, so
+-- only sessions created at or before it are revoked.
+local function write_revocation_mark(self, cookie_name, key, ttl, msg, mark)
   local revocation = self.revocation
   if not revocation then
     return nil, "session revocation is not enabled"
@@ -748,33 +755,39 @@ local function write_revocation_mark(self, key, ttl, msg)
   local current_time = time()
   local started = ngx.now()
   revocation_writes = revocation_writes + 1
-  local ok, err = revocation:set(self.cookie_name, storage_key, tostring(current_time), ttl, current_time)
+  local ok, err = revocation:set(cookie_name, storage_key, mark or tostring(current_time), ttl, current_time)
   revocation_writes = revocation_writes + 1
   if not ok then
     return nil, errmsg(err, msg)
   end
 
-  local cache_key = revocation_cache_key(self, self.cookie_name, storage_key)
+  local cache_key = revocation_cache_key(self, cookie_name, storage_key)
   revocation_cache():delete(cache_key)
-  revocation_error_cache():delete(revocation_error_cache_key(cache_key, "open"))
-  revocation_error_cache():delete(revocation_error_cache_key(cache_key, "closed"))
-  local cache_ttl = self.revocation_cache_ttl
-  local cached_ttl = written_cache_ttl(cache_ttl, ttl, started)
+  forget_revocation_errors(cache_key)
+  local cached_ttl = written_cache_ttl(self.revocation_cache_ttl, ttl, started)
   if cached_ttl > 0 then
-    revocation_cache_set(cache_key, current_time, cached_ttl)
+    revocation_cache_set(cache_key, mark and true or current_time, cached_ttl)
   end
 
   return true
 end
 
 
-local function mark_sid_revoked(self, remember, meta)
-  if self.storage then
-    return true
+-- A failed write is an error, unless the fail mode is open.
+local function handle_revocation_write_error(self, err)
+  if self.revocation_fail_mode ~= "open" then
+    return nil, err
   end
 
-  local revocation = self.revocation
-  if not revocation then
+  log(WARN, "[session] ", err)
+  return true
+end
+
+
+-- Revokes the session id itself (not the identity provider sid), so the cookie
+-- the client holds cannot be used again.
+local function mark_session_id_revoked(self, remember, meta)
+  if self.storage or not self.revocation then
     return true
   end
 
@@ -784,53 +797,24 @@ local function mark_sid_revoked(self, remember, meta)
   end
 
   local cookie_name = remember and self.remember_cookie_name or self.cookie_name
-  local key, herr = self.hash_storage_key(sid)
-  if not key then
-    return nil, herr
-  end
-
   local current_time = time()
-  local revoked, rerr = is_revoked(self, sid, cookie_name, current_time, meta.creation_time)
-  if rerr then
-    return nil, rerr
+  local revoked, err = is_revoked(self, sid, cookie_name, current_time, meta.creation_time)
+  if err then
+    return nil, err
   end
 
   if revoked then
     return true
   end
 
-  local cache_key = revocation_cache_key(self, cookie_name, key)
   local ttl = get_store_ttl(self, remember, current_time, meta.creation_time, meta.rolling_offset)
-  local started = ngx.now()
-  local ok, err = revocation:set(cookie_name, key, REVOCATION_MARK, ttl, current_time)
+  local ok, werr = write_revocation_mark(self, cookie_name, sid, ttl, "unable to mark session revoked", REVOCATION_MARK)
   if not ok then
-    local error_cache_ttl = self.revocation_error_cache_ttl
-    if error_cache_ttl > 0 then
-      local cached
-      if self.revocation_fail_mode == "open" then
-        cached = false
-      else
-        cached = errmsg(err, "unable to check session revocation")
-      end
-      revocation_error_cache_set(self, cache_key, cached, error_cache_ttl)
-    end
-
-    return handle_revocation_error(self, err, "unable to mark session revoked")
-  end
-
-  local cached_ttl = written_cache_ttl(self.revocation_cache_ttl, ttl, started)
-  if cached_ttl > 0 then
-    revocation_cache_set(cache_key, true, cached_ttl)
+    return handle_revocation_write_error(self, werr)
   end
 
   return true
 end
-
-
--- Logging out also revokes the lineage of the session: every cookie of the same
--- login, whichever was rotated from which. The mark outlives the longest such a
--- cookie can still be valid: a full rolling window from now, capped by the
--- absolute timeout.
 
 
 -- The lineage ids of the audiences in the session, without duplicates.
@@ -877,13 +861,9 @@ local function revoke_lineage(self, lineage, meta)
   end
 
   local ttl = get_lineage_ttl(self, current_time, meta.creation_time)
-  local ok, werr = write_revocation_mark(self, key, ttl, "unable to mark session revoked")
+  local ok, werr = write_revocation_mark(self, self.cookie_name, key, ttl, "unable to mark session revoked")
   if not ok then
-    if self.revocation_fail_mode ~= "open" then
-      return nil, werr
-    end
-
-    log(WARN, "[session] ", werr)
+    return handle_revocation_write_error(self, werr)
   end
 
   return true
@@ -893,7 +873,7 @@ end
 -- Logging out revokes the session id and the lineage of the session, so every
 -- cookie of the same login is rejected.
 local function mark_session_revoked(self, remember, meta)
-  local ok, err = mark_sid_revoked(self, remember, meta)
+  local ok, err = mark_session_id_revoked(self, remember, meta)
   if not ok then
     return nil, err
   end
@@ -1464,7 +1444,7 @@ end
 -- Give the audience the session is using a lineage id if it has none yet. It is
 -- generated once, on the first save, and every later save of the session carries
 -- it along.
-local function ensure_lineage(self)
+local function assign_lineage(self)
   local current = self.data[self.data_index]
   if entry.get_lineage(current) then
     return true
@@ -1536,7 +1516,7 @@ local function save(self, state, remember)
   local data, data_size, cookie_chunks do
     data = self.data
     if self.revocation and not storage then
-      local ok, lerr = ensure_lineage(self)
+      local ok, lerr = assign_lineage(self)
       if not ok then
         return nil, lerr
       end
@@ -3517,11 +3497,6 @@ function session.destroy(configuration)
 end
 
 
-local function revoke(self, key, ttl)
-  return write_revocation_mark(self, key, ttl, "unable to revoke session key")
-end
-
-
 ---
 -- Revoke sessions by subject.
 --
@@ -3544,7 +3519,7 @@ function session.revoke_subject(subject, ttl, configuration)
   assert(type(ttl) == "number" and ttl > 0, "invalid revocation ttl")
 
   local self = session.new(configuration)
-  return revoke(self, subject_revocation_key(self, subject), ttl)
+  return write_revocation_mark(self, self.cookie_name, subject_revocation_key(self, subject), ttl, "unable to revoke session key")
 end
 
 
@@ -3570,7 +3545,8 @@ function session.revoke_sid(sid, ttl, configuration)
   assert(type(sid) == "string" and sid ~= "", "invalid sid")
   assert(type(ttl) == "number" and ttl > 0, "invalid revocation ttl")
 
-  return revoke(session.new(configuration), sid_revocation_key(sid), ttl)
+  local self = session.new(configuration)
+  return write_revocation_mark(self, self.cookie_name, sid_revocation_key(sid), ttl, "unable to revoke session key")
 end
 
 
