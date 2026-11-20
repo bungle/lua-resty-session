@@ -80,6 +80,7 @@ local DATA_SIZE           = 3  -- 47
 local TAG_SIZE            = 16 -- 63
 local IDLING_OFFSET_SIZE  = 3  -- 66
 local MAC_SIZE            = 16 -- 82
+local LINEAGE_SIZE        = SID_SIZE -- as big as the session id
 
 
 local HEADER_TAG_SIZE = COOKIE_TYPE_SIZE + FLAGS_SIZE + SID_SIZE + CREATION_TIME_SIZE + ROLLING_OFFSET_SIZE + DATA_SIZE
@@ -146,6 +147,7 @@ local DEFAULT_REQUEST_HEADERS
 local DEFAULT_RESPONSE_HEADERS
 local DEFAULT_STORAGE
 local DEFAULT_REVOCATION
+local DEFAULT_REVOCATION_ID
 local DEFAULT_REVOCATION_FAIL_MODE
 local DEFAULT_REVOCATION_CACHE_TTL
 local DEFAULT_REVOCATION_ERROR_CACHE_TTL
@@ -375,30 +377,97 @@ end
 
 
 local REVOCATION_MARK = "1"
+local DEFAULT_REVOCATION_CACHE_SIZE = 1024
 local REVOCATION_CACHE
+local REVOCATION_ERROR_CACHE
 
 
-local function get_revocation_cache_key(cookie_name, key)
-  return cookie_name .. ":" .. key
+-- The caches are shared by every session of a worker, so their sizes are not
+-- session options. Each is read once per worker, when it is created, from an
+-- nginx variable, 1024 when it is not set. Define it where every request sees
+-- it, for example with a `map` in the http block.
+local function revocation_cache_size(name)
+  local size = DEFAULT_REVOCATION_CACHE_SIZE
+  -- nginx variables are not available in every context, for example in timers
+  local ok, configured = pcall(function() return var[name] end)
+  if ok and configured then
+    size = tonumber(configured)
+    if not size or size < 1 or size % 1 ~= 0 then
+      log(WARN, "[session] ignoring invalid $", name, ": ", configured)
+      size = DEFAULT_REVOCATION_CACHE_SIZE
+    end
+  end
+
+  return size
 end
 
 
-local function revocation_cache_get(cookie_name, key)
-  local cache_key = get_revocation_cache_key(cookie_name, key)
+-- A storage is identified by its settings, not by the table that holds them: a
+-- storage given by name is created again by every session.new, and the same
+-- settings can come from different tables. Equal settings share cache entries,
+-- different settings never do.
+local function get_revocation_id(revocation, configuration)
+  local name, settings
+  if type(revocation) == "string" then
+    name = revocation
+    settings = configuration and configuration[revocation]
+
+  elseif type(revocation) == "table" then
+    name = "table"
+    settings = revocation
+
+  else
+    return nil
+  end
+
+  if type(settings) ~= "table" then
+    return name
+  end
+
+  local fingerprint, err = utils.config_fingerprint(settings)
+  assert(fingerprint, "invalid session revocation configuration: " .. tostring(err))
+
+  return name .. "\0" .. fingerprint
+end
+
+
+local function get_revocation_cache_key(self, cookie_name, key)
+  return self.revocation_id .. "\0" .. cookie_name .. ":" .. key
+end
+
+
+-- Store errors are kept apart from the lookups, so that an outage cannot push
+-- the lookups out. An error is cached as `false` when the fail mode is open and
+-- as the message when closed, so it is kept per fail mode: one policy never
+-- sees the other's.
+local function revocation_cache_get(self, cookie_name, key)
+  local cache_key = get_revocation_cache_key(self, cookie_name, key)
   local value = REVOCATION_CACHE:get(cache_key)
-  if value == true or value == false then
+  if value == true or value == false or type(value) == "number" then
     return value
   end
 
+  value = REVOCATION_ERROR_CACHE:get(cache_key .. ":" .. self.revocation_fail_mode)
   if value then
     return nil, value
   end  
+
+  return value
 end
 
 
-local function revocation_cache_set(cookie_name, key, value, ttl)
-  local cache_key = get_revocation_cache_key(cookie_name, key)
+local function revocation_cache_set(self, cookie_name, key, value, ttl)
+  local cache_key = get_revocation_cache_key(self, cookie_name, key)
+  REVOCATION_ERROR_CACHE:delete(cache_key .. ":open")
+  REVOCATION_ERROR_CACHE:delete(cache_key .. ":closed")
   return REVOCATION_CACHE:set(cache_key, value, ttl)
+end
+
+
+local function revocation_error_cache_set(self, cookie_name, key, value, ttl)
+  local cache_key = get_revocation_cache_key(self, cookie_name, key)
+  REVOCATION_CACHE:delete(cache_key)
+  return REVOCATION_ERROR_CACHE:set(cache_key .. ":" .. self.revocation_fail_mode, value, ttl)
 end
 
 
@@ -412,25 +481,21 @@ local function handle_revocation_error(self, err, msg)
 end
 
 
-local function is_session_revoked(self, sid, cookie_name)
-  if self.storage or not sid then
-    return false, nil
-  end
-
+local function is_revoked(self, key, cookie_name, current_time, creation_time)
   local revocation = self.revocation
   if not revocation then
     return false, nil
   end
 
-  local key, herr = self.hash_storage_key(sid)
-  if not key then
-    return nil, herr
+  local storage_key, err = self.hash_storage_key(key)
+  if not storage_key then
+    return nil, err
   end
 
   local cache_ttl = self.revocation_cache_ttl
   local error_cache_ttl = self.revocation_error_cache_ttl
   if cache_ttl > 0 or error_cache_ttl > 0 then
-    local value, err = revocation_cache_get(cookie_name, key)
+    local value, err = revocation_cache_get(self, cookie_name, storage_key)
     if err then
       return nil, err
     end
@@ -438,33 +503,45 @@ local function is_session_revoked(self, sid, cookie_name)
     if value == true or value == false then
       return value
     end
+
+    if type(value) == "number" then
+      return value >= creation_time, nil
+    end
   end
 
-  local current_time = time()
-  local data, err = revocation:get(cookie_name, key, current_time)
+  local data, err = revocation:get(cookie_name, storage_key, current_time)
   if err then
     local ok, revocation_err = handle_revocation_error(self, err, "unable to check session revocation")
     if not ok then
       if error_cache_ttl > 0 then
-        revocation_cache_set(cookie_name, key, revocation_err, error_cache_ttl)
+        revocation_error_cache_set(self, cookie_name, storage_key, revocation_err, error_cache_ttl)
       end
 
       return nil, revocation_err
     end
 
     if error_cache_ttl > 0 then
-      revocation_cache_set(cookie_name, key, false, error_cache_ttl)
+      revocation_error_cache_set(self, cookie_name, storage_key, false, error_cache_ttl)
     end
 
     return false, nil
   end
 
-  local revoked = data == REVOCATION_MARK
+  local revoked_at = tonumber(data)
+  local cached = data == REVOCATION_MARK or revoked_at or false
   if cache_ttl > 0 then
-    revocation_cache_set(cookie_name, key, revoked, cache_ttl)
+    revocation_cache_set(self, cookie_name, storage_key, cached, cache_ttl)
   end
 
-  return revoked, nil
+  return cached == true or (revoked_at ~= nil and revoked_at >= creation_time), nil
+end
+
+
+-- A lineage id is generated when a session is first saved and travels in the
+-- encrypted payload through every rotation of the session id, so one logout
+-- can revoke every cookie descended from the same login.
+local function lineage_revocation_key(lineage)
+  return "lineage:" .. lineage
 end
 
 
@@ -489,7 +566,8 @@ local function mark_session_revoked(self, remember, meta)
     return nil, herr
   end
 
-  local revoked, revocation_err = is_session_revoked(self, sid, cookie_name)
+  local current_time = time()
+  local revoked, revocation_err = is_revoked(self, sid, cookie_name, current_time, meta.creation_time)
   if revocation_err then
     return nil, revocation_err
   end
@@ -498,7 +576,6 @@ local function mark_session_revoked(self, remember, meta)
     return true
   end
 
-  local current_time = time()
   local ttl = get_store_ttl(self, remember, current_time, meta.creation_time, meta.rolling_offset)
   local ok, err = revocation:set(cookie_name, key, REVOCATION_MARK, ttl, current_time)
   if not ok then
@@ -511,7 +588,7 @@ local function mark_session_revoked(self, remember, meta)
         value = errmsg(err, "unable to check session revocation")
       end
       
-      revocation_cache_set(cookie_name, key, value, error_cache_ttl)
+      revocation_error_cache_set(self, cookie_name, key, value, error_cache_ttl)
     end
 
     return handle_revocation_error(self, err, "unable to mark session revoked")
@@ -519,7 +596,72 @@ local function mark_session_revoked(self, remember, meta)
 
   local cache_ttl = self.revocation_cache_ttl
   if cache_ttl > 0 then
-    revocation_cache_set(cookie_name, key, true, cache_ttl)
+    revocation_cache_set(self, cookie_name, key, true, cache_ttl)
+  end
+
+  return true
+end
+
+
+-- The lineage ids of the audiences in the session, without duplicates.
+local function get_lineages(self)
+  local lineages = {}
+  local seen = {}
+  for i = 1, #self.data do
+    local lineage = self.data[i][4]
+    if lineage and not seen[lineage] then
+      seen[lineage] = true
+      lineages[#lineages + 1] = lineage
+    end
+  end
+
+  return lineages
+end
+
+
+-- How long a lineage mark is kept: a full rolling window from now, since a
+-- sibling cookie may have been saved just before the logout, plus the stale ttl
+-- for a request still running. The absolute timeout caps it, and a remember
+-- cookie uses the longer remember windows.
+local function get_lineage_ttl(self, current_time, creation_time)
+  local ttl = get_store_ttl(self, false, current_time, creation_time)
+  if self.remember or self.remember_meta then
+    ttl = max(ttl, get_store_ttl(self, true, current_time, creation_time))
+  end
+
+  return ttl + self.stale_ttl
+end
+
+
+-- Revoke every cookie of the lineages of the session, so that a logout also
+-- rejects the cookies that were rotated from the one the client presented.
+local function revoke_lineages(self, meta)
+  local revocation = self.revocation
+  if self.storage or not revocation or not meta or not meta.sid or not meta.creation_time then
+    return true
+  end
+
+  for _, lineage in ipairs(get_lineages(self)) do
+    local current_time = time()
+    local ttl = get_lineage_ttl(self, current_time, meta.creation_time)
+    local key, herr = self.hash_storage_key(lineage_revocation_key(lineage))
+    if not key then
+      return nil, herr
+    end
+
+    local ok, err = revocation:set(self.cookie_name, key, tostring(current_time), ttl, current_time)
+    if not ok then
+      ok, err = handle_revocation_error(self, err, "unable to mark session revoked")
+      if not ok then
+        return nil, err
+      end
+
+    else
+      local cache_ttl = self.revocation_cache_ttl
+      if cache_ttl > 0 then
+        revocation_cache_set(self, self.cookie_name, key, current_time, min(cache_ttl, ttl))
+      end
+    end
   end
 
   return true
@@ -869,7 +1011,7 @@ local function open(self, remember, meta_only)
     end
   end
 
-  local revoked, err = is_session_revoked(self, sid, cookie_name)
+  local revoked, err = is_revoked(self, sid, cookie_name, current_time, creation_time)
   if err then
     return nil, err
   end
@@ -1019,9 +1161,42 @@ local function open(self, remember, meta_only)
   local audience_index
   local count = #data
   for i = 1, count do
-    if data[i][2] == audience then
+    -- With `decode_array_with_array_mt`, cjson encodes the entry up to its length,
+    -- and the holes cleared below would cut off the lineage id.
+    setmetatable(data[i], nil)
+
+    -- cjson decodes the JSON null of a missing subject or lineage id as userdata
+    if type(data[i][3]) == "userdata" then
+      data[i][3] = nil
+    end
+    if type(data[i][4]) == "userdata" then
+      data[i][4] = nil
+    end
+
+    if not audience_index and data[i][2] == audience then
       audience_index = i
-      break
+    end
+  end
+
+  if self.revocation then
+    for i = 1, count do
+      if remember or i == audience_index then
+        local revoked, err = false, nil
+        if data[i][4] then
+          revoked, err = is_revoked(self, lineage_revocation_key(data[i][4]), self.cookie_name, current_time, creation_time)
+        end
+        if err then
+          return nil, err
+        end
+        if revoked then
+          if remember then
+            self.remember_meta = {}
+          else
+            self.meta = DUMMY_META
+          end
+          return nil, "session revoked"
+        end
+      end
     end
   end
 
@@ -1037,6 +1212,25 @@ local function open(self, remember, meta_only)
   self.data = data
   self.data_index = audience_index
 
+  return true
+end
+
+
+-- Give the audience the session is using a lineage id if it has none yet. It is
+-- generated once, on the first save, and every later save carries it along. It is
+-- the fourth field of the entry of the audience.
+local function assign_lineage(self)
+  local current = self.data[self.data_index]
+  if current[4] then
+    return true
+  end
+
+  local lineage, err = rand_bytes(LINEAGE_SIZE)
+  if not lineage then
+    return nil, errmsg(err, "unable to generate session lineage id")
+  end
+
+  current[4] = encode_base64url(lineage)
   return true
 end
 
@@ -1096,6 +1290,13 @@ local function save(self, state, remember)
 
   local data, data_size, cookie_chunks do
     data = self.data
+    if self.revocation and not storage then
+      local ok, lerr = assign_lineage(self)
+      if not ok then
+        return nil, lerr
+      end
+    end
+
     if self.enforce_same_subject then
       local count = #data
       if count > 1 then
@@ -1400,7 +1601,7 @@ local function save_info(self, data, remember)
 end
 
 
-local function destroy(self, remember)
+local function destroy(self, remember, already_revoked)
   local cookie_name
   local meta
   if remember then
@@ -1414,9 +1615,16 @@ local function destroy(self, remember)
   local cookie_name_size = #cookie_name
   local storage = self.storage
 
-  local ok, err = mark_session_revoked(self, remember, meta)
-  if not ok then
-    return nil, err
+  if not already_revoked then
+    local ok, err = mark_session_revoked(self, remember, meta)
+    if not ok then
+      return nil, err
+    end
+
+    ok, err = revoke_lineages(self, meta)
+    if not ok then
+      return nil, err
+    end
   end
 
   local cookie_chunks = 1
@@ -2316,20 +2524,27 @@ function metatable:destroy()
     return nil, "unable to destroy nonexistent session"
   end
 
+  -- The remember session is revoked before any cookie is cleared, so a store
+  -- failure leaves the browser with cookies that can still retry the logout.
+  local remembered
+  if get_remember(self) then
+    remembered = self.remember_meta or open(self, true, true)
+  end
+
+  if remembered then
+    local ok, err = mark_session_revoked(self, true, self.remember_meta or {})
+    if not ok then
+      return nil, err
+    end
+  end
+
   local ok, err = destroy(self)
   if not ok then
     return nil, err
   end
 
-  if get_remember(self) then
-    if not self.remember_meta then
-      local remembered = open(self, true, true)
-      if not remembered then
-        return true
-      end
-    end
-
-    ok, err = destroy(self, true)
+  if remembered then
+    ok, err = destroy(self, true, true)
     if not ok then
       return nil, err
     end
@@ -2509,8 +2724,8 @@ local session = {
 -- @field storage Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface (defaults to `nil`)
 -- @field revocation Storage used for cookie session revocation records, use `nil` or `false` to disable, `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, a custom storage module name, or a storage `table` with `set`/`get` methods (defaults to `nil`)
 -- @field revocation_fail_mode Behavior when the revocation store is unreachable, use `"open"` (treat as not revoked) or `"closed"` (reject the session) (defaults to `"open"`)
--- @field revocation_cache_ttl Worker-local TTL for successful revocation lookups (`true`/`false`); `0` disables (defaults to `5`) (in seconds)
--- @field revocation_error_cache_ttl Worker-local TTL for revocation store errors; `0` disables (defaults to `5`) (in seconds)
+-- @field revocation_cache_ttl Worker-local TTL for successful revocation lookups; `0` disables (defaults to `5`) (in seconds)
+-- @field revocation_error_cache_ttl Worker-local TTL for revocation store errors, kept per `revocation_fail_mode`; `0` disables (defaults to `5`) (in seconds)
 -- @field dshm Configuration for dshm storage, e.g. `{ prefix = "sessions" }`
 -- @field file Configuration for file storage, e.g. `{ path = "/tmp", suffix = "session" }`
 -- @field memcached Configuration for memcached storage, e.g. `{ prefix = "sessions" }`
@@ -2697,6 +2912,7 @@ function session.init(configuration)
   DEFAULT_RESPONSE_HEADERS           = opt(configuration, "response_headers")
   DEFAULT_STORAGE                    = opt(configuration, "storage")
   DEFAULT_REVOCATION                 = opt(configuration, "revocation")
+  DEFAULT_REVOCATION_ID              = configuration and get_revocation_id(configuration.revocation, configuration)
   DEFAULT_REVOCATION_FAIL_MODE       = opt(configuration, "revocation_fail_mode", "open")
   DEFAULT_REVOCATION_CACHE_TTL       = opt(configuration, "revocation_cache_ttl", 5)
   DEFAULT_REVOCATION_ERROR_CACHE_TTL = opt(configuration, "revocation_error_cache_ttl", 5)
@@ -2758,6 +2974,16 @@ function session.new(configuration)
   local response_headers           = opt(configuration, "response_headers",           DEFAULT_RESPONSE_HEADERS)
   local storage                    = opt(configuration, "storage",                    DEFAULT_STORAGE)
   local revocation                 = opt(configuration, "revocation",                 DEFAULT_REVOCATION)
+  local revocation_id
+  if revocation then
+    local raw = configuration and configuration.revocation
+    if raw == nil then
+      revocation_id = DEFAULT_REVOCATION_ID
+
+    else
+      revocation_id = get_revocation_id(raw, configuration)
+    end
+  end
   local revocation_fail_mode       = opt(configuration, "revocation_fail_mode",       DEFAULT_REVOCATION_FAIL_MODE)
   local revocation_cache_ttl       = opt(configuration, "revocation_cache_ttl",       DEFAULT_REVOCATION_CACHE_TTL)
   local revocation_error_cache_ttl = opt(configuration, "revocation_error_cache_ttl", DEFAULT_REVOCATION_ERROR_CACHE_TTL)
@@ -2817,8 +3043,9 @@ function session.new(configuration)
 
   local cookie_flags = FLAGS_BUFFER:get()
 
-  if REVOCATION_CACHE == nil and revocation and revocation_cache_ttl > 0 then
-    REVOCATION_CACHE = assert(require("resty.lrucache").new(1024))
+  if REVOCATION_CACHE == nil and revocation and (revocation_cache_ttl > 0 or revocation_error_cache_ttl > 0) then
+    REVOCATION_CACHE = assert(require("resty.lrucache").new(revocation_cache_size("session_revocation_cache_size")))
+    REVOCATION_ERROR_CACHE = assert(require("resty.lrucache").new(revocation_cache_size("session_revocation_error_cache_size")))
   end
 
   local self = setmetatable({
@@ -2842,6 +3069,7 @@ function session.new(configuration)
     flags                      = flags,
     storage                    = storage,
     revocation                 = revocation,
+    revocation_id              = revocation_id,
     revocation_fail_mode       = revocation_fail_mode,
     revocation_cache_ttl       = revocation_cache_ttl,
     revocation_error_cache_ttl = revocation_error_cache_ttl,

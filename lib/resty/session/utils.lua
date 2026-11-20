@@ -859,6 +859,45 @@ end
 
 
 
+local config_fingerprint do
+  local cjson
+
+  ---
+  -- Fingerprint of a configuration table.
+  --
+  -- The table is encoded as JSON with sorted keys and hashed, so equal settings
+  -- give the same fingerprint whichever table they come from, and credentials
+  -- are not kept in it. Values that cannot be encoded, such as functions and
+  -- userdata, are left out, at any depth. Returns `nil` and an error when the
+  -- table cannot be encoded at all, for example when it refers to itself.
+  --
+  -- @function utils.config_fingerprint
+  -- @tparam table configuration configuration table
+  -- @treturn string|nil fingerprint
+  -- @treturn string error message
+  --
+  -- @usage
+  -- local fingerprint = require("resty.session.utils").config_fingerprint({
+  --   host = "127.0.0.1",
+  --   port = 6379,
+  -- })
+  config_fingerprint = function(configuration)
+    if not cjson then
+      cjson = require("cjson.safe").new()
+      cjson.encode_sort_keys(true)
+      cjson.encode_skip_unsupported_value_types(true)
+    end
+
+    local encoded, err = cjson.encode(configuration)
+    if not encoded then
+      return nil, err
+    end
+
+    return encode_base64url(assert(sha256(encoded)))
+  end
+end
+
+
 local load_storage do
   local DSHM
   local FILE
@@ -1194,6 +1233,7 @@ return {
   encrypt_aes_256_gcm = encrypt_aes_256_gcm,
   decrypt_aes_256_gcm = decrypt_aes_256_gcm,
   hmac_sha256 = hmac_sha256,
+  config_fingerprint = config_fingerprint,
   load_storage = load_storage,
   errmsg = errmsg,
   get_name = get_name,

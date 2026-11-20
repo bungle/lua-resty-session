@@ -277,6 +277,7 @@ describe("Revocation tests 2 session: revocation_fail_mode", function()
       cookie_name = cookie_name,
       storage = "cookie",
       revocation = {
+        name = "fake-store-1",
         set = function()
           return nil, "connection refused"
         end,
@@ -298,6 +299,7 @@ describe("Revocation tests 2 session: revocation_fail_mode", function()
       cookie_name = cookie_name,
       storage = "cookie",
       revocation = {
+        name = "fake-store-2",
         set = function()
           return nil, "connection refused"
         end,
@@ -329,6 +331,7 @@ describe("Revocation tests 2 session: revocation_fail_mode", function()
       cookie_name = cookie_name,
       storage = "cookie",
       revocation = {
+        name = "fake-store-3",
         set = function()
           return nil, "connection refused"
         end,
@@ -347,6 +350,7 @@ describe("Revocation tests 2 session: revocation_fail_mode", function()
   it("destroy: closed fail mode fails when marking revoked fails", function()
     local s = session.new({
       revocation = {
+        name = "fake-store-4",
         set = function()
           return nil, "connection refused"
         end,
@@ -405,6 +409,7 @@ describe("Revocation tests 2 session: Fields validation", function()
   it("new rejects a store table without set and get", function()
     local ok, err = pcall(session.new, {
       revocation = {
+        name = "fake-store-6",
         set = function() end,
       },
     })

@@ -330,8 +330,8 @@ Here are the possible session configuration options:
 | `storage`                   |    `nil`     | Storage is responsible of storing session data, use `nil` or `"cookie"` (data is stored in cookie), `"dshm"`, `"file"`, `"memcached"`, `"mysql"`, `"postgres"`, `"redis"`, or `"shm"`, or give a name of custom module (`"custom-storage"`), or a `table` that implements session storage interface. |
 | `revocation`                |    `nil`     | Storage used for cookie session revocation records. Use `nil` or `false` to disable, a storage name such as `"shm"`, `"redis"`, `"mysql"`, or `"postgres"`, a custom storage module name, or a storage `table` with `set`/`get` methods.                                                                |
 | `revocation_fail_mode`          |   `"open"`   | Behavior when the revocation store is unreachable, use `"open"` (treat as not revoked) or `"closed"` (reject the session).                                                                                                                                                                           |
-| `revocation_cache_ttl`          |     `5`      | Worker-local cache TTL for successful revocation lookups (`true`/`false`) (in seconds). Set to `0` to disable. This is the maximum stale window before a worker observes a revocation written elsewhere.                                                                                             |
-| `revocation_error_cache_ttl`    |     `5`      | Worker-local cache TTL for revocation store errors (in seconds). Set to `0` to disable. `"open"` caches not-revoked; `"closed"` caches the error.                                                                                                                                                  |
+| `revocation_cache_ttl`          |     `5`      | Worker-local cache TTL for successful revocation lookups (in seconds). Set to `0` to disable. This is the maximum stale window before a worker observes a revocation written elsewhere.                                                                                             |
+| `revocation_error_cache_ttl`    |     `5`      | Worker-local cache TTL for revocation store errors (in seconds). Set to `0` to disable. Errors are cached per `revocation_fail_mode`: `"open"` caches not-revoked and `"closed"` caches the error, and one is never replayed under the other.                                                                                                                                                  |
 | `dshm`                      |    `nil`     | Configuration for dshm storage, e.g. `{ prefix = "sessions" }` (see below)                                                                                                                                                                                                                           |
 | `file`                      |    `nil`     | Configuration for file storage, e.g. `{ path = "/tmp", suffix = "session" }` (see below)                                                                                                                                                                                                             |
 | `memcached`                 |    `nil`     | Configuration for memcached storage, e.g. `{ prefix = "sessions" }` (see below)                                                                                                                                                                                                                      |
@@ -370,15 +370,56 @@ seconds. Store unavailability is cached for `revocation_error_cache_ttl`
 seconds: `"open"` caches not-revoked, and `"closed"` caches the error, so a
 burst of requests does not retry the store on every lookup.
 
+Successful lookups and store errors are cached separately in each worker, up to
+1024 entries each. Size them with the nginx variables
+`$session_revocation_cache_size` and `$session_revocation_error_cache_size`,
+defined where every request sees them, for example with a `map` in the `http`
+block. Each worker reads them once, on its first revocation lookup, so changing
+them needs a reload. Invalid values are ignored with a warning.
+
+```nginx
+map $host $session_revocation_cache_size {
+  default 4096;
+}
+```
+
 `session:destroy` (including a last-audience `session:logout`) runs the same
-cached lookup first. A cached `true` means the identifier is already revoked
-and no store write is made, and a cached error is returned without contacting
-the store. Otherwise the identifier is written to the selected storage with a
+cached lookup first for the session id. A cached `true` means it is already
+revoked and no store write is made, and a cached error is returned without
+contacting the store. Otherwise the identifier is written to the selected storage with a
 TTL equal to the remaining session lifetime (rolling and absolute timeouts),
 and the local cache is updated immediately. When the write fails, the failure
 is cached for the same identifier under `revocation_error_cache_ttl`, so the
 next lookup sees it instead of the store. The revocation mark is a lightweight
-sentinel; no session payload is stored.
+sentinel; no session payload is stored. The lineage mark is written without a
+lookup, so a remember-cookie logout may write it twice.
+
+Lineage lookups cache the timestamp of the mark, which is compared with each
+session's creation time. Cache entries are isolated by revocation storage.
+A storage is identified by its settings, whether it is given by name
+(`"redis"`) or as a table: equal settings share cache entries, even from
+different tables, and different settings never do. Functions and other values
+that JSON cannot encode are left out of the settings, so a custom storage table
+needs a plain field, such as a name, that tells it apart from other custom
+storages. A revocation updates the local worker cache at once. Other workers see it when their cached lookup
+expires; set `revocation_cache_ttl = 0` to check the store on every request.
+
+The marks live only in the revocation storage. If it loses its data, for example
+Redis restarted without persistence, revoked cookies are accepted again until
+they expire.
+
+Every save of a cookie session gives it a new session id, so revoking only the id
+being destroyed would leave other cookies of the same login usable, such as one
+an attacker refreshed before the logout. With revocation enabled, a random
+lineage id is generated on the first save and carried, encrypted, through every
+rotation. `session:destroy` revokes the lineage along with the session id, so
+every cookie of that login is rejected, whether it was issued before or after
+the logout. A new login starts a new lineage. The mark is kept for a full
+rolling window plus `stale_ttl`, capped by the absolute timeout (the `remember_*`
+windows when a remember cookie is used). Cookies issued before the lineage id
+existed are revoked by their own session id only. Each cache miss costs one more
+lookup, and each destroy writes one more mark; `revocation_fail_mode` applies to
+both.
 
 Use `revocation_fail_mode` to control behavior when the storage is unavailable:
 
@@ -998,6 +1039,13 @@ end
 
 Destroy the session and clear the cookies. In error case it returns `nil`
 and an error message, otherwise `true`.
+
+With revocation enabled it also revokes the lineage of the session, so every
+cookie of the same login is rejected (see [Session Revocation Configuration](#session-revocation-configuration)).
+When a remember cookie is in use, the remember session is revoked first, and no
+cookie is cleared until every revocation mark is written. With
+`revocation_fail_mode` set to `"closed"`, a store failure therefore leaves the
+cookies in place, and `session:destroy` can be called again.
 
 ```lua
 local session, err, exists = require "resty.session".open()
