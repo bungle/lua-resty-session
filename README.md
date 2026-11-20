@@ -200,8 +200,6 @@ http {
         * [session.start](#sessionstart)
         * [session.logout](#sessionlogout)
         * [session.destroy](#sessiondestroy)
-        * [session.revoke_subject](#sessionrevoke_subject)
-        * [session.revoke_sid](#sessionrevoke_sid)
     * [Instance Methods](#instance-methods)
         * [session:open](#sessionopen-1)
         * [session:save](#sessionsave)
@@ -218,8 +216,6 @@ http {
         * [session:get_audience](#sessionget_audience)
         * [session:set_subject](#sessionset_subject)
         * [session:get_subject](#sessionget_subject)
-        * [session:set_sid](#sessionset_sid)
-        * [session:get_sid](#sessionget_sid)
         * [session:get_property](#sessionget_property)
         * [session:set_remember](#sessionset_remember)
         * [session:get_remember](#sessionget_remember)
@@ -398,20 +394,8 @@ next lookup sees it instead of the store. The revocation mark is a lightweight
 sentinel; no session payload is stored. The lineage mark is written without a
 lookup, so a remember-cookie logout may write it twice.
 
-Sessions can also be revoked by their subject (`session:set_subject`) or by an
-identity provider session id (`session:set_sid`, e.g. the OpenID Connect `sid`
-claim). `session.revoke_subject(subject, ttl, configuration)` and
-`session.revoke_sid(sid, ttl, configuration)` write a mark without an open
-session; sessions carrying the value that were created at or before the mark
-are rejected on `session:open`, later ones are not. `ttl` must cover the
-sessions' absolute timeout (`remember_absolute_timeout` when remember cookies
-are used). Subject marks use `subject:` plus `hash_subject(subject)`; sid marks
-use `sid:` plus the sid. Both keys go through `hash_storage_key`. Enable hashing
-when the values may contain personal data. Both functions always return write errors; `revocation_fail_mode`
-applies to `session:open` and `session:destroy` only.
-
-Subject and sid revocation lookups cache the timestamp, which is compared with
-each session's creation time. Cache entries are isolated by revocation storage.
+Lineage lookups cache the timestamp of the mark, which is compared with each
+session's creation time. Cache entries are isolated by revocation storage.
 A storage is identified by its settings, whether it is given by name
 (`"redis"`) or as a table: equal settings share cache entries, even from
 different tables, and different settings never do. Functions and other values
@@ -423,22 +407,6 @@ expires; set `revocation_cache_ttl = 0` to check the store on every request.
 The marks live only in the revocation storage. If it loses its data, for example
 Redis restarted without persistence, revoked cookies are accepted again until
 they expire.
-
-These marks are shared by sessions using the same cookie name and revocation
-store namespace. Applications using multiple identity providers must qualify
-their subject and sid values with the issuer consistently when setting and
-revoking them. The sid is carried in the encrypted session payload; it is not
-added to the subject/audience indexes maintained by `store_metadata`. These
-APIs use revocation marks rather than enumerating or deleting stored sessions.
-
-```lua
--- On login
-session:set_subject(id_token.sub)
-session:set_sid(id_token.sid)
-
--- In a back-channel logout handler, without an open session
-require("resty.session").revoke_sid(logout_token.sid, 86400)
-```
 
 Every save of a cookie session gives it a new session id, so revoking only the id
 being destroyed would leave other cookies of the same login usable, such as one
@@ -970,40 +938,6 @@ local ok, err, exists, destroyed = require "resty.session".destroy({
 See [configuration](#configuration) for possible configuration settings.
 
 
-### session.revoke_subject
-
-**syntax:** *ok, err = session.revoke_subject(subject, ttl, configuration)*
-
-It marks a subject (see `session:set_subject`) as revoked without an open
-session; sessions carrying the subject that were created at or before the mark
-are rejected on `session:open`. `ttl` (in seconds) must cover the sessions'
-absolute timeout (`remember_absolute_timeout` when remember cookies are used).
-Write errors are always returned.
-
-```lua
-local ok, err = require "resty.session".revoke_subject("john@doe.com", 86400)
-```
-
-See [configuration](#configuration) for possible configuration settings.
-
-
-### session.revoke_sid
-
-**syntax:** *ok, err = session.revoke_sid(sid, ttl, configuration)*
-
-It marks an identity provider session id (see `session:set_sid`) as revoked
-without an open session; sessions carrying the sid that were created at or
-before the mark are rejected on `session:open`. `ttl` (in seconds) must cover
-the sessions' absolute timeout (`remember_absolute_timeout` when remember
-cookies are used). Write errors are always returned.
-
-```lua
-local ok, err = require "resty.session".revoke_sid(logout_token.sid, 86400)
-```
-
-See [configuration](#configuration) for possible configuration settings.
-
-
 ## Instance Methods
 
 ### session:open
@@ -1240,33 +1174,6 @@ Get session subject.
 local session, err, exists = require "resty.session".open()
 if exists then
   local subject = session.get_subject()
-end
-```
-
-
-### session:set_sid
-
-**syntax:** *session:set_sid(sid)*
-
-Set an identity provider session id (e.g. the OpenID Connect `sid` claim) so
-that `session.revoke_sid` can revoke the session by it.
-
-```lua
-local session = require "resty.session".new()
-session:set_sid(id_token.sid)
-```
-
-
-### session:get_sid
-
-**syntax:** *sid = session:get_sid()*
-
-Get the identity provider session id.
-
-```lua
-local session, err, exists = require "resty.session".open()
-if exists then
-  local sid = session:get_sid()
 end
 ```
 
