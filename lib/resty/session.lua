@@ -2225,6 +2225,33 @@ end
 
 
 ---
+-- Get session property.
+--
+-- Possible property names:
+-- * `"id"`: 43 bytes session id (same as nonce, but base64 url-encoded)
+-- * `"nonce"`: 32 bytes nonce (same as session id but in raw bytes)
+-- * `"audience"`: Current session audience
+-- * `"subject"`: Current session subject
+-- * `"timeout"`: Closest timeout (in seconds) (what's left of it)
+-- * `"idling-timeout`"`: Session idling timeout (in seconds) (what's left of it)
+-- * `"rolling-timeout`"`: Session rolling timeout (in seconds) (what's left of it)
+-- * `"absolute-timeout`"`: Session absolute timeout (in seconds) (what's left of it)
+--
+-- @function instance:get_property
+-- @treturn string|number metadata
+--
+-- @usage
+-- local session, err, exists = require("resty.session").open()
+-- if exists then
+--   local timeout = session.get_property("timeout")
+-- end
+function metatable:get_property(name)
+  assert(self.state ~= STATE_CLOSED, "unable to get session property on closed session")
+  return get_property(self, name)
+end
+
+
+---
 -- Set persistent sessions on/off.
 --
 -- In many login forms user is given an option for "remember me".
